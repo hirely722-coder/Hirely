@@ -1,0 +1,178 @@
+export interface Company {
+  id: string;
+  name: string;
+  contactPerson: string;
+  openJobs: number;
+  status: 'Active' | 'Inactive';
+  email: string;
+  phone: string;
+  website: string;
+  address: string;
+  notes: string;
+  recContact: string;
+  industry?: string;
+  companySize?: '1-10' | '11-50' | '51-200' | '201-500' | '500+';
+  foundedYear?: string;
+  tier?: 'Tier 1' | 'Tier 2' | 'Tier 3';
+  linkedInUrl?: string;
+  importId?: string;
+}
+
+export interface Job {
+  id: string;
+  title: string;
+  companyId: string;
+  companyName: string;
+  experience: string;
+  location: string;
+  applicationsCount: number;
+  status: 'Open' | 'Closed';
+  description: string;
+  requiredSkills: string[];
+  salary: string;
+  employmentType?: 'Full-time' | 'Part-time' | 'Contract' | 'Internship';
+  department?: string;
+  urgency?: 'Urgent' | 'High' | 'Medium' | 'Low';
+  recruiterName?: string;
+  importId?: string;
+}
+
+export interface Candidate {
+  id: string;
+  name: string;
+  phone: string;
+  email: string;
+  experience: string; // e.g., "5 Years"
+  skills: string[];
+  currentCompany: string;
+  status: 'Applied' | 'Screening' | 'Shortlisted' | 'Interview' | 'Selected' | 'Offer Sent' | 'Joined';
+  aiMatchScore: number; // percentage, e.g. 85
+  resumeText: string;
+  resumeFileName?: string;
+  education: string;
+  address: string;
+  notes: string;
+  appliedDate: string;
+  designation?: string;
+  gender?: 'Male' | 'Female' | 'Other';
+  city?: string;
+  expectedSalary?: string;
+  importId?: string;
+}
+
+export interface Task {
+  id: string;
+  type: 'Call' | 'Email' | 'Follow Up' | 'Interview' | 'Document';
+  title: string;
+  candidateId?: string;
+  candidateName?: string;
+  priority: 'High' | 'Medium' | 'Low';
+  status: 'Pending' | 'Completed';
+  dueDate: string;
+  description?: string;
+  notes?: string;
+  subtasks?: { id: string; title: string; completed: boolean }[];
+  importId?: string;
+}
+
+export interface EmailTemplate {
+  id: string;
+  name: string;
+  category: string;
+  subject: string;
+  body: string;
+  lastUpdated: string;
+  variables: string[];
+  audience?: 'Candidate' | 'Company';
+  importId?: string;
+}
+
+export interface ActivityLog {
+  id: string;
+  timestamp: string;
+  type: string;
+  description: string;
+  user: string;
+}
+
+export interface TeamMember {
+  id: string;
+  name: string;
+  email: string;
+  role: 'Owner' | 'Admin' | 'Recruiter' | 'HR Executive' | 'Viewer';
+  status: 'Active' | 'Pending' | 'Disabled';
+  lastLogin: string;
+  department?: string;
+  message?: string;
+}
+
+export interface EmailConfig {
+  provider: 'Gmail' | 'Outlook' | 'SMTP' | 'Microsoft 365';
+  smtpHost?: string;
+  port?: string;
+  username?: string;
+  password?: string;
+  encryption?: 'None' | 'SSL' | 'TLS';
+  isConnected?: boolean;
+}
+
+export interface CommunicationLog {
+  id: string;
+  candidateId: string;
+  type: 'Email' | 'WhatsApp' | 'Call' | 'Interview' | 'Follow-up';
+  date: string;
+  status: 'Sent' | 'Delivered' | 'Failed' | 'Completed';
+  sentBy: string;
+  subject: string;
+  message: string;
+}
+
+export interface CustomTheme {
+  id: string;
+  name: string;
+  isPreset?: boolean;
+  colors: {
+    primary: string;
+    secondary: string;
+    accent: string;
+    background: string;
+    sidebarBackground: string;
+    navbarBackground: string;
+    cardBackground: string;
+    buttonColor: string;
+    buttonHoverColor: string;
+    textColor: string;
+    secondaryText: string;
+    borderColor: string;
+    success: string;
+    warning: string;
+    error: string;
+    info: string;
+    linkColor: string;
+    hoverColor: string;
+    selectionColor: string;
+    focusRing: string;
+    charts: string[];
+    badges: string;
+    tags: string;
+    pipelineColors: string[];
+    progressBars: string;
+  };
+  typography: {
+    fontFamily: string;
+    fontSize: 'sm' | 'md' | 'lg' | 'xl';
+    fontWeight: 'normal' | 'medium' | 'semibold' | 'bold';
+  };
+  layout: {
+    borderRadius: number;
+    density: 'compact' | 'comfortable';
+    sidebarWidth: 'compact' | 'standard' | 'wide';
+    sidebarStyle: 'light' | 'dark' | 'colored' | 'transparent' | 'gradient';
+    cardShadow: 'none' | 'flat' | 'soft' | 'elevated' | 'deep';
+    animationSpeed: 'none' | 'fast' | 'medium' | 'smooth';
+  };
+  branding: {
+    logoUrl?: string;
+    faviconUrl?: string;
+  };
+}
