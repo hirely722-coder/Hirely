@@ -23,3 +23,24 @@ FOR ALL
 TO anon 
 USING (true) 
 WITH CHECK (true);
+
+-- Create GIN index on candidates custom_fields JSONB column for efficient query filtering
+CREATE INDEX IF NOT EXISTS idx_candidates_custom_fields ON public.candidates USING GIN (custom_fields);
+
+-- Create trigger function to clean up candidate records when a custom field is deleted
+CREATE OR REPLACE FUNCTION public.on_custom_field_definition_deleted()
+RETURNS TRIGGER AS $$
+BEGIN
+  UPDATE public.candidates
+  SET custom_fields = custom_fields - OLD.key
+  WHERE user_id = OLD.user_id;
+  RETURN OLD;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trigger_on_custom_field_definition_deleted ON public.custom_field_definitions;
+
+CREATE TRIGGER trigger_on_custom_field_definition_deleted
+AFTER DELETE ON public.custom_field_definitions
+FOR EACH ROW
+EXECUTE FUNCTION public.on_custom_field_definition_deleted();

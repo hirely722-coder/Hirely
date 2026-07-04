@@ -1,4 +1,4 @@
-import { Company, Job, Candidate, Task, EmailTemplate } from '../types';
+import { Company, Job, Candidate, Task, EmailTemplate, CustomFieldDefinition } from '../types';
 import * as XLSX from 'xlsx';
 
 // Define the shape of validation error logs
@@ -155,7 +155,8 @@ export function validateRecord(
   importType: 'companies' | 'jobs' | 'candidates' | 'tasks' | 'templates',
   rowNum: number,
   existingEmails: Set<string>,
-  existingPhones: Set<string>
+  existingPhones: Set<string>,
+  customFieldDefs?: CustomFieldDefinition[]
 ): { errors: ErrorLog[]; warnings: ErrorLog[] } {
   const errors: ErrorLog[] = [];
   const warnings: ErrorLog[] = [];
@@ -373,6 +374,61 @@ export function validateRecord(
         fix: 'Specify the default subject line.'
       });
     }
+  }
+
+  // Validate custom fields if customFieldDefs is provided and importType is 'candidates'
+  if (importType === 'candidates' && customFieldDefs) {
+    customFieldDefs.forEach(def => {
+      if (def.entityType === 'candidate') {
+        const val = item[def.key];
+        const isValEmpty = val === undefined || val === null || String(val).trim() === '';
+        
+        if (def.isRequired && isValEmpty) {
+          errors.push({
+            row: rowNum,
+            field: def.key,
+            value: '',
+            reason: `Missing required custom field "${def.name}"`,
+            fix: `Provide a value for the custom field "${def.name}".`
+          });
+        } else if (!isValEmpty) {
+          const strVal = String(val).trim();
+          if (def.type === 'number') {
+            const cleanNumStr = strVal.replace(/[^\d.-]/g, '');
+            if (cleanNumStr === '' || isNaN(Number(cleanNumStr))) {
+              warnings.push({
+                row: rowNum,
+                field: def.key,
+                value: strVal,
+                reason: `Invalid custom field value for "${def.name}" (Expected number)`,
+                fix: `Format the cell to contain only numeric digits.`
+              });
+            }
+          } else if (def.type === 'date') {
+            if (isNaN(Date.parse(strVal)) && !/^\d{4}-\d{2}-\d{2}$/.test(strVal) && !/^\d{2}\/\d{2}\/\d{4}$/.test(strVal)) {
+              warnings.push({
+                row: rowNum,
+                field: def.key,
+                value: strVal,
+                reason: `Invalid custom field value for "${def.name}" (Expected date)`,
+                fix: `Format the cell to a standard YYYY-MM-DD or MM/DD/YYYY date.`
+              });
+            }
+          } else if (def.type === 'dropdown' && def.options && def.options.length > 0) {
+            const matches = def.options.some(opt => opt.trim().toLowerCase() === strVal.toLowerCase());
+            if (!matches) {
+              warnings.push({
+                row: rowNum,
+                field: def.key,
+                value: strVal,
+                reason: `Invalid custom field value for "${def.name}" (Not in choices)`,
+                fix: `Must be one of the configured choices: ${def.options.join(', ')}`
+              });
+            }
+          }
+        }
+      }
+    });
   }
 
   return { errors, warnings };

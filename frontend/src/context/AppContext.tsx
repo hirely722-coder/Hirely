@@ -716,7 +716,7 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             }
           });
 
-          const { errors } = validateRecord(record, task.importType, rowNum, existingEmails, existingPhones);
+          const { errors } = validateRecord(record, task.importType, rowNum, existingEmails, existingPhones, customFieldDefinitions);
           if (errors.length > 0) {
             failed++;
             chunkErrorLogs.push(...errors);

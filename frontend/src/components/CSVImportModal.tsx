@@ -126,6 +126,32 @@ export default function CSVImportModal({
         return "Sample value might not be in a standard date format.";
       }
     }
+
+    // Custom Fields validation check
+    const customField = sessionCustomFields.find(cf => cf.key === key) ||
+                        customFieldDefinitions.find(cf => cf.key === key && cf.entityType === 'candidate');
+
+    if (customField) {
+      const strVal = val.trim();
+      if (customField.type === 'number') {
+        const cleanNumStr = strVal.replace(/[^\d.-]/g, '');
+        if (cleanNumStr === '' || isNaN(Number(cleanNumStr))) {
+          return `Sample value must be a valid number (e.g. contains only numeric digits).`;
+        }
+      }
+      if (customField.type === 'date') {
+        if (isNaN(Date.parse(strVal)) && !/^\d{4}-\d{2}-\d{2}$/.test(strVal) && !/^\d{2}\/\d{2}\/\d{4}$/.test(strVal)) {
+          return `Sample value must be in standard date format (YYYY-MM-DD or MM/DD/YYYY).`;
+        }
+      }
+      if (customField.type === 'dropdown' && customField.options && customField.options.length > 0) {
+        const matches = customField.options.some(opt => opt.trim().toLowerCase() === strVal.toLowerCase());
+        if (!matches) {
+          return `Sample value must be one of the dropdown choices: ${customField.options.join(', ')}`;
+        }
+      }
+    }
+
     return null;
   };
 

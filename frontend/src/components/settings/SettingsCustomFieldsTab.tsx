@@ -4,7 +4,7 @@ import { CustomFieldDefinition } from '../../types';
 import { useApp } from '../../context/AppContext';
 
 export function SettingsCustomFieldsTab() {
-  const { customFieldDefinitions, handleAddCustomFieldDef, handleUpdateCustomFieldDef, handleDeleteCustomFieldDef } = useApp();
+  const { candidates, customFieldDefinitions, handleAddCustomFieldDef, handleUpdateCustomFieldDef, handleDeleteCustomFieldDef } = useApp();
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingDef, setEditingDef] = useState<CustomFieldDefinition | null>(null);
 
@@ -234,7 +234,15 @@ export function SettingsCustomFieldsTab() {
                       <Edit2 className="h-3.5 w-3.5" />
                     </button>
                     <button
-                      onClick={() => handleDeleteCustomFieldDef(def.id)}
+                      onClick={() => {
+                        const count = candidates.filter(c => c.customFields && c.customFields[def.key]).length;
+                        const confirmMsg = count > 0 
+                          ? `Warning: This field contains data in ${count} active candidate profiles. Deleting it will permanently erase those values. Are you sure?`
+                          : `Are you sure you want to delete the custom field "${def.name}"?`;
+                        if (window.confirm(confirmMsg)) {
+                          handleDeleteCustomFieldDef(def.id);
+                        }
+                      }}
                       className="p-1 text-slate-404 hover:text-rose-600 hover:bg-slate-100 rounded cursor-pointer"
                       title="Delete field"
                     >
