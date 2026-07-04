@@ -76,48 +76,89 @@ export const isSkillMatch = (candSkill: string, jobSkill: string): boolean => {
   return false;
 };
 
-// Main dynamic score algorithm
+// Helper to parse years of experience
+const parseExperience = (expStr: string | undefined): number => {
+  if (!expStr) return 0;
+  const num = parseInt(expStr.replace(/[^0-9]/g, ''));
+  return isNaN(num) ? 0 : num;
+};
+
+// Helper to parse max salary limit from budget string
+const parseSalary = (salStr: string | undefined): number => {
+  if (!salStr) return 0;
+  const matches = salStr.match(/\d+[\d, ]*/g);
+  if (matches && matches.length > 0) {
+    const val = matches[matches.length - 1].replace(/[^0-9]/g, '');
+    const parsed = parseInt(val);
+    if (parsed > 1000) return Math.round(parsed / 1000);
+    return parsed;
+  }
+  return 0;
+};
+
+// Main dynamic score algorithm using weighted components
 export const calculateMatchScore = (candidate: Candidate, job: Job): number => {
   const candidateSkills = candidate.skills || [];
   const requiredSkills = job.requiredSkills || [];
 
-  if (requiredSkills.length === 0) return 100;
-
-  const candidateCategory = getProfileCategory(
-    (candidate.name || '') + ' ' + (candidate.currentCompany || ''),
-    candidateSkills,
-    (candidate.resumeText || '') + ' ' + (candidate.education || '') + ' ' + (candidate.notes || '')
-  );
-
-  const jobCategory = getProfileCategory(
-    job.title,
-    requiredSkills,
-    job.description || ''
-  );
-
-  // Count matching skills
+  // 1. Skills Overlap (Max 50 points)
   const matchingSkills = requiredSkills.filter(rs => 
     candidateSkills.some(cs => isSkillMatch(cs, rs))
   );
 
-  let rawScore = Math.round((matchingSkills.length / requiredSkills.length) * 100);
-  let score = rawScore;
-
-  if (candidateCategory !== 'Other' && jobCategory !== 'Other' && candidateCategory !== jobCategory) {
-    // Completely mismatched sectors (e.g. Finance candidate against Dev role)
-    score = Math.min(score, 5);
-  } else if (candidateCategory === jobCategory && candidateCategory !== 'Other') {
-    // Same sector - guarantee a relevant minimum baseline of match score
-    score = Math.min(100, Math.max(score, 20 + matchingSkills.length * 15));
-  } else {
-    // If one is "Other" or undefined, fallback to raw overlap score but capped
-    score = Math.min(100, Math.max(score, matchingSkills.length * 10));
+  let skillsScore = 50;
+  if (requiredSkills.length > 0) {
+    skillsScore = Math.round((matchingSkills.length / requiredSkills.length) * 50);
   }
 
-  // Double check mock scores (limit max fallback score to keep realistic feel if low matching)
-  if (matchingSkills.length === 0) {
-    score = 0;
+  // 2. Experience Match (Max 20 points)
+  const candExp = parseExperience(candidate.experience);
+  const jobExp = parseExperience(job.experience);
+  let expScore = 20;
+  if (jobExp > 0) {
+    if (candExp >= jobExp) {
+      expScore = 20;
+    } else {
+      expScore = Math.max(0, Math.round((candExp / jobExp) * 20));
+    }
   }
 
-  return score;
+  // 3. Salary Match (Max 15 points)
+  const candSalary = parseSalary(candidate.expectedSalary);
+  const jobMaxSalary = parseSalary(job.salary);
+  let salaryScore = 15;
+  if (candSalary > 0 && jobMaxSalary > 0) {
+    if (candSalary <= jobMaxSalary) {
+      salaryScore = 15;
+    } else {
+      const excessRatio = (candSalary - jobMaxSalary) / jobMaxSalary;
+      salaryScore = Math.max(0, Math.round((1 - excessRatio) * 15));
+    }
+  }
+
+  // 4. Location Match (Max 15 points)
+  let locationScore = 5; // Default if different city
+  const jobLoc = (job.location || '').toLowerCase();
+  const candAddr = (candidate.address || '').toLowerCase();
+  const candCity = (candidate.city || '').toLowerCase();
+
+  if (jobLoc.includes('remote')) {
+    locationScore = 15;
+  } else if (candAddr && (jobLoc.includes(candAddr) || candAddr.includes(jobLoc))) {
+    locationScore = 15;
+  } else if (candCity && (jobLoc.includes(candCity) || candCity.includes(jobLoc))) {
+    locationScore = 15;
+  } else if (!candAddr && !candCity) {
+    locationScore = 10; // Default if location not provided
+  }
+
+  // Sum up weighted scores
+  let totalScore = skillsScore + expScore + salaryScore + locationScore;
+
+  // Safety Penalty: if candidate matches ZERO skills, cap their match score at 10%
+  if (requiredSkills.length > 0 && matchingSkills.length === 0) {
+    totalScore = Math.min(totalScore, 10);
+  }
+
+  return Math.min(100, Math.max(0, totalScore));
 };

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Mail, Search, FileText, Calendar, Plus, X, Eye, Edit2, Trash2, Check, Copy, ChevronDown } from 'lucide-react';
 import { EmailTemplate } from '../types';
+import Portal from './Portal';
 
 interface TemplatesViewProps {
   templates: EmailTemplate[];
@@ -37,10 +38,11 @@ export default function TemplatesView({
   const [copied, setCopied] = useState(false);
 
   // Filter templates based on Search and Audience
-  const filteredTemplates = templates.filter(t => {
+  const filteredTemplates = (templates || []).filter(t => {
+    if (!t) return false;
     const isMatchingAudience = (t.audience || 'Candidate') === activeAudience;
-    const isMatchingSearch = t.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                             t.category.toLowerCase().includes(searchTerm.toLowerCase());
+    const isMatchingSearch = (t.name || '').toLowerCase().includes((searchTerm || '').toLowerCase()) ||
+                             (t.category || '').toLowerCase().includes((searchTerm || '').toLowerCase());
     return isMatchingAudience && isMatchingSearch;
   });
 
@@ -366,8 +368,9 @@ export default function TemplatesView({
 
       {/* Create Modal */}
       {showAddModal && (
-        <div className="fixed inset-0 bg-transparent backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl border border-slate-100 shadow-2xl max-w-2xl w-full p-8 animate-slide-up relative overflow-visible">
+        <Portal>
+          <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-2xl border border-slate-100 shadow-2xl max-w-2xl w-full p-8 animate-slide-up relative overflow-visible">
             <div className="flex items-start justify-between pb-4">
               <div>
                 <h2 className="text-xl font-bold text-slate-900">Create template</h2>
@@ -530,12 +533,14 @@ export default function TemplatesView({
             </form>
           </div>
         </div>
+      </Portal>
       )}
 
       {/* Edit Modal */}
       {showEditModal && (
-        <div className="fixed inset-0 bg-transparent backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl border border-slate-100 shadow-2xl max-w-2xl w-full p-8 animate-slide-up relative overflow-visible">
+        <Portal>
+          <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-2xl border border-slate-100 shadow-2xl max-w-2xl w-full p-8 animate-slide-up relative overflow-visible">
             <div className="flex items-start justify-between pb-4">
               <div>
                 <h2 className="text-xl font-bold text-slate-900">Edit template</h2>
@@ -696,6 +701,7 @@ export default function TemplatesView({
             </form>
           </div>
         </div>
+      </Portal>
       )}
 
     </div>

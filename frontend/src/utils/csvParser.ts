@@ -136,6 +136,7 @@ export const FIELD_MAPPINGS = {
     designation: ['designation', 'role', 'title', 'currentrole', 'department'],
     gender: ['gender', 'sex'],
     city: ['city', 'locationcity'],
-    expectedSalary: ['expectedsalary', 'salaryexpectation', 'expectedcompensation']
+    expectedSalary: ['expectedsalary', 'salaryexpectation', 'expectedcompensation'],
+    appliedDate: ['applieddate', 'date', 'applicationdate', 'dateapplied']
   }
 };

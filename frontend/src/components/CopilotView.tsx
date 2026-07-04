@@ -82,13 +82,38 @@ How can I speed up your recruiting workflow today?`
       });
 
       const result = await response.json();
-      if (!response.ok) {
+      if (!response.ok || result.error) {
         throw new Error(result.error || 'Failed to reach AI Copilot server.');
       }
 
+      const { taskId } = result;
+
+      // Poll task status until complete or failed
+      const finalResult = await new Promise<any>((resolve, reject) => {
+        const checkStatus = async () => {
+          try {
+            const statusRes = await fetch(`/api/ai/task-status/${taskId}`);
+            if (!statusRes.ok) {
+              throw new Error('Failed to fetch task status');
+            }
+            const task = await statusRes.json();
+            if (task.status === 'completed') {
+              resolve(task.result);
+            } else if (task.status === 'failed') {
+              reject(new Error(task.error || 'Copilot query failed on server'));
+            } else {
+              setTimeout(checkStatus, 1500);
+            }
+          } catch (e) {
+            reject(e);
+          }
+        };
+        checkStatus();
+      });
+
       setMessages(prev => [
         ...prev,
-        { role: 'assistant', content: result.responseText || 'Sorry, I couldn\'t formulate an answer.' }
+        { role: 'assistant', content: finalResult.responseText || 'Sorry, I couldn\'t formulate an answer.' }
       ]);
 
     } catch (err: any) {

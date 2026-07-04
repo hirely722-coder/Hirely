@@ -3,10 +3,16 @@ import { cors } from 'hono/cors';
 import { supabase } from './db';
 import { keysToCamel, keysToSnake } from './utils';
 import dotenv from 'dotenv';
+import { getDocumentProxy, extractText } from 'unpdf';
+
 
 dotenv.config();
 
-const app = new Hono();
+const app = new Hono<{
+  Variables: {
+    user: any;
+  }
+}>();
 
 // Enable CORS for frontend
 app.use('/*', cors({
@@ -28,57 +34,140 @@ function cleanJsonResponse(rawText: string): any {
   let cleaned = rawText.trim();
   const match = cleaned.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
   if (match) {
-    cleaned = match[1];
+    cleaned = match[1].trim();
   }
-  cleaned = cleaned.trim();
-  return JSON.parse(cleaned);
+
+  // 2. Try parsing, if fails fallback to brace-bounded substring extraction
+  try {
+    return JSON.parse(cleaned);
+  } catch (err) {
+    const firstBrace = cleaned.indexOf('{');
+    const lastBrace = cleaned.lastIndexOf('}');
+    if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+      const jsonCandidate = cleaned.substring(firstBrace, lastBrace + 1);
+      try {
+        return JSON.parse(jsonCandidate);
+      } catch (innerErr) {
+        // Fall back to original error
+      }
+    }
+    throw err;
+  }
 }
 
-// Helper: Call Eden AI chat completion
-async function callEdenAI(systemInstruction: string, userMessageContent: any) {
-  const apiKey = process.env.EDENAI_API_KEY;
-  if (!apiKey) {
-    throw new Error('EDENAI_API_KEY is not defined in backend .env file.');
+// Unified call to Eden AI
+async function callLLM(
+  systemInstruction: string,
+  promptContent: any,
+  temperature: number = 0.7,
+  responseSchema?: any
+): Promise<string> {
+  // If responseSchema is defined, inject standard instruction to promptContent
+  let finalPrompt = promptContent;
+  if (responseSchema) {
+    const jsonInstruction = `\n\nIMPORTANT: You must return your response as a raw JSON string matching the following JSON schema:\n${JSON.stringify(responseSchema)}\nDo NOT wrap the output in markdown code blocks (e.g. \`\`\`json). The output must be pure raw JSON starting with '{' and ending with '}'.`;
+    
+    if (typeof promptContent === 'string') {
+      finalPrompt = promptContent + jsonInstruction;
+    } else if (Array.isArray(promptContent)) {
+      const parts = promptContent.map(part => {
+        if (part && typeof part === 'object') {
+          return { ...part };
+        }
+        return part;
+      });
+      const textPart = parts.find(p => p.type === 'text' || (p && typeof p === 'object' && 'text' in p));
+      if (textPart) {
+        textPart.text = (textPart.text || '') + jsonInstruction;
+      } else {
+        parts.unshift({ type: 'text', text: jsonInstruction });
+      }
+      finalPrompt = parts;
+    } else if (promptContent && typeof promptContent === 'object') {
+      finalPrompt = JSON.stringify(promptContent) + jsonInstruction;
+    }
   }
 
-  // Construct message format. If userMessageContent is string, send as simple user message.
-  // If it's an array (multimodal), pass it directly.
-  const messages = [
-    { role: 'system', content: systemInstruction },
-    { role: 'user', content: userMessageContent }
-  ];
+  // Call Eden AI
+  const edenKey = process.env.EDENAI_API_KEY;
+  if (!edenKey) {
+    throw new Error('EDENAI_API_KEY is missing or invalid.');
+  }
 
-  const payload = {
-    model: 'google/gemma-4-31b-it',
-    messages,
-    temperature: 0.2 // Lower temperature for more structured parsing accuracy
-  };
+  console.log('Routing request to Eden AI (google/gemma-4-31b-it)...');
 
-  console.log('Sending request to Eden AI for model: google/gemma-4-31b-it');
-  
+  let formattedMessages: any[] = [];
+  if (typeof finalPrompt === 'string') {
+    formattedMessages = [
+      { role: 'system', content: systemInstruction },
+      { role: 'user', content: finalPrompt }
+    ];
+  } else if (Array.isArray(finalPrompt)) {
+    formattedMessages = [
+      { role: 'system', content: systemInstruction },
+      ...finalPrompt.map(msg => {
+        if (msg.role) {
+          return { role: msg.role === 'assistant' ? 'assistant' : 'user', content: msg.content || JSON.stringify(msg) };
+        }
+        if (msg.type === 'text') {
+          return { role: 'user', content: msg.text };
+        }
+        return { role: 'user', content: JSON.stringify(msg) };
+      })
+    ];
+  } else {
+    formattedMessages = [
+      { role: 'system', content: systemInstruction },
+      { role: 'user', content: JSON.stringify(finalPrompt) }
+    ];
+  }
+
   const response = await fetch('https://api.edenai.run/v3/chat/completions', {
     method: 'POST',
     headers: {
-      'Authorization': `Bearer ${apiKey}`,
+      'Authorization': `Bearer ${edenKey}`,
       'Content-Type': 'application/json'
     },
-    body: JSON.stringify(payload)
+    body: JSON.stringify({
+      model: 'google/gemma-4-31b-it',
+      messages: formattedMessages,
+      temperature
+    })
   });
 
   if (!response.ok) {
     const errorText = await response.text();
-    console.error('Eden AI API Error:', errorText);
     throw new Error(`Eden AI API returned status ${response.status}: ${errorText}`);
   }
 
-  const result = await response.json();
+  const result = (await response.json()) as any;
   const rawContent = result.choices?.[0]?.message?.content;
   if (!rawContent) {
     throw new Error('Empty response received from Eden AI.');
   }
 
+  console.log('Successfully received response from Eden AI API.');
   return rawContent;
 }
+
+// Memory store for background LLM tasks
+export interface BackgroundTask {
+  status: 'pending' | 'completed' | 'failed';
+  result?: any;
+  error?: string;
+}
+
+export const backgroundTasks = new Map<string, BackgroundTask>();
+
+// Task Status polling endpoint
+app.get('/api/ai/task-status/:id', (c) => {
+  const taskId = c.req.param('id');
+  const task = backgroundTasks.get(taskId);
+  if (!task) {
+    return c.json({ error: 'Task not found' }, 404);
+  }
+  return c.json(task);
+});
 
 // -------------------------------------------------------------
 // AI Endpoints
@@ -91,77 +180,75 @@ app.post('/api/ai/parse-resume', async (c) => {
     const file = body.file; // This is a File / Blob object
     
     if (!file || !(file instanceof File)) {
-      return c.json({ error: 'A file input (pdf, png, jpg, txt, docx) is required' }, 400);
+      return c.json({ error: 'A file input (pdf, txt) is required' }, 400);
     }
-
-    const systemInstruction = `You are an expert AI resume parser. Extract the relevant fields from the provided resume text or document as accurately as possible.
-Return ONLY a valid JSON object matching this schema:
-{
-  "name": "Candidate full name",
-  "email": "Candidate email address",
-  "phone": "Candidate phone number",
-  "skills": ["List of technical skills, frameworks, and programming languages"],
-  "experience": "Years or level of experience, e.g. '5 Years' or 'Senior'",
-  "education": "Highest degree and school name",
-  "currentCompany": "Most recent company name",
-  "address": "Location, city and state",
-  "resumeTextSummary": "Comprehensive plain-text reconstruction or summary of the resume"
-}
-Do not include any explanation, markdown code blocks, or extra text. Output ONLY the JSON.`;
 
     const arrayBuffer = await file.arrayBuffer();
-    const base64Data = Buffer.from(arrayBuffer).toString('base64');
     const mimeType = file.type;
 
-    let userContent: any;
+    let textContent = '';
     
     if (mimeType === 'text/plain' || file.name.endsWith('.txt')) {
-      const textContent = Buffer.from(arrayBuffer).toString('utf-8');
-      userContent = `Please extract candidate profile fields from this resume text:\n\n${textContent}`;
-    } else if (mimeType === 'application/pdf') {
-      userContent = [
-        { type: 'text', text: 'Extract candidate profile fields from this uploaded resume document.' },
-        { 
-          type: 'file', 
-          file: { 
-            file_data: `data:${mimeType};base64,${base64Data}`, 
-            filename: file.name
-          } 
-        }
-      ];
-    } else if (mimeType.startsWith('image/')) {
-      userContent = [
-        { type: 'text', text: 'Extract candidate profile fields from this uploaded resume image.' },
-        { 
-          type: 'image_url', 
-          image_url: { url: `data:${mimeType};base64,${base64Data}` } 
-        }
-      ];
+      textContent = Buffer.from(arrayBuffer).toString('utf-8');
+    } else if (mimeType === 'application/pdf' || file.name.endsWith('.pdf')) {
+      const pdf = await getDocumentProxy(new Uint8Array(arrayBuffer));
+      const result = await extractText(pdf);
+      textContent = typeof result === 'string' ? result : (result as any).text?.join('\n') || '';
     } else {
-      // Default fallback for binary file uploads (e.g. DOCX/RTF)
-      userContent = [
-        { type: 'text', text: 'Extract candidate profile fields from this uploaded resume document.' },
-        { 
-          type: 'file', 
-          file: { 
-            file_data: `data:${mimeType || 'application/octet-stream'};base64,${base64Data}`, 
-            filename: file.name
-          } 
-        }
-      ];
+      throw new Error(`Unsupported file format: ${mimeType || 'unknown'}. Only PDF and TXT are supported.`);
     }
 
-    const parsedText = await callEdenAI(systemInstruction, userContent);
-    const parsedData = cleanJsonResponse(parsedText);
-    return c.json({ data: parsedData });
+    const userContent = `Please extract candidate profile fields from this resume text:\n\n${textContent}`;
+
+    const systemInstruction = `You are an expert AI resume parser. Extract the relevant fields from the provided resume text or document as accurately as possible.
+Return ONLY a valid JSON object matching the requested schema. Do not include any explanation, markdown code blocks, or extra text. Output ONLY the JSON.`;
+
+    const resumeSchema = {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Candidate full name' },
+        email: { type: 'string', description: 'Candidate email address' },
+        phone: { type: 'string', description: 'Candidate phone number' },
+        skills: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'List of technical skills, frameworks, and programming languages'
+        },
+        experience: { type: 'string', description: 'Years or level of experience, e.g. "5 Years" or "Senior"' },
+        education: { type: 'string', description: 'Highest degree and school name' },
+        currentCompany: { type: 'string', description: 'Most recent company name' },
+        address: { type: 'string', description: 'Location, city and state' },
+        resumeTextSummary: { type: 'string', description: 'Comprehensive plain-text reconstruction or summary of the resume' }
+      },
+      required: ['name', 'email', 'phone', 'skills', 'experience', 'education', 'currentCompany', 'address', 'resumeTextSummary']
+    };
+
+    const taskId = 'task_parse_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+    backgroundTasks.set(taskId, { status: 'pending' });
+
+    // Run AI call in background
+    (async () => {
+      try {
+        const parsedText = await callLLM(systemInstruction, userContent, 0.2, resumeSchema);
+        const parsedData = cleanJsonResponse(parsedText);
+        backgroundTasks.set(taskId, { status: 'completed', result: { data: parsedData } });
+      } catch (err: any) {
+        console.error('Error in background parse-resume task:', err.message);
+        backgroundTasks.set(taskId, { status: 'failed', error: err.message });
+      }
+    })();
+
+    return c.json({ taskId, status: 'pending' });
   } catch (err: any) {
     console.error('Error in parse-resume:', err.message);
     return c.json({
-      error: 'Failed to parse resume using Eden AI.',
+      error: 'Failed to initiate resume parsing.',
       details: err.message
     }, 500);
   }
 });
+
+
 
 // Copilot Chat / Search Engine
 app.post('/api/ai/copilot', async (c) => {
@@ -197,49 +284,214 @@ IMPORTANT CAPABILITIES & GUIDELINES:
 4. Professional tone: Be brief, highly focused, and actionable. Do not show internal IDs like "can1" or "c2" directly in human conversations unless helpful; reference the name instead.
 5. If asked to do something that isn't possible, politely guide the recruiter. Avoid verbose explanations or technical code details.`;
 
-    const apiKey = process.env.EDENAI_API_KEY;
-    if (!apiKey) {
-      throw new Error('EDENAI_API_KEY is not defined in backend .env file.');
-    }
+    const taskId = 'task_copilot_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+    backgroundTasks.set(taskId, { status: 'pending' });
 
-    // Map messages history to standard OpenAI format
-    const formattedMessages = [
-      { role: 'system', content: systemInstruction },
-      ...messages.map((m: any) => ({
-        role: m.role === 'assistant' ? 'assistant' : 'user',
-        content: m.content
-      }))
-    ];
+    // Run AI call in background
+    (async () => {
+      try {
+        const responseText = await callLLM(systemInstruction, messages, 0.7, false);
+        backgroundTasks.set(taskId, { status: 'completed', result: { responseText } });
+      } catch (err: any) {
+        console.error('Error in background copilot task:', err.message);
+        backgroundTasks.set(taskId, { status: 'failed', error: err.message });
+      }
+    })();
 
-    const response = await fetch('https://api.edenai.run/v3/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        model: 'google/gemma-4-31b-it',
-        messages: formattedMessages,
-        temperature: 0.7
-      })
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Eden AI API returned status ${response.status}: ${errorText}`);
-    }
-
-    const result = await response.json();
-    const responseText = result.choices?.[0]?.message?.content || 'Sorry, I encountered an issue processing your query.';
-    
-    return c.json({ responseText });
+    return c.json({ taskId, status: 'pending' });
   } catch (err: any) {
     console.error('Error in copilot route:', err.message);
     return c.json({
-      error: 'Failed to reach AI Copilot. Please verify your EDENAI_API_KEY.',
+      error: 'Failed to initiate AI Copilot.',
       details: err.message
     }, 500);
   }
+});
+
+// Job AI Tool Endpoint
+app.post('/api/ai/job-tool', async (c) => {
+  try {
+    const { toolKey, job, candidates } = await c.req.json();
+    if (!toolKey || !job) {
+      return c.json({ error: 'toolKey and job are required' }, 400);
+    }
+
+    const questionsSchema = {
+      type: 'object',
+      properties: {
+        intro: { type: 'string', description: 'Brief introductory context or guide' },
+        questions: {
+          type: 'array',
+          description: 'List of 3 interview questions',
+          items: {
+            type: 'object',
+            properties: {
+              question: { type: 'string', description: 'The interview question text' },
+              category: { type: 'string', description: 'E.g., Technical, Behavioral, Scenario' },
+              targetSkill: { type: 'string', description: 'The specific skill tested (e.g. Tally, Excel)' },
+              idealAnswer: { type: 'string', description: 'Key points to look for in a successful response' }
+            },
+            required: ['question', 'category', 'targetSkill', 'idealAnswer']
+          }
+        }
+      },
+      required: ['intro', 'questions']
+    };
+
+    let systemInstruction = "You are an expert AI recruiter co-pilot.";
+    let prompt = "";
+    let title = "";
+
+    switch (toolKey) {
+      case 'shortlist':
+        title = 'AI Talent Shortlist Recommendations';
+        systemInstruction = "You are an AI talent matcher. Analyze the job requirements and candidate profiles, and rank the top matching candidates with reasons.";
+        prompt = `Job Details:
+Title: ${job.title}
+Company: ${job.companyName || 'None'}
+Required Skills: ${JSON.stringify(job.requiredSkills || [])}
+Experience: ${job.experience}
+Description: ${job.description}
+
+Candidate List:
+${JSON.stringify((candidates || []).map((cand: any) => ({ id: cand.id, name: cand.name, skills: cand.skills || [], experience: cand.experience, currentCompany: cand.currentCompany || '' })))}
+
+Please recommend the top matching candidates. For each match, provide a Match Percentage, their current status, and a 1-2 sentence justification on why they are a strong fit. Present in clean markdown.`;
+        break;
+      case 'questions':
+        title = `AI Generated Interview Questions: ${job.title}`;
+        systemInstruction = "You are a lead technical interviewer. Generate tailored, highly practical interview questions.";
+        prompt = `Generate 3 specialized, highly practical technical and behavioral interview questions for a candidate applying to the following position:
+Job Title: ${job.title}
+Company: ${job.companyName || 'None'}
+Description: ${job.description}
+Required Skills: ${JSON.stringify(job.requiredSkills || [])}.
+Focus on realistic engineering problems they might face at this company. Present in clean markdown.`;
+        break;
+      case 'summarize':
+        title = 'AI Job Posting Summary';
+        systemInstruction = "You are an executive assistant. Summarize the job posting.";
+        prompt = `Summarize the following job posting into a concise, high-impact overview and 3 bullet points of core priorities:
+Job Title: ${job.title}
+Company: ${job.companyName || 'None'}
+Location: ${job.location}
+Salary: ${job.salary}
+Description: ${job.description}.
+Format clearly with 'Overview:' and 'Core Priorities:'.`;
+        break;
+      case 'missing_skills':
+        title = 'Missing / High-Value Supplementary Skills';
+        systemInstruction = "You are a technical recruiter. Suggest supplementary tech stack skills.";
+        prompt = `Based on the following job requirements:
+Job Title: ${job.title}
+Required Skills: ${JSON.stringify(job.requiredSkills || [])}
+Description: ${job.description}.
+Suggest 4 high-value supplementary skills, libraries, or tools (not explicitly listed in the job) that would make an engineer highly successful in this role. Explain why for each.`;
+        break;
+      case 'difficulty':
+        title = 'Hiring Market Difficulty Predictor';
+        systemInstruction = "You are a talent acquisition strategist. Predict hiring market difficulty.";
+        prompt = `Predict the hiring difficulty (Easy, Medium, High) for the following job in the current tech market:
+Job Title: ${job.title}
+Required Skills: ${JSON.stringify(job.requiredSkills || [])}
+Salary: ${job.salary}
+Location: ${job.location}.
+Provide a clear difficulty rating and 2-3 sentences explaining the market factors and recommendation strategies.`;
+        break;
+      case 'salary_recomm':
+        title = 'AI Salary Benchmark Advice';
+        systemInstruction = "You are a compensation analyst. Provide salary recommendations.";
+        prompt = `Provide market salary benchmarking advice for the following role:
+Job Title: ${job.title}
+Location: ${job.location}
+Salary: ${job.salary}.
+List the estimated 25th, 50th (median), and 90th percentile market rates, and give a recommendation on whether the current salary is competitive.`;
+        break;
+      case 'alt_skills':
+        title = 'Alternative / Equivalent Skills Suggested';
+        systemInstruction = "You are a sourcing agent. Provide alternative keywords/skills.";
+        prompt = `For the following required skills list: ${JSON.stringify(job.requiredSkills || [])} of job ${job.title}, suggest equivalent or alternative skills, technologies, or keywords that recruiters should look for if the primary skills are scarce. Provide 3-4 suggestions.`;
+        break;
+      case 'candidate_email':
+        title = 'AI Candidate Outreach Email Generator';
+        systemInstruction = "You are an outreach copywriter. Draft a compelling cold email.";
+        prompt = `Write a professional, compelling candidate outreach email sequence template from a recruiter (Sarah Jenkins) inviting a candidate to apply for this job:
+Job Title: ${job.title}
+Company: ${job.companyName || 'None'}
+Required Skills: ${JSON.stringify(job.requiredSkills || [])}
+Salary: ${job.salary}.
+Use [Candidate Name] as placeholder. Include subject line and body in markdown.`;
+        break;
+      case 'whatsapp_msg':
+        title = 'AI WhatsApp Ping Generator';
+        systemInstruction = "You are a conversational recruiter. Write a short SMS/WhatsApp outreach message.";
+        prompt = `Write a short, engaging, and casual WhatsApp/SMS outreach message (max 150 words) from a recruiter (Sarah) to a candidate about this role:
+Job Title: ${job.title}
+Company: ${job.companyName || 'None'}
+Salary: ${job.salary}.
+Keep it concise and friendly, using [Candidate Name] as a placeholder.`;
+        break;
+      default:
+        return c.json({ error: 'Invalid toolKey' }, 400);
+    }
+
+    const taskId = 'task_jobtool_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+    backgroundTasks.set(taskId, { status: 'pending' });
+
+    // Run AI call in background
+    (async () => {
+      try {
+        const isStructured = toolKey === 'questions';
+        const responseText = await callLLM(
+          systemInstruction, 
+          prompt, 
+          0.7, 
+          isStructured ? questionsSchema : undefined
+        );
+        if (isStructured) {
+          const parsedData = cleanJsonResponse(responseText);
+          backgroundTasks.set(taskId, { 
+            status: 'completed', 
+            result: { title, structured: true, data: parsedData } 
+          });
+        } else {
+          backgroundTasks.set(taskId, { 
+            status: 'completed', 
+            result: { title, text: responseText } 
+          });
+        }
+      } catch (err: any) {
+        console.error('Error in background job-tool task:', err.message);
+        backgroundTasks.set(taskId, { status: 'failed', error: err.message });
+      }
+    })();
+
+    return c.json({ taskId, status: 'pending' });
+  } catch (err: any) {
+    console.error('Error in job-tool route:', err.message);
+    return c.json({ error: 'Failed to initiate AI tool.', details: err.message }, 500);
+  }
+});
+
+// Authentication middleware for Hono
+app.use('/api/*', async (c, next) => {
+  if (c.req.path === '/api/health') {
+    return await next();
+  }
+
+  const authHeader = c.req.header('Authorization');
+  const token = authHeader?.split(' ')[1];
+  if (!token) {
+    return c.json({ error: 'Authorization header is missing' }, 401);
+  }
+
+  const { data: { user }, error } = await supabase.auth.getUser(token);
+  if (error || !user) {
+    return c.json({ error: 'Unauthorized: Invalid session token' }, 401);
+  }
+
+  c.set('user', user);
+  await next();
 });
 
 // -------------------------------------------------------------
@@ -250,25 +502,156 @@ IMPORTANT CAPABILITIES & GUIDELINES:
 const createCRUD = (tableName: string) => {
   // GET all
   app.get(`/api/${tableName}`, async (c) => {
-    const { data, error } = await supabase.from(tableName).select('*').order('created_at', { ascending: false });
-    if (error) return c.json({ error: error.message }, 500);
-    return c.json(keysToCamel(data));
+    const user = c.get('user') as any;
+    try {
+      let allData: any[] = [];
+      let start = 0;
+      const limit = 1000;
+      let hasMore = true;
+
+      while (hasMore) {
+        const { data, error } = await supabase
+          .from(tableName)
+          .select('*')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false })
+          .order('id', { ascending: true })
+          .range(start, start + limit - 1);
+
+        if (error) {
+          return c.json({ error: error.message }, 500);
+        }
+
+        if (!data || data.length === 0) {
+          hasMore = false;
+        } else {
+          allData.push(...data);
+          if (data.length < limit) {
+            hasMore = false;
+          } else {
+            start += limit;
+          }
+        }
+      }
+
+      return c.json(keysToCamel(allData));
+    } catch (err: any) {
+      return c.json({ error: err.message }, 500);
+    }
   });
 
   // POST create
   app.post(`/api/${tableName}`, async (c) => {
+    const user = c.get('user') as any;
     const body = await c.req.json();
     const snakeBody = keysToSnake(body);
+    snakeBody.user_id = user.id;
     const { data, error } = await supabase.from(tableName).insert([snakeBody]).select();
     if (error) return c.json({ error: error.message }, 500);
+
+    // If candidate with resume is uploaded, check settings and dispatch alert
+    if (tableName === 'candidates' && snakeBody.resume_file_name) {
+      try {
+        let { data: config } = await supabase
+          .from('email_configs')
+          .select('*')
+          .eq('id', user.id)
+          .single();
+
+        if (!config) {
+          const { data: defConfig } = await supabase
+            .from('email_configs')
+            .select('*')
+            .eq('id', 'default')
+            .single();
+          config = defConfig;
+        }
+
+        if (config && config.resume_notification_enabled) {
+          const targetEmail = config.resume_notification_email || user.email;
+          if (targetEmail) {
+            console.log(`[MOCK EMAIL] New Candidate Resume Upload Notification:
+To: ${targetEmail}
+Subject: New Candidate Uploaded: ${snakeBody.name}
+Body: A new candidate has been successfully uploaded and parsed from resume file "${snakeBody.resume_file_name}".
+Candidate Name: ${snakeBody.name}
+Email: ${snakeBody.email || 'N/A'}
+Phone: ${snakeBody.phone || 'N/A'}
+Experience: ${snakeBody.experience || 'N/A'}
+Skills: ${Array.isArray(snakeBody.skills) ? snakeBody.skills.join(', ') : (snakeBody.skills || 'None')}`);
+
+            // Automatically log to communication_logs table
+            const newCommLog = {
+              candidate_id: data[0].id,
+              type: 'Email',
+              date: new Date().toLocaleDateString() + ' ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+              status: 'Sent',
+              sent_by: 'System (Auto-Alert)',
+              subject: `New Candidate Alert: ${snakeBody.name}`,
+              message: `Automatic alert dispatched to ${targetEmail} for parsed candidate ${snakeBody.name} (File: ${snakeBody.resume_file_name}).`,
+              user_id: user.id
+            };
+            await supabase.from('communication_logs').insert([newCommLog]);
+          }
+        }
+
+        // 2. Telegram Alert Notification
+        if (config && config.telegram_chat_id && config.telegram_notification_enabled) {
+          const botToken = process.env.TELEGRAM_BOT_TOKEN;
+          if (botToken) {
+            const messageText = `<b>🔔 New Resume Uploaded &amp; Parsed!</b>
+<b>Name:</b> ${snakeBody.name}
+<b>Email:</b> ${snakeBody.email || 'N/A'}
+<b>Phone:</b> ${snakeBody.phone || 'N/A'}
+<b>Experience:</b> ${snakeBody.experience || 'N/A'}
+<b>Skills:</b> ${Array.isArray(snakeBody.skills) ? snakeBody.skills.join(', ') : (snakeBody.skills || 'None')}
+
+<i>Candidate has been added to your Talent Pool.</i>`;
+
+            await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                chat_id: config.telegram_chat_id,
+                text: messageText,
+                parse_mode: 'HTML'
+              })
+            });
+
+            console.log(`[TELEGRAM] Sent resume alert for ${snakeBody.name} to chat_id ${config.telegram_chat_id}`);
+
+            // Log Telegram notification to communication_logs table
+            const newCommLog = {
+              candidate_id: data[0].id,
+              type: 'Follow-up',
+              date: new Date().toLocaleDateString() + ' ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+              status: 'Sent',
+              sent_by: 'System (Telegram Alert)',
+              subject: `New Candidate Telegram Alert: ${snakeBody.name}`,
+              message: `Telegram notification alert sent to verified chat ID ${config.telegram_chat_id} for candidate ${snakeBody.name}.`,
+              user_id: user.id
+            };
+            await supabase.from('communication_logs').insert([newCommLog]);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to process candidate upload notification alert:', err);
+      }
+    }
+
     return c.json(keysToCamel(data[0]));
   });
 
   // POST bulk
   app.post(`/api/${tableName}/bulk`, async (c) => {
+    const user = c.get('user') as any;
     const list = await c.req.json();
     if (!Array.isArray(list)) return c.json({ error: 'Body must be an array' }, 400);
-    const snakeList = list.map(item => keysToSnake(item));
+    const snakeList = list.map(item => {
+      const snakeItem = keysToSnake(item);
+      snakeItem.user_id = user.id;
+      return snakeItem;
+    });
     const { data, error } = await supabase.from(tableName).upsert(snakeList).select();
     if (error) return c.json({ error: error.message }, 500);
     return c.json(keysToCamel(data));
@@ -276,6 +659,7 @@ const createCRUD = (tableName: string) => {
 
   // PUT update
   app.put(`/api/${tableName}/:id`, async (c) => {
+    const user = c.get('user') as any;
     const id = c.req.param('id');
     const body = await c.req.json();
     const snakeBody = keysToSnake(body);
@@ -283,26 +667,65 @@ const createCRUD = (tableName: string) => {
     // Don't update PRIMARY KEY if it's sent in the body
     delete snakeBody.id;
     delete snakeBody.created_at;
+    delete snakeBody.user_id;
 
-    const { data, error } = await supabase.from(tableName).update(snakeBody).eq('id', id).select();
+    const { data, error } = await supabase
+      .from(tableName)
+      .update(snakeBody)
+      .eq('id', id)
+      .eq('user_id', user.id)
+      .select();
     if (error) return c.json({ error: error.message }, 500);
-    if (!data || data.length === 0) return c.json({ error: 'Record not found' }, 404);
+    if (!data || data.length === 0) return c.json({ error: 'Record not found or access denied' }, 404);
+    return c.json(keysToCamel(data[0]));
+  });
+
+  // PATCH update
+  app.patch(`/api/${tableName}/:id`, async (c) => {
+    const user = c.get('user') as any;
+    const id = c.req.param('id');
+    const body = await c.req.json();
+    const snakeBody = keysToSnake(body);
+    
+    // Don't update PRIMARY KEY if it's sent in the body
+    delete snakeBody.id;
+    delete snakeBody.created_at;
+    delete snakeBody.user_id;
+
+    const { data, error } = await supabase
+      .from(tableName)
+      .update(snakeBody)
+      .eq('id', id)
+      .eq('user_id', user.id)
+      .select();
+    if (error) return c.json({ error: error.message }, 500);
+    if (!data || data.length === 0) return c.json({ error: 'Record not found or access denied' }, 404);
     return c.json(keysToCamel(data[0]));
   });
 
   // DELETE single
   app.delete(`/api/${tableName}/:id`, async (c) => {
+    const user = c.get('user') as any;
     const id = c.req.param('id');
-    const { error } = await supabase.from(tableName).delete().eq('id', id);
+    const { error } = await supabase
+      .from(tableName)
+      .delete()
+      .eq('id', id)
+      .eq('user_id', user.id);
     if (error) return c.json({ error: error.message }, 500);
     return c.json({ success: true, id });
   });
 
   // DELETE by query (e.g. importId rollback)
   app.delete(`/api/${tableName}`, async (c) => {
+    const user = c.get('user') as any;
     const importId = c.req.query('importId');
     if (!importId) return c.json({ error: 'importId query parameter is required' }, 400);
-    const { error } = await supabase.from(tableName).delete().eq('import_id', importId);
+    const { error } = await supabase
+      .from(tableName)
+      .delete()
+      .eq('import_id', importId)
+      .eq('user_id', user.id);
     if (error) return c.json({ error: error.message }, 500);
     return c.json({ success: true, importId });
   });
@@ -317,10 +740,14 @@ createCRUD('email_templates');
 createCRUD('activity_logs');
 createCRUD('team_members');
 createCRUD('communication_logs');
+createCRUD('custom_field_definitions');
+createCRUD('interviews');
+createCRUD('job_notes');
 
 // Special Single-Row Endpoint for Email Config
 app.get('/api/email-config', async (c) => {
-  const { data, error } = await supabase.from('email_configs').select('*').eq('id', 'default').single();
+  const user = c.get('user') as any;
+  const { data, error } = await supabase.from('email_configs').select('*').eq('id', user.id).single();
   if (error) {
     if (error.code === 'PGRST116') {
       return c.json({ provider: 'Gmail', isConnected: false });
@@ -331,14 +758,259 @@ app.get('/api/email-config', async (c) => {
 });
 
 app.post('/api/email-config', async (c) => {
+  const user = c.get('user') as any;
   const body = await c.req.json();
   const snakeBody = keysToSnake(body);
-  snakeBody.id = 'default';
+  snakeBody.id = user.id;
+  snakeBody.user_id = user.id;
   
   const { data, error } = await supabase.from('email_configs').upsert([snakeBody]).select();
   if (error) return c.json({ error: error.message }, 500);
   return c.json(keysToCamel(data[0]));
 });
+
+// ============================================================
+// JOB CANDIDATES (Pipeline) Routes
+// ============================================================
+
+// GET all candidates linked to any job
+app.get('/api/job-candidates', async (c) => {
+  const user = c.get('user') as any;
+  try {
+    let allData: any[] = [];
+    let start = 0;
+    const limit = 1000;
+    let hasMore = true;
+
+    while (hasMore) {
+      const { data, error } = await supabase
+        .from('job_candidates')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('id', { ascending: true })
+        .range(start, start + limit - 1);
+
+      if (error) {
+        return c.json({ error: error.message }, 500);
+      }
+
+      if (!data || data.length === 0) {
+        hasMore = false;
+      } else {
+        allData.push(...data);
+        if (data.length < limit) {
+          hasMore = false;
+        } else {
+          start += limit;
+        }
+      }
+    }
+
+    return c.json(keysToCamel(allData));
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// GET all candidates linked to a specific job (with full candidate data)
+app.get('/api/job-candidates/:jobId', async (c) => {
+  const user = c.get('user') as any;
+  const jobId = c.req.param('jobId');
+
+  try {
+    let allData: any[] = [];
+    let start = 0;
+    const limit = 1000;
+    let hasMore = true;
+
+    while (hasMore) {
+      const { data, error } = await supabase
+        .from('job_candidates')
+        .select('*, candidate:candidates(*)')
+        .eq('job_id', jobId)
+        .eq('user_id', user.id)
+        .order('added_date', { ascending: false })
+        .order('id', { ascending: true })
+        .range(start, start + limit - 1);
+
+      if (error) {
+        return c.json({ error: error.message }, 500);
+      }
+
+      if (!data || data.length === 0) {
+        hasMore = false;
+      } else {
+        allData.push(...data);
+        if (data.length < limit) {
+          hasMore = false;
+        } else {
+          start += limit;
+        }
+      }
+    }
+
+    const result = allData.map((row: any) => ({
+      ...keysToCamel(row),
+      candidate: row.candidate ? keysToCamel(row.candidate) : null,
+    }));
+    return c.json(result);
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// POST — link a candidate to a job (add to pipeline)
+app.post('/api/job-candidates', async (c) => {
+  const user = c.get('user') as any;
+  const body = await c.req.json();
+
+  const row = {
+    job_id: body.jobId,
+    candidate_id: body.candidateId,
+    stage: body.stage || 'Applied',
+    added_date: new Date().toISOString().split('T')[0],
+    user_id: user.id,
+  };
+
+  const { data, error } = await supabase
+    .from('job_candidates')
+    .upsert([row], { onConflict: 'job_id,candidate_id' })
+    .select();
+
+  if (error) return c.json({ error: error.message }, 500);
+  return c.json(keysToCamel(data[0]));
+});
+
+// PATCH — update stage or details for a specific job_candidate row
+app.patch('/api/job-candidates/:id', async (c) => {
+  const user = c.get('user') as any;
+  const id = c.req.param('id');
+  const body = await c.req.json();
+  const snakeBody = keysToSnake(body);
+
+  // Strip read-only properties
+  delete snakeBody.id;
+  delete snakeBody.created_at;
+  delete snakeBody.user_id;
+
+  const { data, error } = await supabase
+    .from('job_candidates')
+    .update(snakeBody)
+    .eq('id', id)
+    .eq('user_id', user.id)
+    .select();
+
+  if (error) return c.json({ error: error.message }, 500);
+  if (!data || data.length === 0) return c.json({ error: 'Not found' }, 404);
+  return c.json(keysToCamel(data[0]));
+});
+
+// DELETE — remove candidate from a job's pipeline (returns them to Talent Pool)
+app.delete('/api/job-candidates/:id', async (c) => {
+  const user = c.get('user') as any;
+  const id = c.req.param('id');
+
+  const { error } = await supabase
+    .from('job_candidates')
+    .delete()
+    .eq('id', id)
+    .eq('user_id', user.id);
+
+  if (error) return c.json({ error: error.message }, 500);
+  return c.json({ success: true });
+});
+
+async function startTelegramBotPolling() {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) {
+    console.log('Telegram Bot Token not configured. Polling skipped.');
+    return;
+  }
+
+  console.log('Starting Telegram Bot update polling...');
+  let offset = 0;
+
+  async function poll() {
+    try {
+      const res = await fetch(`https://api.telegram.org/bot${token}/getUpdates?offset=${offset}&timeout=5`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.ok && data.result && data.result.length > 0) {
+          for (const update of data.result) {
+            offset = Math.max(offset, update.update_id + 1);
+
+            const message = update.message;
+            if (!message || !message.text) continue;
+
+            const chat = message.chat;
+            const text = message.text.trim();
+
+            // Check if message is /start <token>
+            if (text.startsWith('/start ')) {
+              const verifyToken = text.substring(7).trim();
+              if (verifyToken) {
+                // Find the config with this telegram_token
+                const { data: configs, error } = await supabase
+                  .from('email_configs')
+                  .select('*')
+                  .eq('telegram_token', verifyToken);
+
+                if (!error && configs && configs.length > 0) {
+                  const userConfig = configs[0];
+                  const userId = userConfig.id; // userConfig.id is user_id
+
+                  // Update database: set chat_id, enable notification, and clear temp token
+                  await supabase
+                    .from('email_configs')
+                    .update({
+                      telegram_chat_id: String(chat.id),
+                      telegram_notification_enabled: true,
+                      telegram_token: null
+                    })
+                    .eq('id', userId);
+
+                  // Send success message to Telegram user
+                  const senderName = message.from?.first_name || 'there';
+                  await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      chat_id: chat.id,
+                      text: `🎉 Hello ${senderName}!\n\nYour Telegram account has been successfully linked to your Hirely Recruiter profile.\n\nYou will now receive instant alerts here when new resumes are uploaded.`
+                    })
+                  });
+
+                  console.log(`[TELEGRAM] Successfully connected chat_id ${chat.id} to user_id ${userId}`);
+                } else {
+                  // Invalid or expired token
+                  await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      chat_id: chat.id,
+                      text: `❌ Link Failed: The verification link is invalid or expired. Please generate a new connection link in settings.`
+                    })
+                  });
+                }
+              }
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Error in Telegram polling loop:', err);
+    } finally {
+      // Wait 3 seconds after completion before polling again
+      setTimeout(poll, 3000);
+    }
+  }
+
+  // Start polling
+  poll();
+}
+
+// Start Telegram Bot polling immediately
+startTelegramBotPolling();
 
 // Bun Native Server entry point
 export default {

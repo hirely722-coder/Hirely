@@ -6,15 +6,29 @@
 
 This contains everything you need to run your app locally.
 
-View your app in AI Studio: https://ai.studio/apps/934added-3ca8-4a88-a049-5ef228d1157c
-
 ## Run Locally
 
-**Prerequisites:**  Node.js
+**Prerequisites:** [Bun](https://bun.sh/) installed on your machine.
 
+### 1. Run Backend Server
+1. Navigate to the `backend` directory.
+2. Install dependencies:
+   ```bash
+   bun install
+   ```
+3. Set your environment variables in `.env` (like `EDENAI_API_KEY` and Supabase keys).
+4. Run the backend development server:
+   ```bash
+   bun run dev
+   ```
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+### 2. Run Frontend App
+1. Navigate to the `frontend` directory.
+2. Install dependencies:
+   ```bash
+   bun install
+   ```
+3. Run the frontend development server:
+   ```bash
+   bun run dev
+   ```

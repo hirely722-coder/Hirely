@@ -155,7 +155,8 @@ export const initialCandidates: Candidate[] = [
     designation: 'Senior Frontend Engineer',
     gender: 'Female',
     city: 'Oakland',
-    expectedSalary: '$150,000'
+    expectedSalary: '$150,000',
+    noticePeriod: '15 days'
   },
   {
     id: 'can2',
@@ -175,7 +176,8 @@ export const initialCandidates: Candidate[] = [
     designation: 'Staff Backend Engineer',
     gender: 'Male',
     city: 'Palo Alto',
-    expectedSalary: '$220,000'
+    expectedSalary: '$220,000',
+    noticePeriod: '30 days'
   },
   {
     id: 'can3',
@@ -195,7 +197,8 @@ export const initialCandidates: Candidate[] = [
     designation: 'Product Designer',
     gender: 'Female',
     city: 'San Francisco',
-    expectedSalary: '$140,000'
+    expectedSalary: '$140,000',
+    noticePeriod: '15 days'
   },
   {
     id: 'can4',
@@ -215,7 +218,8 @@ export const initialCandidates: Candidate[] = [
     designation: 'Full Stack Engineer',
     gender: 'Male',
     city: 'Austin',
-    expectedSalary: '$130,000'
+    expectedSalary: '$130,000',
+    noticePeriod: '30 days'
   },
   {
     id: 'can5',
@@ -235,7 +239,8 @@ export const initialCandidates: Candidate[] = [
     designation: 'DevOps Lead',
     gender: 'Female',
     city: 'Atlanta',
-    expectedSalary: '$180,000'
+    expectedSalary: '$180,000',
+    noticePeriod: '15 days'
   },
   {
     id: 'can6',
@@ -255,7 +260,8 @@ export const initialCandidates: Candidate[] = [
     designation: 'Junior Developer',
     gender: 'Other',
     city: 'San Jose',
-    expectedSalary: '$85,000'
+    expectedSalary: '$85,000',
+    noticePeriod: '30 days'
   }
 ];
 

@@ -5,6 +5,8 @@ import {
   ChevronDown, ChevronUp, MessageSquare, FileText, Check, Sparkles
 } from 'lucide-react';
 import { Task, Candidate } from '../types';
+import Portal from './Portal';
+import { SearchableDropdown } from './SearchableDropdown';
 
 interface TasksViewProps {
   tasks: Task[];
@@ -55,12 +57,13 @@ export default function TasksView({
 
   // Filter tasks based on search text, priority, and selected category tab
   const filteredTasks = useMemo(() => {
-    return tasks.filter(task => {
+    return (tasks || []).filter(task => {
+      if (!task) return false;
       const priorityMatches = filterPriority === 'All' || task.priority === filterPriority;
       const categoryTabMatches = selectedCategoryTab === 'All' || task.type === selectedCategoryTab;
       const textMatches = searchQuery.trim() === '' || 
-        task.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
-        (task.candidateName || '').toLowerCase().includes(searchQuery.toLowerCase());
+        (task.title || '').toLowerCase().includes((searchQuery || '').toLowerCase()) || 
+        (task.candidateName || '').toLowerCase().includes((searchQuery || '').toLowerCase());
       return priorityMatches && categoryTabMatches && textMatches;
     });
   }, [tasks, filterPriority, selectedCategoryTab, searchQuery]);
@@ -87,9 +90,9 @@ export default function TasksView({
   }, [filteredTasks]);
 
   const stats = useMemo(() => {
-    const pending = tasks.filter(t => t.status === 'Pending').length;
-    const completed = tasks.filter(t => t.status === 'Completed').length;
-    return { pending, completed, total: tasks.length };
+    const pending = (tasks || []).filter(t => t && t.status === 'Pending').length;
+    const completed = (tasks || []).filter(t => t && t.status === 'Completed').length;
+    return { pending, completed, total: (tasks || []).length };
   }, [tasks]);
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -196,18 +199,18 @@ export default function TasksView({
           </div>
 
           {/* Quick Priority Option dropdown */}
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] text-slate-400 font-mono uppercase tracking-wider shrink-0">Priority:</span>
-            <select 
+          <div className="w-36">
+            <SearchableDropdown
+              label="Priority"
+              options={[
+                { value: 'All', label: 'All Priorities' },
+                { value: 'High', label: '🔴 High' },
+                { value: 'Medium', label: '🟡 Medium' },
+                { value: 'Low', label: '🟢 Low' }
+              ]}
               value={filterPriority}
-              onChange={(e) => setFilterPriority(e.target.value)}
-              className="text-xs border border-slate-200 rounded-lg px-2 py-0.5 focus:outline-none bg-white font-medium text-slate-700"
-            >
-              <option value="All">All Priorities</option>
-              <option value="High">🔴 High</option>
-              <option value="Medium">🟡 Medium</option>
-              <option value="Low">🟢 Low</option>
-            </select>
+              onChange={setFilterPriority}
+            />
           </div>
 
         </div>
@@ -398,8 +401,9 @@ export default function TasksView({
 
       {/* Simple Create Task Modal */}
       {showAddModal && (
-        <div className="fixed inset-0 bg-slate-900/30 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-xl border border-slate-200 shadow-xl max-w-md w-full overflow-hidden animate-slide-up">
+        <Portal>
+          <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-xl border border-slate-200 shadow-xl max-w-md w-full overflow-hidden animate-slide-up">
             <div className="flex items-center justify-between p-4 border-b border-slate-150 bg-slate-50">
               <h2 className="text-xs font-bold text-slate-950 font-sans flex items-center gap-1.5">
                 <CheckSquare className="h-4 w-4 text-blue-600" />
@@ -500,6 +504,7 @@ export default function TasksView({
             </form>
           </div>
         </div>
+      </Portal>
       )}
 
     </div>

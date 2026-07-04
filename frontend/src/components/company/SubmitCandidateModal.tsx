@@ -4,6 +4,7 @@ import {
 } from 'lucide-react';
 import { Company, Job, Candidate } from '../../types';
 import { getAIMatchScore } from '../../utils/companyMockData';
+import Portal from '../Portal';
 
 interface SubmitCandidateModalProps {
   isOpen: boolean;
@@ -99,7 +100,8 @@ export default function SubmitCandidateModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-55 bg-transparent backdrop-blur-sm flex items-center justify-center p-4">
+    <Portal>
+      <div className="fixed inset-0 z-55 bg-slate-900/40 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-2xl border border-slate-100 max-w-4xl w-full overflow-hidden animate-scale-up flex flex-col max-h-[90vh]">
         {/* Modal Header */}
         <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
@@ -380,5 +382,6 @@ export default function SubmitCandidateModal({
         </div>
       </div>
     </div>
+  </Portal>
   );
 }

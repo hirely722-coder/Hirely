@@ -295,11 +295,11 @@ export default function BackgroundImportWidget({
               Report
             </button>
             <button
-              onClick={onViewResults}
+              onClick={onMaximize || onViewResults}
               className="flex-1 flex items-center justify-center gap-1.5 py-1.5 text-[11px] font-bold bg-blue-600 text-white rounded-lg hover:bg-blue-700 shadow-3xs transition-colors cursor-pointer"
             >
               <Eye className="h-3.5 w-3.5 text-blue-150" />
-              View Records
+              View Summary
             </button>
           </div>
         )}

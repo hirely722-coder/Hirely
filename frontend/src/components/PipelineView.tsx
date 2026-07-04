@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Building2, 
   ChevronLeft, 
@@ -16,7 +16,7 @@ import {
   TrendingUp,
   Award
 } from 'lucide-react';
-import { Candidate, Job } from '../types';
+import { Candidate, Job, JobCandidate } from '../types';
 import { calculateMatchScore } from '../utils/matching';
 
 interface PipelineViewProps {
@@ -25,9 +25,9 @@ interface PipelineViewProps {
   onUpdateCandidateStage: (candidateId: string, newStage: Candidate['status']) => void;
 }
 
-const STAGES: Candidate['status'][] = ['Applied', 'Screening', 'Shortlisted', 'Interview', 'Selected', 'Offer Sent', 'Joined'];
+const STAGES: Exclude<Candidate['status'], 'Pool'>[] = ['Applied', 'Screening', 'Shortlisted', 'Interview', 'Selected', 'Offer Sent', 'Joined'];
 
-const STAGE_THEMES: Record<Candidate['status'], { border: string; text: string; bg: string; dot: string; hoverBg: string }> = {
+const STAGE_THEMES: Record<Exclude<Candidate['status'], 'Pool'>, { border: string; text: string; bg: string; dot: string; hoverBg: string }> = {
   Applied: { 
     border: 'border-t-slate-300', 
     text: 'text-slate-700', 
@@ -97,11 +97,12 @@ const getAvatarTheme = (name: string) => {
 // Dynamic search helper that checks name, company, and skills
 const candidateMatchesSearch = (candidate: Candidate, searchLower: string) => {
   if (!searchLower) return true;
+  if (!candidate) return false;
   return (
-    candidate.name.toLowerCase().includes(searchLower) ||
-    candidate.currentCompany.toLowerCase().includes(searchLower) ||
-    (candidate.skills || []).some(skill => skill.toLowerCase().includes(searchLower)) ||
-    candidate.education.toLowerCase().includes(searchLower)
+    (candidate.name || '').toLowerCase().includes(searchLower) ||
+    (candidate.currentCompany || '').toLowerCase().includes(searchLower) ||
+    (candidate.skills || []).some(skill => (skill || '').toLowerCase().includes(searchLower)) ||
+    (candidate.education || '').toLowerCase().includes(searchLower)
   );
 };
 
@@ -111,17 +112,63 @@ export default function PipelineView({
   onUpdateCandidateStage
 }: PipelineViewProps) {
   const [draggedCandidateId, setDraggedCandidateId] = useState<string | null>(null);
-  const [activeDropStage, setActiveDropStage] = useState<Candidate['status'] | null>(null);
+  const [activeDropStage, setActiveDropStage] = useState<Exclude<Candidate['status'], 'Pool'> | null>(null);
   
   // Filtering state
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedJobId, setSelectedJobId] = useState<string>('all');
   const [minExperience, setMinExperience] = useState<string>('all');
 
+  const [jobCandidates, setJobCandidates] = useState<JobCandidate[]>([]);
+  const [jobCandidatesLoading, setJobCandidatesLoading] = useState(false);
+
+  useEffect(() => {
+    if (selectedJobId === 'all') {
+      setJobCandidates([]);
+      return;
+    }
+    const fetchJobCandidates = async () => {
+      setJobCandidatesLoading(true);
+      try {
+        const { supabase } = await import('../utils/supabase');
+        const { data: { session } } = await supabase.auth.getSession();
+        const token = session?.access_token;
+        const res = await fetch(`/api/job-candidates/${selectedJobId}`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setJobCandidates(Array.isArray(data) ? data : []);
+        }
+      } catch (err) {
+        console.error('Failed to fetch job candidates:', err);
+      } finally {
+        setJobCandidatesLoading(false);
+      }
+    };
+    fetchJobCandidates();
+  }, [selectedJobId]);
+
   // Find selected job for dynamic skill match score overlay
   const selectedJob = useMemo(() => {
     return jobs.find(j => j.id === selectedJobId) || null;
   }, [jobs, selectedJobId]);
+
+  // Map candidates based on whether we are looking at all candidates or a specific job
+  const activeCandidates = useMemo(() => {
+    if (selectedJobId === 'all') {
+      // Show candidates who are NOT in the 'Pool' status
+      return candidates.filter(c => c.status !== 'Pool');
+    }
+    return jobCandidates.map(jc => {
+      if (!jc.candidate) return null;
+      return {
+        ...jc.candidate,
+        status: jc.stage, // override status with per-job stage
+        jobCandidateId: jc.id // attach junction id
+      };
+    }).filter(Boolean) as (Candidate & { jobCandidateId?: string })[];
+  }, [selectedJobId, candidates, jobCandidates]);
 
   // Calculate customized match score for candidate against the currently filtered job
   const getDynamicMatchScore = (candidate: Candidate) => {
@@ -133,7 +180,7 @@ export default function PipelineView({
   const filteredCandidates = useMemo(() => {
     const searchLower = searchQuery.toLowerCase().trim();
     
-    return candidates.filter(candidate => {
+    return activeCandidates.filter(candidate => {
       // 1. Search Query Filter
       if (!candidateMatchesSearch(candidate, searchLower)) return false;
       
@@ -153,14 +200,14 @@ export default function PipelineView({
       
       return true;
     });
-  }, [candidates, searchQuery, selectedJobId, selectedJob, minExperience]);
+  }, [activeCandidates, searchQuery, selectedJobId, selectedJob, minExperience]);
 
   // Group filtered candidates by stage
   const groupedCandidates = useMemo(() => {
     return STAGES.reduce((acc, stage) => {
       acc[stage] = filteredCandidates.filter(c => c.status === stage);
       return acc;
-    }, {} as Record<Candidate['status'], Candidate[]>);
+    }, {} as Record<Exclude<Candidate['status'], 'Pool'>, Candidate[]>);
   }, [filteredCandidates]);
 
   // Pipeline metrics calculation
@@ -180,7 +227,7 @@ export default function PipelineView({
     e.dataTransfer.effectAllowed = 'move';
   };
 
-  const handleDragOver = (e: React.DragEvent, stage: Candidate['status']) => {
+  const handleDragOver = (e: React.DragEvent, stage: Exclude<Candidate['status'], 'Pool'>) => {
     e.preventDefault();
     if (activeDropStage !== stage) {
       setActiveDropStage(stage);
@@ -191,21 +238,62 @@ export default function PipelineView({
     setActiveDropStage(null);
   };
 
-  const handleDrop = (e: React.DragEvent, targetStage: Candidate['status']) => {
+  const handleDrop = async (e: React.DragEvent, targetStage: Exclude<Candidate['status'], 'Pool'>) => {
     e.preventDefault();
     const id = e.dataTransfer.getData('text/plain') || draggedCandidateId;
     if (id) {
-      onUpdateCandidateStage(id, targetStage);
+      const cand = activeCandidates.find(c => c.id === id);
+      if (cand && (cand as any).jobCandidateId) {
+        try {
+          const { supabase } = await import('../utils/supabase');
+          const { data: { session } } = await supabase.auth.getSession();
+          const token = session?.access_token;
+          await fetch(`/api/job-candidates/${(cand as any).jobCandidateId}`, {
+            method: 'PATCH',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+            body: JSON.stringify({ stage: targetStage }),
+          });
+          setJobCandidates(prev => prev.map(jc => jc.id === (cand as any).jobCandidateId ? { ...jc, stage: targetStage } : jc));
+        } catch (err) {
+          console.error('Failed to update stage on drop:', err);
+        }
+      } else {
+        onUpdateCandidateStage(id, targetStage);
+      }
     }
     setDraggedCandidateId(null);
     setActiveDropStage(null);
   };
 
-  const handleMoveCandidate = (id: string, currentStage: Candidate['status'], direction: 'prev' | 'next') => {
+  const handleMoveCandidate = async (id: string, currentStage: Exclude<Candidate['status'], 'Pool'>, direction: 'prev' | 'next') => {
     const currentIndex = STAGES.indexOf(currentStage);
     const targetIndex = currentIndex + (direction === 'next' ? 1 : -1);
     if (targetIndex >= 0 && targetIndex < STAGES.length) {
-      onUpdateCandidateStage(id, STAGES[targetIndex]);
+      const targetStage = STAGES[targetIndex];
+      const cand = activeCandidates.find(c => c.id === id);
+      if (cand && (cand as any).jobCandidateId) {
+        try {
+          const { supabase } = await import('../utils/supabase');
+          const { data: { session } } = await supabase.auth.getSession();
+          const token = session?.access_token;
+          await fetch(`/api/job-candidates/${(cand as any).jobCandidateId}`, {
+            method: 'PATCH',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+            body: JSON.stringify({ stage: targetStage }),
+          });
+          setJobCandidates(prev => prev.map(jc => jc.id === (cand as any).jobCandidateId ? { ...jc, stage: targetStage } : jc));
+        } catch (err) {
+          console.error('Failed to update stage via click:', err);
+        }
+      } else {
+        onUpdateCandidateStage(id, targetStage);
+      }
     }
   };
 

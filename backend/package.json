@@ -7,9 +7,12 @@
     "seed": "bun src/seed.ts"
   },
   "dependencies": {
+    "@google/genai": "^2.4.0",
     "@supabase/supabase-js": "^2.43.4",
     "dotenv": "^16.4.5",
-    "hono": "^4.4.7"
+    "hono": "^4.4.7",
+    "pdf-parse": "^2.4.5",
+    "unpdf": "^1.6.2"
   },
   "devDependencies": {
     "typescript": "^5.5.2"

@@ -6,6 +6,8 @@ import {
 } from 'lucide-react';
 import { Company, Job, Candidate } from '../types';
 import CompanyDetailsPage from './company/CompanyDetailsPage';
+import Portal from './Portal';
+import { SearchableDropdown } from './SearchableDropdown';
 
 interface CompaniesViewProps {
   companies: Company[];
@@ -63,8 +65,8 @@ export default function CompaniesView({
   // Dynamic recruiters list
   const recruitersList = useMemo(() => {
     const list = new Set<string>();
-    companies.forEach(c => {
-      if (c.recContact) {
+    (companies || []).forEach(c => {
+      if (c && c.recContact) {
         list.add(c.recContact);
       }
     });
@@ -74,8 +76,8 @@ export default function CompaniesView({
   // Dynamic contacts list
   const contactsList = useMemo(() => {
     const list = new Set<string>();
-    companies.forEach(c => {
-      if (c.contactPerson) {
+    (companies || []).forEach(c => {
+      if (c && c.contactPerson) {
         list.add(c.contactPerson);
       }
     });
@@ -85,8 +87,8 @@ export default function CompaniesView({
   // Dynamic cities list
   const citiesList = useMemo(() => {
     const list = new Set<string>();
-    companies.forEach(c => {
-      if (c.address) {
+    (companies || []).forEach(c => {
+      if (c && c.address) {
         const clean = c.address.replace('HQ:', '').trim();
         const parts = clean.split(',');
         if (parts.length > 0) {
@@ -137,12 +139,13 @@ export default function CompaniesView({
 
   // Filter & Sort logic
   const filteredCompanies = useMemo(() => {
-    return companies
+    return (companies || [])
       .filter(company => {
+        if (!company) return false;
         const matchesSearch = 
-          company.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          company.contactPerson.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          company.email.toLowerCase().includes(searchTerm.toLowerCase());
+          (company.name || '').toLowerCase().includes((searchTerm || '').toLowerCase()) ||
+          (company.contactPerson || '').toLowerCase().includes((searchTerm || '').toLowerCase()) ||
+          (company.email || '').toLowerCase().includes((searchTerm || '').toLowerCase());
         
         const matchesStatus = statusFilter === 'All' || company.status === statusFilter;
         
@@ -150,7 +153,7 @@ export default function CompaniesView({
         const matchesRecruiter = recruiterFilter === 'All' || company.recContact === recruiterFilter;
 
         // City Filter
-        const matchesCity = cityFilter === 'All' || company.address.toLowerCase().includes(cityFilter.toLowerCase());
+        const matchesCity = cityFilter === 'All' || (company.address || '').toLowerCase().includes((cityFilter || '').toLowerCase());
 
         // Jobs Volume Filter
         let matchesJobsVolume = true;
@@ -408,15 +411,16 @@ export default function CompaniesView({
           </div>
           
           <div className="flex flex-wrap items-center gap-2.5 justify-end">
-            <select 
+            <SearchableDropdown
+              label="Status"
+              options={[
+                { value: 'All', label: 'All Statuses' },
+                { value: 'Active', label: 'Active Partners' },
+                { value: 'Inactive', label: 'Inactive Partners' }
+              ]}
               value={statusFilter}
-              onChange={(e: any) => setStatusFilter(e.target.value)}
-              className="text-xs border border-slate-200 rounded-lg px-3 py-2 focus:ring-1 focus:ring-blue-500 focus:outline-none bg-white font-medium text-slate-700"
-            >
-              <option value="All">All Statuses</option>
-              <option value="Active">Active Partners</option>
-              <option value="Inactive">Inactive Partners</option>
-            </select>
+              onChange={(val) => setStatusFilter(val as any)}
+            />
 
             <button
               type="button"
@@ -441,93 +445,58 @@ export default function CompaniesView({
         {/* Collapsible Advanced Filters Panel */}
         {showFiltersPanel && (
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3.5 bg-slate-50 border border-slate-200/50 p-4 rounded-xl animate-fade-in text-xs mt-2">
-            {/* Recruiter Filter */}
-            <div className="space-y-1">
-              <label className="block text-[10px] font-mono uppercase text-slate-400 font-bold tracking-wider">Assigned Recruiter</label>
-              <select
-                value={recruiterFilter}
-                onChange={(e) => setRecruiterFilter(e.target.value)}
-                className="w-full text-xs border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none bg-white font-sans text-slate-700"
-              >
-                <option value="All">All Recruiters</option>
-                {recruitersList.filter(r => r !== 'All').map((rec) => (
-                  <option key={rec} value={rec}>{rec}</option>
-                ))}
-              </select>
-            </div>
+            <SearchableDropdown
+              label="Assigned Recruiter"
+              options={recruitersList}
+              value={recruiterFilter}
+              onChange={setRecruiterFilter}
+              placeholder="Search recruiters..."
+            />
 
-            {/* City / Location Filter */}
-            <div className="space-y-1">
-              <label className="block text-[10px] font-mono uppercase text-slate-400 font-bold tracking-wider">City / Location</label>
-              <select
-                value={cityFilter}
-                onChange={(e) => setCityFilter(e.target.value)}
-                className="w-full text-xs border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none bg-white font-sans text-slate-700"
-              >
-                <option value="All">All Cities</option>
-                {citiesList.filter(c => c !== 'All').map((city) => (
-                  <option key={city} value={city}>{city}</option>
-                ))}
-              </select>
-            </div>
+            <SearchableDropdown
+              label="City / Location"
+              options={citiesList}
+              value={cityFilter}
+              onChange={setCityFilter}
+              placeholder="Search locations..."
+            />
 
-            {/* Jobs Volume Filter */}
-            <div className="space-y-1">
-              <label className="block text-[10px] font-mono uppercase text-slate-400 font-bold tracking-wider">Job Openings Volume</label>
-              <select
-                value={jobsVolumeFilter}
-                onChange={(e) => setJobsVolumeFilter(e.target.value)}
-                className="w-full text-xs border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none bg-white font-sans text-slate-700"
-              >
-                <option value="All">All Volume</option>
-                <option value="No Open Jobs">No Open Jobs</option>
-                <option value="1+ Open Jobs">1+ Open Jobs</option>
-                <option value="3+ Open Jobs">3+ Open Jobs</option>
-              </select>
-            </div>
+            <SearchableDropdown
+              label="Job Openings Volume"
+              options={['All', 'No Open Jobs', '1+ Open Jobs', '3+ Open Jobs']}
+              value={jobsVolumeFilter}
+              onChange={setJobsVolumeFilter}
+            />
 
-            {/* Contact Person Filter */}
-            <div className="space-y-1">
-              <label className="block text-[10px] font-mono uppercase text-slate-400 font-bold tracking-wider">Contact Person</label>
-              <select
-                value={contactPersonFilter}
-                onChange={(e) => setContactPersonFilter(e.target.value)}
-                className="w-full text-xs border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none bg-white font-sans text-slate-700"
-              >
-                <option value="All">All Contacts</option>
-                {contactsList.filter(c => c !== 'All').map((contact) => (
-                  <option key={contact} value={contact}>{contact}</option>
-                ))}
-              </select>
-            </div>
+            <SearchableDropdown
+              label="Contact Person"
+              options={contactsList}
+              value={contactPersonFilter}
+              onChange={setContactPersonFilter}
+              placeholder="Search contacts..."
+            />
 
-            {/* Website Presence Filter */}
-            <div className="space-y-1">
-              <label className="block text-[10px] font-mono uppercase text-slate-400 font-bold tracking-wider">Website Presence</label>
-              <select
-                value={websitePresenceFilter}
-                onChange={(e) => setWebsitePresenceFilter(e.target.value)}
-                className="w-full text-xs border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none bg-white font-sans text-slate-700"
-              >
-                <option value="All">Any Website Status</option>
-                <option value="Has Website">Has Website Link</option>
-                <option value="No Website">No Website Link</option>
-              </select>
-            </div>
+            <SearchableDropdown
+              label="Website Presence"
+              options={[
+                { value: 'All', label: 'Any Website Status' },
+                { value: 'Has Website', label: 'Has Website Link' },
+                { value: 'No Website', label: 'No Website Link' }
+              ]}
+              value={websitePresenceFilter}
+              onChange={setWebsitePresenceFilter}
+            />
 
-            {/* Partnership Notes Filter */}
-            <div className="space-y-1">
-              <label className="block text-[10px] font-mono uppercase text-slate-400 font-bold tracking-wider">Partnership Notes</label>
-              <select
-                value={notesFilter}
-                onChange={(e) => setNotesFilter(e.target.value)}
-                className="w-full text-xs border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none bg-white font-sans text-slate-700"
-              >
-                <option value="All">Any Notes Status</option>
-                <option value="Has Partnership Notes">Has Internal Notes</option>
-                <option value="No Notes">No Notes</option>
-              </select>
-            </div>
+            <SearchableDropdown
+              label="Partnership Notes"
+              options={[
+                { value: 'All', label: 'Any Notes Status' },
+                { value: 'Has Partnership Notes', label: 'Has Internal Notes' },
+                { value: 'No Notes', label: 'No Notes' }
+              ]}
+              value={notesFilter}
+              onChange={setNotesFilter}
+            />
 
             {/* Clear Filters Button */}
             <div className="col-span-1 sm:col-span-2 md:col-span-3 lg:col-span-6 flex justify-end gap-2 pt-2 border-t border-slate-200/50 mt-1">
@@ -775,10 +744,10 @@ export default function CompaniesView({
         </div>
       </div>
 
-      {/* ADD REGISTRY MODAL */}
       {showAddModal && (
-        <div className="fixed inset-0 bg-transparent backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-xl border border-slate-100 shadow-xl max-w-lg w-full overflow-hidden animate-slide-up">
+        <Portal>
+          <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-xl border border-slate-100 shadow-xl max-w-lg w-full overflow-hidden animate-slide-up">
             <div className="flex items-center justify-between p-5 border-b border-slate-100 bg-slate-50">
               <h2 className="text-xs font-bold text-slate-950 font-sans uppercase flex items-center gap-1.5">
                 <Building2 className="h-4 w-4 text-slate-500" />
@@ -927,12 +896,13 @@ export default function CompaniesView({
             </form>
           </div>
         </div>
+      </Portal>
       )}
 
-      {/* EDIT REGISTRY MODAL */}
       {showEditModal && (
-        <div className="fixed inset-0 bg-transparent backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-xl border border-slate-100 shadow-xl max-w-lg w-full overflow-hidden animate-slide-up">
+        <Portal>
+          <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-xl border border-slate-100 shadow-xl max-w-lg w-full overflow-hidden animate-slide-up">
             <div className="flex items-center justify-between p-5 border-b border-slate-100 bg-slate-50">
               <h2 className="text-xs font-bold text-slate-950 font-sans uppercase flex items-center gap-1.5">
                 <Building2 className="h-4 w-4 text-slate-500" />
@@ -1075,12 +1045,13 @@ export default function CompaniesView({
             </form>
           </div>
         </div>
+      </Portal>
       )}
 
-      {/* LOCAL QUICK EMAIL MODAL */}
       {showLocalEmailModal && (
-        <div className="fixed inset-0 bg-transparent backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl border border-slate-100 shadow-2xl max-w-md w-full overflow-hidden animate-scale-up">
+        <Portal>
+          <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-2xl border border-slate-100 shadow-2xl max-w-md w-full overflow-hidden animate-scale-up">
             <div className="px-5 py-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
               <h4 className="text-xs font-bold text-slate-900 uppercase">Quick Email Outbox</h4>
               <button onClick={() => setShowLocalEmailModal(false)} className="text-slate-400 hover:text-slate-600">
@@ -1110,12 +1081,13 @@ export default function CompaniesView({
             </div>
           </div>
         </div>
+      </Portal>
       )}
 
-      {/* LOCAL QUICK WHATSAPP MODAL */}
       {showLocalWAModal && (
-        <div className="fixed inset-0 bg-transparent backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl border border-slate-100 shadow-2xl max-w-md w-full overflow-hidden animate-scale-up">
+        <Portal>
+          <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-2xl border border-slate-100 shadow-2xl max-w-md w-full overflow-hidden animate-scale-up">
             <div className="px-5 py-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
               <h4 className="text-xs font-bold text-slate-900 uppercase">Quick WhatsApp Dispatcher</h4>
               <button onClick={() => setShowLocalWAModal(false)} className="text-slate-400 hover:text-slate-600">
@@ -1141,6 +1113,7 @@ export default function CompaniesView({
             </div>
           </div>
         </div>
+      </Portal>
       )}
 
     </div>

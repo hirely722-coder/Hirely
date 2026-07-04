@@ -61,6 +61,7 @@ async function seed() {
       gender: c.gender || null,
       city: c.city || null,
       expected_salary: c.expectedSalary || null,
+      notice_period: c.noticePeriod || null,
       import_id: c.importId || null
     }));
 

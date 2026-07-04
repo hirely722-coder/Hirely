@@ -4,18 +4,22 @@ import Link from 'next/link';
 import { 
   LayoutDashboard, Building2, Briefcase, Users, GitMerge, CheckSquare, 
   Mail, Sparkles, Settings, User, Bell, Search, ChevronRight, Check, X,
-  Palette, Menu
+  Palette, Menu, LogOut
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
-import { injectThemeCSS, THEME_PRESETS } from './ThemeBuilderView';
+import { injectThemeCSS } from './theme/themeHelpers';
+import { THEME_PRESETS } from './theme/themePresets';
 import { EmailComposeModal, WhatsAppComposeModal, InterviewSchedulerModal, AddTaskModal } from './GlobalModals';
 import CSVImportModal from './CSVImportModal';
 import BackgroundImportWidget from './BackgroundImportWidget';
-import { Company, Job, Candidate, Task, EmailTemplate } from '../types';
+import { Company, Job, Candidate, Task, EmailTemplate, CustomTheme } from '../types';
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const {
+    user,
+    logout,
+    isLoading,
     companies,
     jobs,
     candidates,
@@ -57,17 +61,31 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     setAddTaskCandidate
   } = useApp();
 
+  const [mounted, setMounted] = useState(false);
   const [theme, setTheme] = useState<string>('slate');
   const [showThemeDropdown, setShowThemeDropdown] = useState(false);
   const [showNotificationsDropdown, setShowNotificationsDropdown] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [globalSearch, setGlobalSearch] = useState('');
+  const [isCSVImportOpen, setIsCSVImportOpen] = useState(false);
+  const [csvImportInitialType, setCsvImportInitialType] = useState<'companies' | 'jobs' | 'candidates'>('candidates');
   
   const [notifications, setNotifications] = useState<Array<{ id: string; text: string; time: string; read: boolean }>>([
     { id: 'n1', text: 'Sarah Connor scheduled AWS Interview.', time: '2 mins ago', read: false },
     { id: 'n2', text: 'New candidate Emily Watson applied for Senior React Developer.', time: '1 hour ago', read: false },
     { id: 'n3', text: 'Weekly pipeline sync report is ready.', time: 'Yesterday', read: true }
   ]);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  // Redirect to login if user session is absent and we aren't on the login page
+  useEffect(() => {
+    if (!isLoading && !user && router.pathname !== '/login') {
+      router.replace('/login');
+    }
+  }, [user, isLoading, router.pathname]);
 
   // Load and apply themes
   useEffect(() => {
@@ -90,16 +108,12 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         } catch (e) {}
       }
 
-      const matchingPreset = THEME_PRESETS.find(p => p.id === theme);
+      const matchingPreset = THEME_PRESETS.find((p: CustomTheme) => p.id === theme);
       if (matchingPreset) {
         injectThemeCSS(matchingPreset);
       }
     }
   }, [theme]);
-
-  // CSV Import State
-  const [isCSVImportOpen, setIsCSVImportOpen] = useState(false);
-  const [csvImportInitialType, setCsvImportInitialType] = useState<'companies' | 'jobs' | 'candidates'>('candidates');
 
   useEffect(() => {
     if (router.query.import === 'true') {
@@ -112,9 +126,58 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     }
   }, [router.query.import, router.query.type, router.pathname]);
 
+  // Early Returns placed AFTER all hooks have run
+  if (!mounted) {
+    return (
+      <div className="h-screen w-screen flex flex-col items-center justify-center bg-slate-900 text-white">
+        <div className="relative h-12 w-12 flex items-center justify-center">
+          <span className="absolute h-12 w-12 rounded-full border-4 border-slate-800" />
+          <span className="absolute h-12 w-12 rounded-full border-4 border-blue-500 border-t-transparent animate-spin" />
+        </div>
+        <p className="mt-4 text-xs font-semibold tracking-widest text-slate-400 uppercase font-mono animate-pulse">Initializing Session...</p>
+      </div>
+    );
+  }
+
+  if (router.pathname === '/login') {
+    return <div className="min-h-screen bg-slate-950 text-white font-sans">{children}</div>;
+  }
+
+  if (isLoading) {
+    return (
+      <div className="h-screen w-screen flex flex-col items-center justify-center bg-slate-900 text-white">
+        <div className="relative h-12 w-12 flex items-center justify-center">
+          <span className="absolute h-12 w-12 rounded-full border-4 border-slate-800" />
+          <span className="absolute h-12 w-12 rounded-full border-4 border-blue-500 border-t-transparent animate-spin" />
+        </div>
+        <p className="mt-4 text-xs font-semibold tracking-widest text-slate-400 uppercase font-mono animate-pulse">Initializing Session...</p>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return null; // Silent redirect
+  }
+
+  const userInitials = user?.email ? user.email.substring(0, 2).toUpperCase() : 'US';
+  const userName = user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'User';
+
   const handleOpenCSVImport = (type: 'companies' | 'jobs' | 'candidates') => {
     setCsvImportInitialType(type);
     setIsCSVImportOpen(true);
+  };
+
+  const handleStartBackgroundImport = (
+    fileName: string,
+    importType: any,
+    rawHeaders: string[],
+    rawRows: string[][],
+    columnMap: Record<string, number>,
+    defaultValues: Record<string, string>,
+    duplicateStrategy: any
+  ) => {
+    startBackgroundImport(fileName, importType, rawHeaders, rawRows, columnMap, defaultValues, duplicateStrategy);
+    setIsCSVImportOpen(false);
   };
 
   const handleGlobalSearchSelect = (name: string) => {
@@ -142,7 +205,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       {isMobileSidebarOpen && (
         <div 
           onClick={() => setIsMobileSidebarOpen(false)}
-          className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs z-50 md:hidden"
+          className="fixed inset-0 bg-slate-900/40 z-50 md:hidden"
         />
       )}
 
@@ -203,22 +266,25 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         </div>
 
         {/* Sidebar Footer Account block */}
-        <div className="p-4 border-t border-slate-100 shrink-0">
-          <div 
-            onClick={() => router.push('/profile')}
-            className="flex items-center justify-between p-2 hover:bg-slate-50 rounded-xl cursor-pointer transition-colors"
-          >
+        <div className="p-4 border-t border-slate-100 shrink-0 space-y-2">
+          <div className="flex items-center justify-between p-2 hover:bg-slate-50 rounded-xl transition-colors">
             <div className="flex items-center gap-2.5 min-w-0">
-              <div className="h-8 w-8 rounded-full bg-slate-950 text-white flex items-center justify-center font-bold text-xs uppercase font-sans shrink-0">
-                SJ
+              <div className="h-8 w-8 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold text-xs uppercase font-sans shrink-0">
+                {userInitials}
               </div>
               <div className="min-w-0">
-                <p className="text-xs font-bold text-slate-900 truncate font-display">Sarah Jenkins</p>
-                <p className="text-[10px] text-slate-400 truncate">Lead Recruiter</p>
+                <p className="text-xs font-bold text-slate-900 truncate font-display">{userName}</p>
+                <p className="text-[10px] text-slate-400 truncate">{user?.email}</p>
               </div>
             </div>
-            <ChevronRight className="h-3.5 w-3.5 text-slate-300" />
           </div>
+          <button 
+            onClick={logout}
+            className="w-full flex items-center justify-center gap-2 px-4 py-2 text-xs font-semibold text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100/70 border border-rose-100 rounded-xl transition-colors cursor-pointer"
+          >
+            <LogOut className="h-4 w-4" />
+            <span>Sign Out</span>
+          </button>
         </div>
       </aside>
 
@@ -380,7 +446,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             <div className="h-4 w-[1px] bg-slate-200" />
 
             <div className="flex items-center gap-1.5">
-              <span className="text-xs font-semibold text-slate-900 font-sans hidden sm:inline">Sarah Jenkins</span>
+              <span className="text-xs font-semibold text-slate-900 font-sans hidden sm:inline">{userName}</span>
               <span className="text-[9px] font-mono px-1.5 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded font-medium">ONLINE</span>
             </div>
 
@@ -482,7 +548,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           onAddCandidate={handleAddCandidate}
           showToast={showToast}
           initialType={csvImportInitialType}
-          onStartBackgroundImport={startBackgroundImport}
+          onStartBackgroundImport={handleStartBackgroundImport}
           activeImportTask={activeImportTask}
           onPause={handlePauseImport}
           onResume={handleResumeImport}
@@ -493,7 +559,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         />
       )}
 
-      {activeImportTask && (
+      {activeImportTask && !isCSVImportOpen && (
         <BackgroundImportWidget
           task={activeImportTask}
           onPause={handlePauseImport}

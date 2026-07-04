@@ -78,14 +78,14 @@ export function generateInitialNotes(jobs: Job[]): JobNote[] {
   ];
 
   // Fallbacks for dynamically created jobs
-  jobs.forEach(job => {
-    if (!notesList.some(n => n.jobId === job.id)) {
+  (jobs || []).forEach(job => {
+    if (job && !notesList.some(n => n.jobId === job.id)) {
       notesList.push({
         id: `n_dyn_${job.id}_1`,
         jobId: job.id,
         author: 'Sarah Jenkins (Recruiter)',
         timestamp: new Date().toLocaleString(),
-        text: `Opening created for ${job.title} at ${job.companyName}. Recommended salary alignment: ${job.salary}. Seeking skills: ${job.requiredSkills.join(', ')}.`
+        text: `Opening created for ${job.title || ''} at ${job.companyName || ''}. Recommended salary alignment: ${job.salary || ''}. Seeking skills: ${(job.requiredSkills || []).join(', ')}.`
       });
     }
   });
@@ -221,14 +221,14 @@ export function generateInitialActivities(jobs: Job[]): JobActivity[] {
   ];
 
   // Dynamic additions
-  jobs.forEach(job => {
-    if (!activities.some(a => a.jobId === job.id)) {
+  (jobs || []).forEach(job => {
+    if (job && !activities.some(a => a.jobId === job.id)) {
       activities.push({
         id: `act_dyn_${job.id}_1`,
         jobId: job.id,
         timestamp: new Date().toLocaleString(),
         type: 'Job Created',
-        description: `Job posting for ${job.title} at ${job.companyName} initialized.`,
+        description: `Job posting for ${job.title || ''} at ${job.companyName || ''} initialized.`,
         user: 'Sarah Jenkins'
       });
     }

@@ -46,22 +46,24 @@ export interface CompanyActivity {
 
 // AI Candidate Matching Algorithm based on Skills
 export const getAIMatchScore = (candidate: Candidate, job: Job): number => {
-  if (!job.requiredSkills || job.requiredSkills.length === 0) return 75;
-  const candSkills = (candidate.skills || []).map(s => s.toLowerCase());
-  const jobSkills = job.requiredSkills.map(s => s.toLowerCase());
+  if (!job || !job.requiredSkills || job.requiredSkills.length === 0) return 75;
+  const candSkills = (candidate.skills || []).map(s => (s || '').toLowerCase());
+  const jobSkills = (job.requiredSkills || []).map(s => (s || '').toLowerCase());
   const matches = candSkills.filter(s => jobSkills.some(js => js.includes(s) || s.includes(js)));
   const percentage = Math.round((matches.length / jobSkills.length) * 40) + 55; // Base 55%, up to 95%
   return Math.min(percentage, 98);
 };
 
 export const generateInitialContacts = (company: Company): Contact[] => {
+  const compName = company.name || 'Company';
+  const cleanCompName = compName.toLowerCase().replace(/\s/g, '');
   return [
     {
       id: `con_1_${company.id}`,
       name: company.contactPerson || 'Sarah Connor',
       designation: 'VP of Engineering',
       department: 'Engineering',
-      email: company.email || `${company.name.toLowerCase().replace(/\s/g, '')}@example.com`,
+      email: company.email || `${cleanCompName}@example.com`,
       phone: company.phone || '+1 (555) 019-2831',
       isPrimary: true
     },
@@ -70,7 +72,7 @@ export const generateInitialContacts = (company: Company): Contact[] => {
       name: 'Jane Miller',
       designation: 'Director of Talent Acquisition',
       department: 'Human Resources',
-      email: `jane.m@${company.name.toLowerCase().replace(/\s/g, '')}.com`,
+      email: `jane.m@${cleanCompName}.com`,
       phone: '+1 (555) 012-9844',
       isPrimary: false
     }
@@ -78,10 +80,12 @@ export const generateInitialContacts = (company: Company): Contact[] => {
 };
 
 export const generateInitialDocuments = (company: Company): CompanyDocument[] => {
+  const compName = company.name || 'Company';
+  const cleanNameForDoc = compName.replace(/\s/g, '_');
   return [
     {
       id: `doc_1_${company.id}`,
-      title: `${company.name.replace(/\s/g, '_')}_Staffing_Agreement_Executed.pdf`,
+      title: `${cleanNameForDoc}_Staffing_Agreement_Executed.pdf`,
       type: 'Agreement',
       dateAdded: '2026-06-15',
       size: '1.2 MB'
@@ -95,7 +99,7 @@ export const generateInitialDocuments = (company: Company): CompanyDocument[] =>
     },
     {
       id: `doc_3_${company.id}`,
-      title: `${company.name.replace(/\s/g, '_')}_Hiring_Forecast_Q3.docx`,
+      title: `${cleanNameForDoc}_Hiring_Forecast_Q3.docx`,
       type: 'JD',
       dateAdded: '2026-06-22',
       size: '2.4 MB'

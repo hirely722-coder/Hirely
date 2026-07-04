@@ -21,8 +21,8 @@ export interface Company {
 export interface Job {
   id: string;
   title: string;
-  companyId: string;
-  companyName: string;
+  companyId: string | null;
+  companyName: string | null;
   experience: string;
   location: string;
   applicationsCount: number;
@@ -45,7 +45,7 @@ export interface Candidate {
   experience: string; // e.g., "5 Years"
   skills: string[];
   currentCompany: string;
-  status: 'Applied' | 'Screening' | 'Shortlisted' | 'Interview' | 'Selected' | 'Offer Sent' | 'Joined';
+  status: 'Pool' | 'Applied' | 'Screening' | 'Shortlisted' | 'Interview' | 'Selected' | 'Offer Sent' | 'Joined';
   aiMatchScore: number; // percentage, e.g. 85
   resumeText: string;
   resumeFileName?: string;
@@ -57,10 +57,26 @@ export interface Candidate {
   gender?: 'Male' | 'Female' | 'Other';
   city?: string;
   expectedSalary?: string;
+  noticePeriod?: string;
   importId?: string;
   _isUpdate?: boolean;
   _dupeEmail?: string;
   _dupePhone?: string;
+  customFields?: Record<string, any>;
+}
+
+export interface JobCandidate {
+  id: string;
+  jobId: string;
+  candidateId: string;
+  stage: 'Applied' | 'Screening' | 'Shortlisted' | 'Interview' | 'Selected' | 'Offer Sent' | 'Joined';
+  addedDate: string;
+  candidate: Candidate;
+  totalAgencyFee?: number;
+  amountPaid?: number;
+  paymentDueDate?: string;
+  paymentNotes?: string;
+  paymentStatus?: 'Unpaid' | 'Partially Paid' | 'Fully Paid';
 }
 
 export interface Task {
@@ -117,6 +133,11 @@ export interface EmailConfig {
   password?: string;
   encryption?: 'None' | 'SSL' | 'TLS';
   isConnected?: boolean;
+  resumeNotificationEnabled?: boolean;
+  resumeNotificationEmail?: string;
+  telegramChatId?: string | null;
+  telegramToken?: string | null;
+  telegramNotificationEnabled?: boolean;
 }
 
 export interface CommunicationLog {
@@ -178,4 +199,14 @@ export interface CustomTheme {
     logoUrl?: string;
     faviconUrl?: string;
   };
+}
+
+export interface CustomFieldDefinition {
+  id: string;
+  entityType: 'candidate' | 'company' | 'job';
+  name: string;
+  key: string;
+  type: 'text' | 'number' | 'date' | 'boolean' | 'dropdown';
+  options?: string[];
+  isRequired: boolean;
 }

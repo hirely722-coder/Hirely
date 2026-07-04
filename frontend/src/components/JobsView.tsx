@@ -1,10 +1,13 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { supabase } from '../utils/supabase';
 import { 
   Briefcase, Search, Filter, ArrowUpDown, ChevronLeft, ChevronRight, 
   Eye, Edit2, Trash2, Copy, Sparkles, X, Mail, CheckCircle2, AlertCircle, Plus, DollarSign, MapPin, Award, FileSpreadsheet, Upload
 } from 'lucide-react';
 import { Job, Company, Candidate } from '../types';
 import JobDetailsPage from './job/JobDetailsPage';
+import Portal from './Portal';
+import { SearchableDropdown } from './SearchableDropdown';
 
 interface JobsViewProps {
   jobs: Job[];
@@ -38,6 +41,29 @@ export default function JobsView({
   const [sortBy, setSortBy] = useState<'title' | 'company' | 'applications'>('title');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
 
+  // Live Job Candidates Mapping State
+  const [jobCandidates, setJobCandidates] = useState<any[]>([]);
+
+  const fetchJobCandidates = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      const res = await fetch('/api/job-candidates', {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setJobCandidates(Array.isArray(data) ? data : []);
+      }
+    } catch (err) {
+      console.error('Failed to fetch job candidates:', err);
+    }
+  };
+
+  useEffect(() => {
+    fetchJobCandidates();
+  }, [jobs, candidates]);
+
   // Advanced Filters State
   const [experienceFilter, setExperienceFilter] = useState<string>('All');
   const [salaryFilter, setSalaryFilter] = useState<string>('All');
@@ -51,8 +77,8 @@ export default function JobsView({
   // Dynamic helper lists for filters
   const locationsList = useMemo(() => {
     const list = new Set<string>();
-    jobs.forEach(job => {
-      if (job.location) {
+    (jobs || []).forEach(job => {
+      if (job && job.location) {
         const parts = job.location.split(',');
         if (parts.length > 0) {
           const possibleCity = parts[0].trim();
@@ -67,8 +93,8 @@ export default function JobsView({
 
   const skillsList = useMemo(() => {
     const list = new Set<string>();
-    jobs.forEach(job => {
-      if (job.requiredSkills) {
+    (jobs || []).forEach(job => {
+      if (job && job.requiredSkills) {
         job.requiredSkills.forEach(s => {
           if (s && s.trim()) list.add(s.trim());
         });
@@ -111,13 +137,14 @@ export default function JobsView({
 
   // Filter & Sort Logic for jobs list
   const filteredJobs = useMemo(() => {
-    return jobs
+    return (jobs || [])
       .filter(job => {
+        if (!job) return false;
         const matchesSearch = 
-          job.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          job.companyName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          job.location.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          job.requiredSkills.some(s => s.toLowerCase().includes(searchTerm.toLowerCase()));
+          (job.title || '').toLowerCase().includes((searchTerm || '').toLowerCase()) ||
+          (job.companyName || '').toLowerCase().includes((searchTerm || '').toLowerCase()) ||
+          (job.location || '').toLowerCase().includes((searchTerm || '').toLowerCase()) ||
+          (job.requiredSkills || []).some(s => (s || '').toLowerCase().includes((searchTerm || '').toLowerCase()));
         
         const matchesStatus = statusFilter === 'All' || job.status === statusFilter;
         const matchesCompany = companyFilter === 'All' || job.companyId === companyFilter;
@@ -125,7 +152,7 @@ export default function JobsView({
         // Experience Filter
         let matchesExperience = true;
         if (experienceFilter !== 'All') {
-          const jobExpLower = job.experience.toLowerCase();
+          const jobExpLower = (job.experience || '').toLowerCase();
           if (experienceFilter === 'Entry (0-2 Years)') {
             matchesExperience = jobExpLower.includes('1') || jobExpLower.includes('2') || jobExpLower.includes('entry') || jobExpLower.includes('junior');
           } else if (experienceFilter === 'Mid (3-5 Years)') {
@@ -141,7 +168,8 @@ export default function JobsView({
         let matchesSalary = true;
         if (salaryFilter !== 'All') {
           // Calculate an approximate value from the salary string (e.g., "$150,000 - $180,000")
-          const numbers = job.salary.match(/\d+,\d+/g) || job.salary.match(/\d+/g);
+          const salaryVal = job.salary || '';
+          const numbers = salaryVal.match(/\d+,\d+/g) || salaryVal.match(/\d+/g);
           let averageSalary = 0;
           if (numbers) {
             const parsed = numbers.map(n => parseInt(n.replace(/,/g, '')));
@@ -161,16 +189,16 @@ export default function JobsView({
 
         // Location Filter
         const matchesLocation = locationFilter === 'All' || 
-          job.location.toLowerCase().includes(locationFilter.toLowerCase());
+          (job.location || '').toLowerCase().includes((locationFilter || '').toLowerCase());
 
         // Skills Filter
         const matchesSkills = skillsFilter === 'All' || 
-          job.requiredSkills.some(s => s.toLowerCase() === skillsFilter.toLowerCase());
+          (job.requiredSkills || []).some(s => (s || '').toLowerCase() === (skillsFilter || '').toLowerCase());
 
         // Work Mode Filter
         let matchesWorkMode = true;
         if (workModeFilter !== 'All') {
-          const locLower = job.location.toLowerCase();
+          const locLower = (job.location || '').toLowerCase();
           if (workModeFilter === 'Remote') {
             matchesWorkMode = locLower.includes('remote');
           } else if (workModeFilter === 'Hybrid') {
@@ -183,7 +211,7 @@ export default function JobsView({
         // Applications Count Filter
         let matchesApplicationsCount = true;
         if (applicationsCountFilter !== 'All') {
-          const count = job.applicationsCount || 0;
+          const count = jobCandidates.filter(jc => jc.jobId === job.id).length;
           if (applicationsCountFilter === 'No Applications') {
             matchesApplicationsCount = count === 0;
           } else if (applicationsCountFilter === '1-3 Applications') {
@@ -216,8 +244,8 @@ export default function JobsView({
           valA = a.companyName;
           valB = b.companyName;
         } else if (sortBy === 'applications') {
-          valA = a.applicationsCount;
-          valB = b.applicationsCount;
+          valA = jobCandidates.filter(jc => jc.jobId === a.id).length;
+          valB = jobCandidates.filter(jc => jc.jobId === b.id).length;
         }
 
         if (sortOrder === 'asc') {
@@ -226,7 +254,7 @@ export default function JobsView({
           return valB.toString().localeCompare(valA.toString());
         }
       });
-  }, [jobs, searchTerm, statusFilter, companyFilter, sortBy, sortOrder, experienceFilter, salaryFilter, locationFilter, skillsFilter, workModeFilter, applicationsCountFilter, requiredSkillsCountFilter]);
+  }, [jobs, searchTerm, statusFilter, companyFilter, sortBy, sortOrder, experienceFilter, salaryFilter, locationFilter, skillsFilter, workModeFilter, applicationsCountFilter, requiredSkillsCountFilter, jobCandidates]);
 
   const paginatedJobs = useMemo(() => {
     const startIdx = (currentPage - 1) * itemsPerPage;
@@ -254,14 +282,17 @@ export default function JobsView({
 
   const handleSaveAdd = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!formTitle) return;
+
     const selectedComp = companies.find(c => c.id === formCompanyId);
-    if (!formTitle || !selectedComp) return;
+    const companyNameVal = selectedComp ? selectedComp.name : "None";
+    const companyIdVal = selectedComp ? selectedComp.id : null;
 
     const newJob: Job = {
       id: 'j_' + Date.now(),
       title: formTitle,
-      companyId: formCompanyId,
-      companyName: selectedComp.name,
+      companyId: companyIdVal,
+      companyName: companyNameVal,
       experience: formExperience,
       location: formLocation,
       applicationsCount: 0,
@@ -283,7 +314,7 @@ export default function JobsView({
   // Edit Job trigger
   const startEdit = (job: Job) => {
     setFormTitle(job.title);
-    setFormCompanyId(job.companyId);
+    setFormCompanyId(job.companyId || '');
     setFormExperience(job.experience);
     setFormLocation(job.location);
     setFormDescription(job.description || '');
@@ -299,16 +330,17 @@ export default function JobsView({
 
   const handleSaveEdit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!showEditModal) return;
+    if (!showEditModal || !formTitle) return;
 
     const selectedComp = companies.find(c => c.id === formCompanyId);
-    if (!selectedComp) return;
+    const companyNameVal = selectedComp ? selectedComp.name : "None";
+    const companyIdVal = selectedComp ? selectedComp.id : null;
 
     const updated: Job = {
       ...showEditModal,
       title: formTitle,
-      companyId: formCompanyId,
-      companyName: selectedComp.name,
+      companyId: companyIdVal,
+      companyName: companyNameVal,
       experience: formExperience,
       location: formLocation,
       description: formDescription,
@@ -440,26 +472,20 @@ export default function JobsView({
           </div>
           
           <div className="flex flex-wrap items-center gap-2.5 justify-end">
-            <select 
+            <SearchableDropdown
+              label="Company"
+              options={[{ value: 'All', label: 'All Companies' }, ...companies.map(c => ({ value: c.id, label: c.name }))] }
               value={companyFilter}
-              onChange={(e) => setCompanyFilter(e.target.value)}
-              className="text-xs border border-slate-200 rounded-lg px-3 py-2 focus:outline-none bg-white font-medium text-slate-700"
-            >
-              <option value="All">All Companies</option>
-              {companies.map(c => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
-            </select>
+              onChange={setCompanyFilter}
+              placeholder="Search companies..."
+            />
 
-            <select 
+            <SearchableDropdown
+              label="Status"
+              options={['All', 'Open', 'Closed']}
               value={statusFilter}
-              onChange={(e: any) => setStatusFilter(e.target.value)}
-              className="text-xs border border-slate-200 rounded-lg px-3 py-2 focus:outline-none bg-white font-medium text-slate-700"
-            >
-              <option value="All">All Statuses</option>
-              <option value="Open">Open</option>
-              <option value="Closed">Closed</option>
-            </select>
+              onChange={(val) => setStatusFilter(val as any)}
+            />
 
             <button
               type="button"
@@ -504,111 +530,58 @@ export default function JobsView({
         {/* Collapsible Advanced Filters Panel */}
         {showFiltersPanel && (
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3.5 bg-slate-50 border border-slate-200/50 p-4 rounded-xl animate-fade-in text-xs mt-2">
-            {/* Experience Range Filter */}
-            <div className="space-y-1">
-              <label className="block text-[10px] font-mono uppercase text-slate-400 font-bold tracking-wider">Experience Level</label>
-              <select
-                value={experienceFilter}
-                onChange={(e) => setExperienceFilter(e.target.value)}
-                className="w-full text-xs border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none bg-white font-sans text-slate-700"
-              >
-                <option value="All">Any Experience</option>
-                <option value="Entry (0-2 Years)">Entry (0-2 Years)</option>
-                <option value="Mid (3-5 Years)">Mid (3-5 Years)</option>
-                <option value="Senior (5+ Years)">Senior (5+ Years)</option>
-                <option value="Lead / Staff (9+ Years)">Lead / Staff (9+ Years)</option>
-              </select>
-            </div>
+            <SearchableDropdown
+              label="Experience Level"
+              options={['All', 'Entry (0-2 Years)', 'Mid (3-5 Years)', 'Senior (5+ Years)', 'Lead / Staff (9+ Years)']}
+              value={experienceFilter}
+              onChange={setExperienceFilter}
+              placeholder="Search experience..."
+            />
 
-            {/* Salary Range Filter */}
-            <div className="space-y-1">
-              <label className="block text-[10px] font-mono uppercase text-slate-400 font-bold tracking-wider">Salary Range</label>
-              <select
-                value={salaryFilter}
-                onChange={(e) => setSalaryFilter(e.target.value)}
-                className="w-full text-xs border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none bg-white font-sans text-slate-700"
-              >
-                <option value="All">Any Salary</option>
-                <option value="Under $100k">Under $100k</option>
-                <option value="$100k - $150k">$100k - $150k</option>
-                <option value="$150k - $200k">$150k - $200k</option>
-                <option value="Over $200k">Over $200k</option>
-              </select>
-            </div>
+            <SearchableDropdown
+              label="Salary Range"
+              options={['All', 'Under $100k', '$100k - $150k', '$150k - $200k', 'Over $200k']}
+              value={salaryFilter}
+              onChange={setSalaryFilter}
+              placeholder="Search salaries..."
+            />
 
-            {/* City / Location Filter */}
-            <div className="space-y-1">
-              <label className="block text-[10px] font-mono uppercase text-slate-400 font-bold tracking-wider">City / Location</label>
-              <select
-                value={locationFilter}
-                onChange={(e) => setLocationFilter(e.target.value)}
-                className="w-full text-xs border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none bg-white font-sans text-slate-700"
-              >
-                <option value="All">All Locations</option>
-                {locationsList.map((loc) => (
-                  <option key={loc} value={loc}>{loc}</option>
-                ))}
-              </select>
-            </div>
+            <SearchableDropdown
+              label="City / Location"
+              options={locationsList}
+              value={locationFilter}
+              onChange={setLocationFilter}
+              placeholder="Search locations..."
+            />
 
-            {/* Required Skill Filter */}
-            <div className="space-y-1">
-              <label className="block text-[10px] font-mono uppercase text-slate-400 font-bold tracking-wider">Required Skill</label>
-              <select
-                value={skillsFilter}
-                onChange={(e) => setSkillsFilter(e.target.value)}
-                className="w-full text-xs border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none bg-white font-sans text-slate-700"
-              >
-                {skillsList.map((skill) => (
-                  <option key={skill} value={skill}>{skill}</option>
-                ))}
-              </select>
-            </div>
+            <SearchableDropdown
+              label="Required Skill"
+              options={skillsList}
+              value={skillsFilter}
+              onChange={setSkillsFilter}
+              placeholder="Search skills..."
+            />
 
-            {/* Work Mode Filter */}
-            <div className="space-y-1">
-              <label className="block text-[10px] font-mono uppercase text-slate-400 font-bold tracking-wider">Work Mode</label>
-              <select
-                value={workModeFilter}
-                onChange={(e) => setWorkModeFilter(e.target.value)}
-                className="w-full text-xs border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none bg-white font-sans text-slate-700"
-              >
-                <option value="All">All Modes</option>
-                <option value="Remote">Remote</option>
-                <option value="Hybrid">Hybrid</option>
-                <option value="In-office">In-office</option>
-              </select>
-            </div>
+            <SearchableDropdown
+              label="Work Mode"
+              options={['All', 'Remote', 'Hybrid', 'In-office']}
+              value={workModeFilter}
+              onChange={setWorkModeFilter}
+            />
 
-            {/* Applications Volume Filter */}
-            <div className="space-y-1">
-              <label className="block text-[10px] font-mono uppercase text-slate-400 font-bold tracking-wider">Applications Volume</label>
-              <select
-                value={applicationsCountFilter}
-                onChange={(e) => setApplicationsCountFilter(e.target.value)}
-                className="w-full text-xs border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none bg-white font-sans text-slate-700"
-              >
-                <option value="All">Any Volume</option>
-                <option value="No Applications">No Applications</option>
-                <option value="1-3 Applications">1-3 Applications</option>
-                <option value="4+ Applications">4+ Applications</option>
-              </select>
-            </div>
+            <SearchableDropdown
+              label="Applications Volume"
+              options={['All', 'No Applications', '1-3 Applications', '4+ Applications']}
+              value={applicationsCountFilter}
+              onChange={setApplicationsCountFilter}
+            />
 
-            {/* Required Skills Count Filter */}
-            <div className="space-y-1">
-              <label className="block text-[10px] font-mono uppercase text-slate-400 font-bold tracking-wider">Skills Count Required</label>
-              <select
-                value={requiredSkillsCountFilter}
-                onChange={(e) => setRequiredSkillsCountFilter(e.target.value)}
-                className="w-full text-xs border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none bg-white font-sans text-slate-700"
-              >
-                <option value="All">Any Count</option>
-                <option value="Under 3 Skills">Under 3 Skills</option>
-                <option value="3-5 Skills">3-5 Skills</option>
-                <option value="Over 5 Skills">Over 5 Skills</option>
-              </select>
-            </div>
+            <SearchableDropdown
+              label="Skills Count Required"
+              options={['All', 'Under 3 Skills', '3-5 Skills', 'Over 5 Skills']}
+              value={requiredSkillsCountFilter}
+              onChange={setRequiredSkillsCountFilter}
+            />
 
             {/* Clear Filters Button */}
             <div className="col-span-1 sm:col-span-2 md:col-span-3 lg:col-span-4 flex justify-end gap-2 pt-2 border-t border-slate-200/50 mt-1">
@@ -680,14 +653,11 @@ export default function JobsView({
                 </tr>
               ) : (
                 paginatedJobs.map((job) => {
-                  // Dynamic statistics mapped in real-time to the candidates array
-                  const matchingCandidates = candidates.filter(c => 
-                    c.skills.some(s => job.requiredSkills.map(rs => rs.toLowerCase()).includes(s.toLowerCase())) ||
-                    c.aiMatchScore >= 60
-                  );
-                  const applications = matchingCandidates.length || job.applicationsCount || 2;
-                  const shortlisted = candidates.filter(c => c.status === 'Screening').length || 1;
-                  const interviewPool = candidates.filter(c => c.status === 'Interview').length || 1;
+                  // Dynamic statistics mapped in real-time to the database jobCandidates state
+                  const linkedRelations = jobCandidates.filter(jc => jc.jobId === job.id);
+                  const applications = linkedRelations.length;
+                  const shortlisted = linkedRelations.filter(jc => jc.stage === 'Shortlisted' || jc.stage === 'Screening').length;
+                  const interviewPool = linkedRelations.filter(jc => jc.stage === 'Interview').length;
 
                   return (
                     <tr 
@@ -700,7 +670,7 @@ export default function JobsView({
                           {job.title}
                         </div>
                       </td>
-                      <td className="p-4 font-semibold text-slate-800">{job.companyName}</td>
+                      <td className="p-4 font-semibold text-slate-800">{job.companyName || 'None'}</td>
                       <td className="p-4 text-slate-500">{job.location}</td>
                       <td className="p-4 font-mono font-medium text-slate-600">{job.experience}</td>
                       <td className="p-4 font-medium text-slate-800 font-sans">{job.salary}</td>
@@ -805,10 +775,10 @@ export default function JobsView({
         </div>
       </div>
 
-      {/* Add Job Opening Modal */}
       {showAddModal && (
-        <div className="fixed inset-0 bg-transparent backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-xl border border-slate-100 shadow-xl max-w-lg w-full overflow-hidden animate-slide-up">
+        <Portal>
+          <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-xl border border-slate-100 shadow-xl max-w-lg w-full overflow-hidden animate-slide-up">
             <div className="flex items-center justify-between p-5 border-b border-slate-100 bg-slate-50">
               <h2 className="text-sm font-bold text-slate-950 font-sans flex items-center gap-1.5">
                 <Briefcase className="h-4 w-4 text-slate-500" />
@@ -840,6 +810,7 @@ export default function JobsView({
                     onChange={(e) => setFormCompanyId(e.target.value)}
                     className="w-full px-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:ring-1 focus:ring-slate-500 bg-white"
                   >
+                    <option value="">None</option>
                     {companies.map(c => (
                       <option key={c.id} value={c.id}>{c.name}</option>
                     ))}
@@ -971,12 +942,13 @@ export default function JobsView({
             </form>
           </div>
         </div>
+      </Portal>
       )}
 
-      {/* Edit Job Opening Modal */}
       {showEditModal && (
-        <div className="fixed inset-0 bg-transparent backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-xl border border-slate-100 shadow-xl max-w-lg w-full overflow-hidden animate-slide-up">
+        <Portal>
+          <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-xl border border-slate-100 shadow-xl max-w-lg w-full overflow-hidden animate-slide-up">
             <div className="flex items-center justify-between p-5 border-b border-slate-100 bg-slate-50">
               <h2 className="text-sm font-bold text-slate-950 font-sans flex items-center gap-1.5">
                 <Briefcase className="h-4 w-4 text-slate-500" />
@@ -1007,6 +979,7 @@ export default function JobsView({
                     onChange={(e) => setFormCompanyId(e.target.value)}
                     className="w-full px-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:ring-1 focus:ring-slate-500 bg-white"
                   >
+                    <option value="">None</option>
                     {companies.map(c => (
                       <option key={c.id} value={c.id}>{c.name}</option>
                     ))}
@@ -1145,6 +1118,7 @@ export default function JobsView({
             </form>
           </div>
         </div>
+      </Portal>
       )}
 
     </div>

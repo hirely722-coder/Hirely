@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
-import { Company, Job, Candidate, Task, EmailTemplate, ActivityLog, TeamMember, CommunicationLog, EmailConfig } from '../types';
+import { Company, Job, Candidate, Task, EmailTemplate, ActivityLog, TeamMember, CommunicationLog, EmailConfig, CustomFieldDefinition } from '../types';
 import { ImportTask, ImportHistoryItem, cleanEmail, cleanPhone, cleanName, cleanSkills, cleanExperience, cleanSalary, validateRecord, addImportHistoryItem } from '../utils/importEngine';
+import { supabase } from '../utils/supabase';
 
 interface AppContextType {
   companies: Company[];
@@ -85,6 +86,14 @@ interface AppContextType {
   
   addTaskCandidate: Candidate | null;
   setAddTaskCandidate: (c: Candidate | null) => void;
+
+  customFieldDefinitions: CustomFieldDefinition[];
+  handleAddCustomFieldDef: (def: CustomFieldDefinition) => Promise<void>;
+  handleUpdateCustomFieldDef: (def: CustomFieldDefinition) => Promise<void>;
+  handleDeleteCustomFieldDef: (id: string) => Promise<void>;
+
+  user: any | null;
+  logout: () => Promise<void>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -92,6 +101,8 @@ const AppContext = createContext<AppContextType | undefined>(undefined);
 const API_URL = '';
 
 export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [user, setUser] = useState<any | null>(null);
+  const [token, setToken] = useState<string | null>(null);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [candidates, setCandidates] = useState<Candidate[]>([]);
@@ -101,6 +112,7 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [communicationLogs, setCommunicationLogs] = useState<CommunicationLog[]>([]);
   const [emailConfig, setEmailConfig] = useState<EmailConfig>({ provider: 'Gmail', isConnected: false });
+  const [customFieldDefinitions, setCustomFieldDefinitions] = useState<CustomFieldDefinition[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [toast, setToast] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
@@ -125,13 +137,52 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   useEffect(() => {
+    // Check initial session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+      setToken(session?.access_token ?? null);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+      setToken(session?.access_token ?? null);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  useEffect(() => {
     if (toast) {
       const timer = setTimeout(() => setToast(null), 3000);
       return () => clearTimeout(timer);
     }
   }, [toast]);
 
+  const logout = async () => {
+    try {
+      await supabase.auth.signOut();
+      setUser(null);
+      setToken(null);
+      showToast('Successfully logged out');
+    } catch (err) {
+      showToast('Failed to log out', 'error');
+    }
+  };
+
+  const fetchWithAuth = async (url: string, options: RequestInit = {}) => {
+    const headers = {
+      'Content-Type': 'application/json',
+      ...(options.headers || {}),
+      'Authorization': `Bearer ${token}`
+    };
+    return fetch(url, { ...options, headers });
+  };
+
   const fetchData = async () => {
+    if (!token) {
+      setIsLoading(false);
+      return;
+    }
     try {
       setIsLoading(true);
       const [
@@ -143,30 +194,33 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         activityLogsRes,
         teamMembersRes,
         communicationLogsRes,
-        emailConfigRes
+        emailConfigRes,
+        customFieldDefinitionsRes
       ] = await Promise.all([
-        fetch(`${API_URL}/api/companies`).then(r => r.json()),
-        fetch(`${API_URL}/api/jobs`).then(r => r.json()),
-        fetch(`${API_URL}/api/candidates`).then(r => r.json()),
-        fetch(`${API_URL}/api/tasks`).then(r => r.json()),
-        fetch(`${API_URL}/api/email_templates`).then(r => r.json()),
-        fetch(`${API_URL}/api/activity_logs`).then(r => r.json()),
-        fetch(`${API_URL}/api/team_members`).then(r => r.json()),
-        fetch(`${API_URL}/api/communication_logs`).then(r => r.json()),
-        fetch(`${API_URL}/api/email-config`).then(r => r.json())
+        fetchWithAuth(`${API_URL}/api/companies`).then(r => r.json()),
+        fetchWithAuth(`${API_URL}/api/jobs`).then(r => r.json()),
+        fetchWithAuth(`${API_URL}/api/candidates`).then(r => r.json()),
+        fetchWithAuth(`${API_URL}/api/tasks`).then(r => r.json()),
+        fetchWithAuth(`${API_URL}/api/email_templates`).then(r => r.json()),
+        fetchWithAuth(`${API_URL}/api/activity_logs`).then(r => r.json()),
+        fetchWithAuth(`${API_URL}/api/team_members`).then(r => r.json()),
+        fetchWithAuth(`${API_URL}/api/communication_logs`).then(r => r.json()),
+        fetchWithAuth(`${API_URL}/api/email-config`).then(r => r.json()),
+        fetchWithAuth(`${API_URL}/api/custom_field_definitions`).then(r => r.json())
       ]);
 
-      setCompanies(companiesRes);
-      setJobs(jobsRes);
-      setCandidates(candidatesRes);
-      setTasks(tasksRes);
-      setTemplates(templatesRes);
-      setActivityLogs(activityLogsRes);
-      setTeamMembers(teamMembersRes);
-      setCommunicationLogs(communicationLogsRes);
-      setEmailConfig(emailConfigRes);
+      setCompanies(companiesRes || []);
+      setJobs(jobsRes || []);
+      setCandidates(candidatesRes || []);
+      setTasks(tasksRes || []);
+      setTemplates(templatesRes || []);
+      setActivityLogs(activityLogsRes || []);
+      setTeamMembers(teamMembersRes || []);
+      setCommunicationLogs(communicationLogsRes || []);
+      setEmailConfig(emailConfigRes || { provider: 'Gmail', isConnected: false });
+      setCustomFieldDefinitions(customFieldDefinitionsRes || []);
     } catch (err: any) {
-      console.error('Failed to fetch data from Honobackend:', err);
+      console.error('Failed to fetch data from Hono backend:', err);
       showToast('Failed to connect to backend server', 'error');
     } finally {
       setIsLoading(false);
@@ -174,43 +228,63 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   useEffect(() => {
-    fetchData();
-  }, []);
+    if (token) {
+      fetchData();
+    } else {
+      setCompanies([]);
+      setJobs([]);
+      setCandidates([]);
+      setTasks([]);
+      setTemplates([]);
+      setActivityLogs([]);
+      setTeamMembers([]);
+      setCommunicationLogs([]);
+      setEmailConfig({ provider: 'Gmail', isConnected: false });
+      setCustomFieldDefinitions([]);
+      setIsLoading(false);
+    }
+  }, [token]);
 
   // API Handlers (CRUD operations synced to backend)
   const handleAddCompany = async (company: Company) => {
     try {
-      const res = await fetch(`${API_URL}/api/companies`, {
+      const res = await fetchWithAuth(`${API_URL}/api/companies`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(company)
       });
       const data = await res.json();
+      if (!res.ok || (data && data.error)) {
+        throw new Error(data?.error || 'Failed to add company');
+      }
       setCompanies(prev => [data, ...prev]);
       showToast('✓ Company added successfully!');
-    } catch (err) {
-      showToast('Failed to add company', 'error');
+    } catch (err: any) {
+      showToast(err.message || 'Failed to add company', 'error');
     }
   };
 
   const handleUpdateCompany = async (company: Company) => {
     try {
-      const res = await fetch(`${API_URL}/api/companies/${company.id}`, {
+      const res = await fetchWithAuth(`${API_URL}/api/companies/${company.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(company)
       });
       const data = await res.json();
+      if (!res.ok || (data && data.error)) {
+        throw new Error(data?.error || 'Failed to update company');
+      }
       setCompanies(prev => prev.map(c => c.id === company.id ? data : c));
       showToast('✓ Company updated successfully!');
-    } catch (err) {
-      showToast('Failed to update company', 'error');
+    } catch (err: any) {
+      showToast(err.message || 'Failed to update company', 'error');
     }
   };
 
   const handleDeleteCompany = async (id: string) => {
     try {
-      await fetch(`${API_URL}/api/companies/${id}`, { method: 'DELETE' });
+      await fetchWithAuth(`${API_URL}/api/companies/${id}`, { method: 'DELETE' });
       setCompanies(prev => prev.filter(c => c.id !== id));
       showToast('Company deleted successfully');
     } catch (err) {
@@ -220,37 +294,43 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const handleAddJob = async (job: Job) => {
     try {
-      const res = await fetch(`${API_URL}/api/jobs`, {
+      const res = await fetchWithAuth(`${API_URL}/api/jobs`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(job)
       });
       const data = await res.json();
+      if (!res.ok || (data && data.error)) {
+        throw new Error(data?.error || 'Failed to post job');
+      }
       setJobs(prev => [data, ...prev]);
       showToast('✓ Job posted successfully!');
-    } catch (err) {
-      showToast('Failed to post job', 'error');
+    } catch (err: any) {
+      showToast(err.message || 'Failed to post job', 'error');
     }
   };
 
   const handleUpdateJob = async (job: Job) => {
     try {
-      const res = await fetch(`${API_URL}/api/jobs/${job.id}`, {
+      const res = await fetchWithAuth(`${API_URL}/api/jobs/${job.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(job)
       });
       const data = await res.json();
+      if (!res.ok || (data && data.error)) {
+        throw new Error(data?.error || 'Failed to update job');
+      }
       setJobs(prev => prev.map(j => j.id === job.id ? data : j));
       showToast('✓ Job updated successfully!');
-    } catch (err) {
-      showToast('Failed to update job', 'error');
+    } catch (err: any) {
+      showToast(err.message || 'Failed to update job', 'error');
     }
   };
 
   const handleDeleteJob = async (id: string) => {
     try {
-      await fetch(`${API_URL}/api/jobs/${id}`, { method: 'DELETE' });
+      await fetchWithAuth(`${API_URL}/api/jobs/${id}`, { method: 'DELETE' });
       setJobs(prev => prev.filter(j => j.id !== id));
       showToast('Job deleted successfully');
     } catch (err) {
@@ -260,37 +340,43 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const handleAddCandidate = async (candidate: Candidate) => {
     try {
-      const res = await fetch(`${API_URL}/api/candidates`, {
+      const res = await fetchWithAuth(`${API_URL}/api/candidates`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(candidate)
       });
       const data = await res.json();
+      if (!res.ok || (data && data.error)) {
+        throw new Error(data?.error || 'Failed to register candidate');
+      }
       setCandidates(prev => [data, ...prev]);
       showToast('✓ Candidate registered successfully!');
-    } catch (err) {
-      showToast('Failed to register candidate', 'error');
+    } catch (err: any) {
+      showToast(err.message || 'Failed to register candidate', 'error');
     }
   };
 
   const handleUpdateCandidate = async (candidate: Candidate) => {
     try {
-      const res = await fetch(`${API_URL}/api/candidates/${candidate.id}`, {
+      const res = await fetchWithAuth(`${API_URL}/api/candidates/${candidate.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(candidate)
       });
       const data = await res.json();
+      if (!res.ok || (data && data.error)) {
+        throw new Error(data?.error || 'Failed to update candidate');
+      }
       setCandidates(prev => prev.map(c => c.id === candidate.id ? data : c));
       showToast('✓ Candidate updated successfully!');
-    } catch (err) {
-      showToast('Failed to update candidate', 'error');
+    } catch (err: any) {
+      showToast(err.message || 'Failed to update candidate', 'error');
     }
   };
 
   const handleDeleteCandidate = async (id: string) => {
     try {
-      await fetch(`${API_URL}/api/candidates/${id}`, { method: 'DELETE' });
+      await fetchWithAuth(`${API_URL}/api/candidates/${id}`, { method: 'DELETE' });
       setCandidates(prev => prev.filter(c => c.id !== id));
       showToast('Candidate deleted successfully');
     } catch (err) {
@@ -306,7 +392,7 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const handleAddTask = async (task: Task) => {
     try {
-      const res = await fetch(`${API_URL}/api/tasks`, {
+      const res = await fetchWithAuth(`${API_URL}/api/tasks`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(task)
@@ -324,7 +410,7 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     if (!task) return;
     const updatedStatus = task.status === 'Completed' ? 'Pending' : 'Completed';
     try {
-      const res = await fetch(`${API_URL}/api/tasks/${id}`, {
+      const res = await fetchWithAuth(`${API_URL}/api/tasks/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...task, status: updatedStatus })
@@ -338,7 +424,7 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const handleUpdateTask = async (task: Task) => {
     try {
-      const res = await fetch(`${API_URL}/api/tasks/${task.id}`, {
+      const res = await fetchWithAuth(`${API_URL}/api/tasks/${task.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(task)
@@ -353,7 +439,7 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const handleDeleteTask = async (id: string) => {
     try {
-      await fetch(`${API_URL}/api/tasks/${id}`, { method: 'DELETE' });
+      await fetchWithAuth(`${API_URL}/api/tasks/${id}`, { method: 'DELETE' });
       setTasks(prev => prev.filter(t => t.id !== id));
       showToast('Task deleted successfully');
     } catch (err) {
@@ -363,7 +449,7 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const handleAddTemplate = async (template: EmailTemplate) => {
     try {
-      const res = await fetch(`${API_URL}/api/email_templates`, {
+      const res = await fetchWithAuth(`${API_URL}/api/email_templates`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(template)
@@ -378,7 +464,7 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const handleEditTemplate = async (template: EmailTemplate) => {
     try {
-      const res = await fetch(`${API_URL}/api/email_templates/${template.id}`, {
+      const res = await fetchWithAuth(`${API_URL}/api/email_templates/${template.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(template)
@@ -393,7 +479,7 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const handleDeleteTemplate = async (id: string) => {
     try {
-      await fetch(`${API_URL}/api/email_templates/${id}`, { method: 'DELETE' });
+      await fetchWithAuth(`${API_URL}/api/email_templates/${id}`, { method: 'DELETE' });
       setTemplates(prev => prev.filter(t => t.id !== id));
       showToast('Template deleted');
     } catch (err) {
@@ -410,7 +496,7 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         description,
         user: 'Sarah Jenkins'
       };
-      const res = await fetch(`${API_URL}/api/activity_logs`, {
+      const res = await fetchWithAuth(`${API_URL}/api/activity_logs`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newLog)
@@ -424,7 +510,7 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const handleAddTeamMember = async (member: TeamMember) => {
     try {
-      const res = await fetch(`${API_URL}/api/team_members`, {
+      const res = await fetchWithAuth(`${API_URL}/api/team_members`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(member)
@@ -439,7 +525,7 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const handleUpdateTeamMember = async (member: TeamMember) => {
     try {
-      const res = await fetch(`${API_URL}/api/team_members/${member.id}`, {
+      const res = await fetchWithAuth(`${API_URL}/api/team_members/${member.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(member)
@@ -454,7 +540,7 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const handleDeleteTeamMember = async (id: string) => {
     try {
-      await fetch(`${API_URL}/api/team_members/${id}`, { method: 'DELETE' });
+      await fetchWithAuth(`${API_URL}/api/team_members/${id}`, { method: 'DELETE' });
       setTeamMembers(prev => prev.filter(m => m.id !== id));
       showToast('Team member removed');
     } catch (err) {
@@ -464,7 +550,7 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const handleAddCommunicationLog = async (log: CommunicationLog) => {
     try {
-      const res = await fetch(`${API_URL}/api/communication_logs`, {
+      const res = await fetchWithAuth(`${API_URL}/api/communication_logs`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(log)
@@ -478,7 +564,7 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const handleSaveEmailConfig = async (config: EmailConfig) => {
     try {
-      const res = await fetch(`${API_URL}/api/email-config`, {
+      const res = await fetchWithAuth(`${API_URL}/api/email-config`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(config)
@@ -664,6 +750,18 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
           // Map items
           if (task.importType === 'candidates') {
+            const coreKeys = [
+              'name', 'phone', 'email', 'experience', 'skills', 'currentCompany', 'status',
+              'resumeText', 'resumeFileName', 'education', 'address', 'notes', 'appliedDate',
+              'designation', 'gender', 'city', 'expectedSalary'
+            ];
+            const customFieldsObj: Record<string, any> = {};
+            fieldsToMap.forEach(f => {
+              if (!coreKeys.includes(f)) {
+                customFieldsObj[f] = record[f];
+              }
+            });
+
             newCandidates.push({
               id: record._isUpdate ? '' : 'cand_bg_' + Date.now() + '_' + rowNum + '_' + Math.random().toString(36).substr(2, 4),
               name: record.name,
@@ -684,6 +782,7 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
               city: record.city || undefined,
               expectedSalary: record.expectedSalary || undefined,
               importId: task.id,
+              customFields: customFieldsObj,
               _isUpdate: record._isUpdate,
               _dupeEmail: record._dupeEmail,
               _dupePhone: record._dupePhone
@@ -751,7 +850,7 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           const inserts = newCandidates.filter(c => !c._isUpdate);
 
           if (inserts.length > 0) {
-            await fetch(`${API_URL}/api/candidates/bulk`, {
+            await fetchWithAuth(`${API_URL}/api/candidates/bulk`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(inserts)
@@ -769,7 +868,7 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
               delete cleanedUpdate._dupeEmail;
               delete cleanedUpdate._dupePhone;
               cleanedUpdate.id = existing.id;
-              await fetch(`${API_URL}/api/candidates/${existing.id}`, {
+              await fetchWithAuth(`${API_URL}/api/candidates/${existing.id}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(cleanedUpdate)
@@ -777,13 +876,13 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             }
           }
         } else if (task.importType === 'companies' && newCompanies.length > 0) {
-          await fetch(`${API_URL}/api/companies/bulk`, {
+          await fetchWithAuth(`${API_URL}/api/companies/bulk`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(newCompanies)
           });
         } else if (task.importType === 'jobs' && newJobs.length > 0) {
-          await fetch(`${API_URL}/api/jobs/bulk`, {
+          await fetchWithAuth(`${API_URL}/api/jobs/bulk`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(newJobs)
@@ -885,7 +984,7 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       const table = deleteEndpoints[task.importType];
       if (!table) return;
 
-      const res = await fetch(`${API_URL}/api/${table}?importId=${task.id}`, {
+      const res = await fetchWithAuth(`${API_URL}/api/${table}?importId=${task.id}`, {
         method: 'DELETE'
       });
       
@@ -897,6 +996,46 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       fetchData();
     } catch (err: any) {
       showToast('Failed to rollback import', 'error');
+    }
+  };
+
+  const handleAddCustomFieldDef = async (def: CustomFieldDefinition) => {
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/custom_field_definitions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(def)
+      });
+      const data = await res.json();
+      setCustomFieldDefinitions(prev => [data, ...prev]);
+      showToast('✓ Custom Field created successfully!');
+    } catch (err) {
+      showToast('Failed to create custom field', 'error');
+    }
+  };
+
+  const handleUpdateCustomFieldDef = async (def: CustomFieldDefinition) => {
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/custom_field_definitions/${def.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(def)
+      });
+      const data = await res.json();
+      setCustomFieldDefinitions(prev => prev.map(d => d.id === def.id ? data : d));
+      showToast('✓ Custom Field updated successfully!');
+    } catch (err) {
+      showToast('Failed to update custom field', 'error');
+    }
+  };
+
+  const handleDeleteCustomFieldDef = async (id: string) => {
+    try {
+      await fetchWithAuth(`${API_URL}/api/custom_field_definitions/${id}`, { method: 'DELETE' });
+      setCustomFieldDefinitions(prev => prev.filter(d => d.id !== id));
+      showToast('Custom Field deleted');
+    } catch (err) {
+      showToast('Failed to delete custom field', 'error');
     }
   };
 
@@ -964,8 +1103,15 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       handleAddCommunicationLog,
       handleSaveEmailConfig,
       
+      customFieldDefinitions,
+      handleAddCustomFieldDef,
+      handleUpdateCustomFieldDef,
+      handleDeleteCustomFieldDef,
+
       toast,
-      showToast
+      showToast,
+      user,
+      logout
     }}>
       {children}
     </AppContext.Provider>
