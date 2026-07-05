@@ -232,13 +232,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   ];
 
   return (
-    <div className="flex h-screen bg-slate-50 font-sans overflow-hidden relative">
-      {/* Top micro loading bar when data is loading in the background */}
-      {isLoading && (
-        <div className="absolute top-0 left-0 right-0 h-[2.5px] bg-slate-100 z-50 overflow-hidden">
-          <div className="h-full w-1/3 bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500 rounded-full animate-[slide-shimmer_1.2s_infinite_linear]" />
-        </div>
-      )}
+    <div className="flex h-screen bg-slate-50 font-sans overflow-hidden">
       
       {/* Mobile Sidebar Overlay */}
       {isMobileSidebarOpen && (

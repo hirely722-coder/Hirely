@@ -37,6 +37,7 @@ interface CandidatesViewProps {
   onScheduleInterview: (candidate: Candidate) => void;
   onAddTaskForCandidate: (candidate: Candidate) => void;
   onOpenCSVImport?: (type: 'companies' | 'jobs' | 'candidates') => void;
+  isLoading?: boolean;
 }
 
 export default function CandidatesView(props: CandidatesViewProps) {
@@ -55,7 +56,8 @@ export default function CandidatesView(props: CandidatesViewProps) {
     onComposeWhatsApp,
     onScheduleInterview,
     onAddTaskForCandidate,
-    onOpenCSVImport
+    onOpenCSVImport,
+    isLoading = false
   } = props;
 
   const { customFieldDefinitions } = useApp();
@@ -218,6 +220,7 @@ export default function CandidatesView(props: CandidatesViewProps) {
             showColumnCustomizer={state.showColumnCustomizer}
             setShowColumnCustomizer={state.setShowColumnCustomizer}
             customFieldDefinitions={customFieldDefinitions}
+            isLoading={isLoading}
             currentPage={state.currentPage}
             setCurrentPage={state.setCurrentPage}
             totalPages={totalPages}

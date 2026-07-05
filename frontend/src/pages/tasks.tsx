@@ -11,13 +11,15 @@ export default function TasksPage() {
     handleUpdateTask,
     handleDeleteTask,
     setEmailComposeCandidate,
-    setEmailComposePreselectedJob
+    setEmailComposePreselectedJob,
+    isLoading
   } = useApp();
 
   return (
     <TasksView
       tasks={tasks}
       candidates={candidates}
+      isLoading={isLoading}
       onAddTask={handleAddTask}
       onToggleTaskStatus={handleToggleTaskStatus}
       onUpdateTask={handleUpdateTask}

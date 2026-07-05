@@ -58,6 +58,7 @@ interface CandidatesListViewProps {
   onDeleteCandidate: (id: string) => void;
   showToast: (text: string, type: 'success' | 'error') => void;
   jobs: Job[];
+  isLoading?: boolean;
 }
 
 export function CandidatesListView({
@@ -111,7 +112,8 @@ export function CandidatesListView({
   onComposeWhatsApp,
   startEdit,
   onDeleteCandidate,
-  showToast
+  showToast,
+  isLoading = false
 }: CandidatesListViewProps) {
   const [assigningCandidateId, setAssigningCandidateId] = useState<string | null>(null);
 
@@ -453,7 +455,37 @@ export function CandidatesListView({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-xs text-slate-700">
-              {paginatedCandidates.length === 0 ? (
+              {isLoading ? (
+                [...Array(5)].map((_, rowIndex) => (
+                  <tr key={rowIndex} className="animate-pulse">
+                    {visibleColumns.map((col) => (
+                      <td key={col} className="p-4">
+                        {col === 'name' ? (
+                          <div className="flex items-center gap-3">
+                            <div className="h-8 w-8 rounded-full bg-slate-100 shrink-0" />
+                            <div className="space-y-1.5 flex-1">
+                              <div className="h-3.5 w-24 bg-slate-200 rounded" />
+                              <div className="h-2.5 w-16 bg-slate-100 rounded" />
+                            </div>
+                          </div>
+                        ) : col === 'contact' ? (
+                          <div className="space-y-1.5">
+                            <div className="h-3 w-28 bg-slate-200 rounded" />
+                            <div className="h-2.5 w-20 bg-slate-100 rounded" />
+                          </div>
+                        ) : col === 'experience' ? (
+                          <div className="h-3.5 w-12 bg-slate-200 rounded" />
+                        ) : (
+                          <div className="h-3.5 w-20 bg-slate-100 rounded" />
+                        )}
+                      </td>
+                    ))}
+                    <td className="p-4 text-right">
+                      <div className="inline-block h-6 w-12 bg-slate-100 rounded" />
+                    </td>
+                  </tr>
+                ))
+              ) : paginatedCandidates.length === 0 ? (
                 <tr>
                   <td colSpan={visibleColumns.length + 1} className="p-8 text-center text-slate-400 italic">
                     No candidates matched the current search or filters.

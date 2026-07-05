@@ -12,7 +12,8 @@ export default function SettingsPage() {
     handleDeleteTeamMember,
     handleSaveEmailConfig,
     addActivityLog,
-    showToast
+    showToast,
+    isLoading
   } = useApp();
 
   const setTeamMembersWrapper = async (action: any) => {
@@ -58,6 +59,7 @@ export default function SettingsPage() {
       addActivityLog={addActivityLog}
       setNotifications={() => {}} // dummy notifications updater
       showToast={showToast}
+      isLoading={isLoading}
       currentThemeId={typeof window !== 'undefined' ? localStorage.getItem('apex-theme') || 'slate' : 'slate'}
       onThemeChanged={(themeId) => {
         if (typeof window !== 'undefined') {

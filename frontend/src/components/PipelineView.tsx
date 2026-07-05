@@ -23,6 +23,7 @@ interface PipelineViewProps {
   candidates: Candidate[];
   jobs: Job[];
   onUpdateCandidateStage: (candidateId: string, newStage: Candidate['status']) => void;
+  isLoading?: boolean;
 }
 
 const STAGES: Exclude<Candidate['status'], 'Pool'>[] = ['Applied', 'Screening', 'Shortlisted', 'Interview', 'Selected', 'Offer Sent', 'Joined'];
@@ -109,7 +110,8 @@ const candidateMatchesSearch = (candidate: Candidate, searchLower: string) => {
 export default function PipelineView({
   candidates,
   jobs,
-  onUpdateCandidateStage
+  onUpdateCandidateStage,
+  isLoading = false
 }: PipelineViewProps) {
   const [draggedCandidateId, setDraggedCandidateId] = useState<string | null>(null);
   const [activeDropStage, setActiveDropStage] = useState<Exclude<Candidate['status'], 'Pool'> | null>(null);
@@ -483,14 +485,35 @@ export default function PipelineView({
                   <span className={`h-1.5 w-1.5 rounded-full ${theme.dot}`} />
                   <span className="text-xs font-bold text-slate-800 font-sans tracking-tight">{stage}</span>
                 </div>
-                <span className="font-mono text-[10px] font-extrabold px-2 py-0.5 bg-white text-slate-700 rounded-full border border-slate-200/50 shadow-2xs">
-                  {stageList.length}
-                </span>
+                {isLoading ? (
+                  <span className="h-4 w-6 bg-slate-100 animate-pulse rounded-full" />
+                ) : (
+                  <span className="font-mono text-[10px] font-extrabold px-2 py-0.5 bg-white text-slate-700 rounded-full border border-slate-200/50 shadow-2xs">
+                    {stageList.length}
+                  </span>
+                )}
               </div>
 
               {/* Scrollable Cards Container */}
               <div className="flex-1 space-y-2.5 overflow-y-auto max-h-[500px] pr-1.5 scrollbar-thin">
-                {stageList.length === 0 ? (
+                {isLoading ? (
+                  [...Array(2)].map((_, i) => (
+                    <div key={i} className="p-3 bg-white border border-slate-200/80 rounded-lg shadow-2xs animate-pulse space-y-3">
+                      <div className="flex justify-between items-center">
+                        <div className="h-6 w-6 rounded-full bg-slate-100" />
+                        <div className="h-4 w-12 bg-slate-100 rounded" />
+                      </div>
+                      <div className="space-y-1.5">
+                        <div className="h-3.5 w-32 bg-slate-200 rounded" />
+                        <div className="h-2.5 w-24 bg-slate-100 rounded" />
+                      </div>
+                      <div className="flex gap-2">
+                        <div className="h-4 w-12 bg-slate-100 rounded" />
+                        <div className="h-4 w-16 bg-slate-100 rounded" />
+                      </div>
+                    </div>
+                  ))
+                ) : stageList.length === 0 ? (
                   <div className="py-16 text-center text-slate-400 text-[11px] border border-dashed border-slate-200 rounded-xl bg-white/40 font-sans">
                     <p className="font-semibold">No candidates</p>
                     <p className="text-[9px] text-slate-400 mt-0.5">Drop candidate card here</p>

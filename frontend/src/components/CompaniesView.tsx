@@ -25,6 +25,7 @@ interface CompaniesViewProps {
   onComposeEmail?: (candidate: Candidate) => void;
   onComposeWhatsApp?: (candidate: Candidate) => void;
   onOpenCSVImport?: (type: 'companies' | 'jobs' | 'candidates') => void;
+  isLoading?: boolean;
 }
 
 export default function CompaniesView({
@@ -42,7 +43,8 @@ export default function CompaniesView({
   onDeleteJob,
   onComposeEmail,
   onComposeWhatsApp,
-  onOpenCSVImport
+  onOpenCSVImport,
+  isLoading = false
 }: CompaniesViewProps) {
   // Navigation drilldown state
   const [focusedCompanyId, setFocusedCompanyId] = useState<string | null>(null);
@@ -556,7 +558,42 @@ export default function CompaniesView({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-xs text-slate-700">
-              {paginatedCompanies.length === 0 ? (
+              {isLoading ? (
+                [...Array(5)].map((_, rowIndex) => (
+                  <tr key={rowIndex} className="animate-pulse">
+                    <td className="p-4">
+                      <div className="flex items-center gap-3">
+                        <div className="h-8 w-8 rounded-lg bg-slate-100 shrink-0" />
+                        <div className="space-y-1.5 flex-1">
+                          <div className="h-3.5 w-24 bg-slate-200 rounded" />
+                          <div className="h-2.5 w-16 bg-slate-100 rounded" />
+                        </div>
+                      </div>
+                    </td>
+                    <td className="p-4">
+                      <div className="space-y-1.5">
+                        <div className="h-3 w-28 bg-slate-200 rounded" />
+                        <div className="h-2.5 w-20 bg-slate-100 rounded" />
+                      </div>
+                    </td>
+                    <td className="p-4">
+                      <div className="h-3.5 w-16 bg-slate-200 rounded" />
+                    </td>
+                    <td className="p-4">
+                      <div className="h-3.5 w-20 bg-slate-100 rounded" />
+                    </td>
+                    <td className="p-4">
+                      <div className="h-4 w-12 bg-slate-200 rounded" />
+                    </td>
+                    <td className="p-4">
+                      <div className="h-5 w-16 bg-slate-100 rounded-full" />
+                    </td>
+                    <td className="p-4 text-right">
+                      <div className="inline-block h-6 w-12 bg-slate-200 rounded" />
+                    </td>
+                  </tr>
+                ))
+              ) : paginatedCompanies.length === 0 ? (
                 <tr>
                   <td colSpan={10} className="p-12 text-center text-slate-400">
                     No corporate partners registered matching your search specs.

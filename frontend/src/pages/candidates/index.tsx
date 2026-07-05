@@ -23,7 +23,8 @@ export default function CandidatesPage() {
     setWhatsappComposeCandidate,
     setWhatsappComposePreselectedJob,
     setScheduleInterviewCandidate,
-    setAddTaskCandidate
+    setAddTaskCandidate,
+    isLoading
   } = useApp();
 
   const [openResumeOnLoad, setOpenResumeOnLoad] = useState(false);
@@ -96,6 +97,7 @@ export default function CandidatesPage() {
       candidates={candidates}
       onAddCandidate={handleAddCandidate}
       onEditCandidate={handleUpdateCandidate}
+      isLoading={isLoading}
       onDeleteCandidate={handleDeleteCandidate}
       openResumeUploadOnLoad={openResumeOnLoad}
       communicationLogs={communicationLogs}

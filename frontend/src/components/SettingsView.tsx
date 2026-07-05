@@ -20,6 +20,7 @@ interface SettingsViewProps {
   showToast: (text: string, type: 'success' | 'error') => void;
   currentThemeId: string;
   onThemeChanged: (themeId: string) => void;
+  isLoading?: boolean;
 }
 
 export default function SettingsView({
@@ -31,7 +32,8 @@ export default function SettingsView({
   setNotifications,
   showToast,
   currentThemeId,
-  onThemeChanged
+  onThemeChanged,
+  isLoading = false
 }: SettingsViewProps) {
   const state = useSettingsState({
     teamMembers,
@@ -140,10 +142,27 @@ export default function SettingsView({
 
         {/* Right Settings Pane */}
         <div className="md:col-span-3 p-6 flex flex-col justify-between">
-          
-          {/* APPEARANCE TAB */}
-          {state.activeTab === 'appearance' && (
-            <ThemeBuilderView 
+          {isLoading ? (
+            <div className="space-y-6 animate-pulse">
+              <div className="space-y-2">
+                <div className="h-4 w-48 bg-slate-200 rounded" />
+                <div className="h-3 w-72 bg-slate-100 rounded" />
+              </div>
+              <div className="space-y-4">
+                {[...Array(3)].map((_, i) => (
+                  <div key={i} className="space-y-2">
+                    <div className="h-3 w-16 bg-slate-100 rounded" />
+                    <div className="h-9 w-full bg-slate-50 border border-slate-100 rounded-lg" />
+                  </div>
+                ))}
+              </div>
+              <div className="h-9 w-24 bg-slate-200 rounded-lg ml-auto" />
+            </div>
+          ) : (
+            <>
+              {/* APPEARANCE TAB */}
+              {state.activeTab === 'appearance' && (
+                <ThemeBuilderView 
               currentThemeId={currentThemeId} 
               onThemeChanged={onThemeChanged} 
               showToast={showToast} 
@@ -228,6 +247,9 @@ export default function SettingsView({
           {/* CUSTOM FIELDS */}
           {state.activeTab === 'custom_fields' && (
             <SettingsCustomFieldsTab />
+          )}
+
+            </>
           )}
 
         </div>

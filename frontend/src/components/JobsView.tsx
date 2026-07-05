@@ -20,6 +20,7 @@ interface JobsViewProps {
   onEditCandidate: (candidate: Candidate) => void;
   onUpdateCandidateStage: (candidateId: string, newStage: Candidate['status']) => void;
   onOpenCSVImport?: (type: 'companies' | 'jobs' | 'candidates') => void;
+  isLoading?: boolean;
 }
 
 export default function JobsView({
@@ -32,7 +33,8 @@ export default function JobsView({
   onSendCandidateList,
   onEditCandidate,
   onUpdateCandidateStage,
-  onOpenCSVImport
+  onOpenCSVImport,
+  isLoading = false
 }: JobsViewProps) {
   // Search & Filters
   const [searchTerm, setSearchTerm] = useState('');
@@ -645,7 +647,45 @@ export default function JobsView({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-xs text-slate-700">
-              {paginatedJobs.length === 0 ? (
+              {isLoading ? (
+                [...Array(5)].map((_, rowIndex) => (
+                  <tr key={rowIndex} className="animate-pulse">
+                    <td className="p-4">
+                      <div className="h-4 w-28 bg-slate-200 rounded" />
+                    </td>
+                    <td className="p-4">
+                      <div className="h-4 w-20 bg-slate-200 rounded" />
+                    </td>
+                    <td className="p-4">
+                      <div className="h-3.5 w-16 bg-slate-100 rounded" />
+                    </td>
+                    <td className="p-4">
+                      <div className="h-3.5 w-12 bg-slate-100 rounded" />
+                    </td>
+                    <td className="p-4">
+                      <div className="h-3.5 w-16 bg-slate-200 rounded" />
+                    </td>
+                    <td className="p-4 text-center">
+                      <div className="inline-block h-3.5 w-6 bg-slate-100 rounded" />
+                    </td>
+                    <td className="p-4 text-center">
+                      <div className="inline-block h-3.5 w-6 bg-slate-100 rounded" />
+                    </td>
+                    <td className="p-4 text-center">
+                      <div className="inline-block h-3.5 w-6 bg-slate-100 rounded" />
+                    </td>
+                    <td className="p-4">
+                      <div className="h-5 w-14 bg-slate-100 rounded-full" />
+                    </td>
+                    <td className="p-4">
+                      <div className="h-4 w-20 bg-slate-100 rounded" />
+                    </td>
+                    <td className="p-4 text-right">
+                      <div className="inline-block h-6 w-12 bg-slate-200 rounded" />
+                    </td>
+                  </tr>
+                ))
+              ) : paginatedJobs.length === 0 ? (
                 <tr>
                   <td colSpan={12} className="p-12 text-center text-slate-400">
                     No active job positions match your criteria. Publish a new request or adjust filters.

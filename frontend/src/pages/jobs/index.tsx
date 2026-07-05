@@ -15,7 +15,8 @@ export default function JobsPage() {
     handleUpdateCandidate,
     handleUpdateCandidateStage,
     addActivityLog,
-    showToast
+    showToast,
+    isLoading
   } = useApp();
 
   const handleSendCandidateList = (jobTitle: string, candidateNames: string[]) => {
@@ -33,6 +34,7 @@ export default function JobsPage() {
       jobs={jobs}
       companies={companies}
       candidates={candidates}
+      isLoading={isLoading}
       onAddJob={handleAddJob}
       onEditJob={handleUpdateJob}
       onDeleteJob={handleDeleteJob}

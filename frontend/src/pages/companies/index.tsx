@@ -20,7 +20,8 @@ export default function CompaniesPage() {
     setEmailComposeCandidate,
     setEmailComposePreselectedJob,
     setWhatsappComposeCandidate,
-    setWhatsappComposePreselectedJob
+    setWhatsappComposePreselectedJob,
+    isLoading
   } = useApp();
 
   const handleOpenCSVImport = () => {
@@ -35,6 +36,7 @@ export default function CompaniesPage() {
       companies={companies}
       jobs={jobs}
       candidates={candidates}
+      isLoading={isLoading}
       onAddCompany={handleAddCompany}
       onEditCompany={handleUpdateCompany}
       onDeleteCompany={handleDeleteCompany}
