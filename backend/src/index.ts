@@ -233,9 +233,8 @@ Return ONLY a valid JSON object matching the requested schema. Do not include an
           },
           required: ['name', 'email', 'phone', 'skills', 'experience', 'education', 'currentCompany', 'address', 'resumeTextSummary']
         };
-
         const parsedText = await callLLM(systemInstruction, userContent, 0.2, resumeSchema);
-        parsedData = cleanJsonResponse(parsedText);
+        const parsedData = cleanJsonResponse(parsedText);
 
         console.log("Final parsed data:", JSON.stringify(parsedData, null, 2));
         console.log("--- END PARSE RESUME ---");
