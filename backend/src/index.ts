@@ -3,7 +3,7 @@ import { cors } from 'hono/cors';
 import { supabase } from './db';
 import { keysToCamel, keysToSnake } from './utils';
 import dotenv from 'dotenv';
-import { getDocumentProxy, extractText } from 'unpdf';
+import { getDocumentProxy, extractText, renderPageAsImage } from 'unpdf';
 
 
 dotenv.config();
@@ -103,18 +103,26 @@ async function callLLM(
       { role: 'user', content: finalPrompt }
     ];
   } else if (Array.isArray(finalPrompt)) {
-    formattedMessages = [
-      { role: 'system', content: systemInstruction },
-      ...finalPrompt.map(msg => {
-        if (msg.role) {
-          return { role: msg.role === 'assistant' ? 'assistant' : 'user', content: msg.content || JSON.stringify(msg) };
-        }
-        if (msg.type === 'text') {
-          return { role: 'user', content: msg.text };
-        }
-        return { role: 'user', content: JSON.stringify(msg) };
-      })
-    ];
+    const isMultimodalParts = finalPrompt.every(part => part && !part.role && (part.type === 'text' || part.type === 'image_url'));
+    if (isMultimodalParts) {
+      formattedMessages = [
+        { role: 'system', content: systemInstruction },
+        { role: 'user', content: finalPrompt }
+      ];
+    } else {
+      formattedMessages = [
+        { role: 'system', content: systemInstruction },
+        ...finalPrompt.map(msg => {
+          if (msg.role) {
+            return { role: msg.role === 'assistant' ? 'assistant' : 'user', content: msg.content };
+          }
+          if (msg.type === 'text') {
+            return { role: 'user', content: msg.text };
+          }
+          return { role: 'user', content: JSON.stringify(msg) };
+        })
+      ];
+    }
   } else {
     formattedMessages = [
       { role: 'system', content: systemInstruction },
@@ -214,8 +222,7 @@ app.post('/api/ai/parse-resume', async (c) => {
 
         console.log("Extracted text length:", textContent.length);
 
-        const userContent = `Please extract candidate profile fields from this resume text:\n\n${textContent}`;
-        const systemInstruction = `You are an expert AI resume parser. Extract the relevant fields from the provided resume text or document as accurately as possible.
+        const systemInstruction = `You are an expert AI resume parser. Extract the relevant fields from the provided resume as accurately as possible.
 Return ONLY a valid JSON object matching the requested schema. Do not include any explanation, markdown code blocks, or extra text. Output ONLY the JSON.`;
 
         const resumeSchema = {
@@ -233,8 +240,39 @@ Return ONLY a valid JSON object matching the requested schema. Do not include an
           },
           required: ['name', 'email', 'phone', 'skills', 'experience', 'education', 'currentCompany', 'address', 'resumeTextSummary']
         };
-        const parsedText = await callLLM(systemInstruction, userContent, 0.2, resumeSchema);
-        const parsedData = cleanJsonResponse(parsedText);
+
+        let parsedData: any;
+
+        if (isPdf && textContent.trim().length === 0) {
+          console.log("PDF text extraction returned empty. Falling back to rendering page 1 to image for multimodal parsing...");
+          
+          const imageBuffer = await renderPageAsImage(new Uint8Array(arrayBuffer), 1, {
+            canvasImport: () => import('@napi-rs/canvas'),
+            scale: 1.5
+          });
+
+          const base64Image = Buffer.from(imageBuffer).toString('base64');
+          const dataUrl = `data:image/png;base64,${base64Image}`;
+
+          const userPrompt = `Please extract candidate profile fields from this resume image.`;
+
+          const multimodalPrompt = [
+            { type: 'text', text: userPrompt },
+            {
+              type: 'image_url',
+              image_url: {
+                url: dataUrl
+              }
+            }
+          ];
+
+          const parsedText = await callLLM(systemInstruction, multimodalPrompt, 0.2, resumeSchema);
+          parsedData = cleanJsonResponse(parsedText);
+        } else {
+          const userContent = `Please extract candidate profile fields from this resume text:\n\n${textContent}`;
+          const parsedText = await callLLM(systemInstruction, userContent, 0.2, resumeSchema);
+          parsedData = cleanJsonResponse(parsedText);
+        }
 
         console.log("Final parsed data:", JSON.stringify(parsedData, null, 2));
         console.log("--- END PARSE RESUME ---");
