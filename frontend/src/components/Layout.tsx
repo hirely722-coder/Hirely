@@ -141,55 +141,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     return <>{children}</>;
   }
 
-  if (!mounted) {
-    return (
-      <div className="h-screen w-screen flex flex-col items-center justify-center bg-slate-950 text-white relative overflow-hidden">
-        {/* Ambient radial glow */}
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(99,102,241,0.12),rgba(15,23,42,1))] pointer-events-none" />
-        
-        {/* Glowing logo badge */}
-        <div className="relative z-10 flex flex-col items-center">
-          <div className="h-16 w-16 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center shadow-[0_0_50px_rgba(99,102,241,0.15)] animate-pulse mb-6">
-            <Sparkles className="h-8 w-8 text-indigo-400" />
-          </div>
-          
-          {/* Sleek skeleton linear loader */}
-          <div className="w-48 h-[2px] bg-slate-800 rounded-full overflow-hidden relative">
-            <div className="absolute top-0 left-0 h-full w-1/3 bg-gradient-to-r from-indigo-500 to-purple-500 rounded-full animate-[slide-shimmer_1.5s_infinite_linear]" />
-          </div>
-          
-          <p className="mt-4 text-[10px] font-bold tracking-[0.25em] text-slate-400 uppercase font-mono animate-pulse">
-            Securely Authorizing Access
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  // Show premium loader only when verifying user session initially
-  if (isLoading && !user) {
-    return (
-      <div className="h-screen w-screen flex flex-col items-center justify-center bg-slate-950 text-white relative overflow-hidden">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(99,102,241,0.12),rgba(15,23,42,1))] pointer-events-none" />
-        <div className="relative z-10 flex flex-col items-center">
-          <div className="h-16 w-16 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center shadow-[0_0_50px_rgba(99,102,241,0.15)] animate-pulse mb-6">
-            <Sparkles className="h-8 w-8 text-indigo-400" />
-          </div>
-          
-          <div className="w-48 h-[2px] bg-slate-800 rounded-full overflow-hidden relative">
-            <div className="absolute top-0 left-0 h-full w-1/3 bg-gradient-to-r from-indigo-500 to-purple-500 rounded-full animate-[slide-shimmer_1.5s_infinite_linear]" />
-          </div>
-          
-          <p className="mt-4 text-[10px] font-bold tracking-[0.25em] text-slate-400 uppercase font-mono animate-pulse">
-            Verifying Credentials
-          </p>
-        </div>
-      </div>
-    );
-  }
-
   if (!user) {
-    return null; // Silent redirect
+    return null; // Silent redirect/protection
   }
 
   const userInitials = user?.email ? user.email.substring(0, 2).toUpperCase() : 'US';
