@@ -192,6 +192,7 @@ app.post('/api/ai/parse-resume', async (c) => {
     }
 
     const arrayBuffer = await file.arrayBuffer();
+    const arrayBufferCopy = arrayBuffer.slice(0);
     const mimeType = file.type;
     const isPdf = mimeType === 'application/pdf' || file.name.endsWith('.pdf');
     const isTxt = mimeType === 'text/plain' || file.name.endsWith('.txt');
@@ -246,7 +247,7 @@ Return ONLY a valid JSON object matching the requested schema. Do not include an
         if (isPdf && textContent.trim().length === 0) {
           console.log("PDF text extraction returned empty. Falling back to rendering page 1 to image for multimodal parsing...");
           
-          const imageBuffer = await renderPageAsImage(new Uint8Array(arrayBuffer), 1, {
+          const imageBuffer = await renderPageAsImage(new Uint8Array(arrayBufferCopy), 1, {
             canvasImport: () => import('@napi-rs/canvas'),
             scale: 1.5
           });
