@@ -5,7 +5,7 @@ import DashboardView from '@/components/DashboardView';
 
 export default function DashboardPage() {
   const router = useRouter();
-  const { candidates, jobs, companies, tasks } = useApp();
+  const { candidates, jobs, companies, tasks, isLoading } = useApp();
 
   const handleNavigate = (view: string) => {
     const path = view === 'Dashboard' ? '/dashboard' : `/${view.toLowerCase()}`;
@@ -24,6 +24,7 @@ export default function DashboardPage() {
       tasks={tasks}
       onNavigate={handleNavigate}
       onOpenAddModal={handleOpenAddModal}
+      isLoading={isLoading}
     />
   );
 }

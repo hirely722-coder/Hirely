@@ -133,18 +133,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   }, [router.query.import, router.query.type, router.pathname]);
 
   // Early Returns placed AFTER all hooks have run
-  if (!mounted) {
-    return (
-      <div className="h-screen w-screen flex flex-col items-center justify-center bg-slate-900 text-white">
-        <div className="relative h-12 w-12 flex items-center justify-center">
-          <span className="absolute h-12 w-12 rounded-full border-4 border-slate-800" />
-          <span className="absolute h-12 w-12 rounded-full border-4 border-blue-500 border-t-transparent animate-spin" />
-        </div>
-        <p className="mt-4 text-xs font-semibold tracking-widest text-slate-400 uppercase font-mono animate-pulse">Initializing Session...</p>
-      </div>
-    );
-  }
-
   if (router.pathname === '/login') {
     return <div className="min-h-screen bg-slate-950 text-white font-sans">{children}</div>;
   }
@@ -152,14 +140,50 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   if (router.pathname === '/') {
     return <>{children}</>;
   }
-  if (isLoading) {
+
+  if (!mounted) {
     return (
-      <div className="h-screen w-screen flex flex-col items-center justify-center bg-slate-900 text-white">
-        <div className="relative h-12 w-12 flex items-center justify-center">
-          <span className="absolute h-12 w-12 rounded-full border-4 border-slate-800" />
-          <span className="absolute h-12 w-12 rounded-full border-4 border-blue-500 border-t-transparent animate-spin" />
+      <div className="h-screen w-screen flex flex-col items-center justify-center bg-slate-950 text-white relative overflow-hidden">
+        {/* Ambient radial glow */}
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(99,102,241,0.12),rgba(15,23,42,1))] pointer-events-none" />
+        
+        {/* Glowing logo badge */}
+        <div className="relative z-10 flex flex-col items-center">
+          <div className="h-16 w-16 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center shadow-[0_0_50px_rgba(99,102,241,0.15)] animate-pulse mb-6">
+            <Sparkles className="h-8 w-8 text-indigo-400" />
+          </div>
+          
+          {/* Sleek skeleton linear loader */}
+          <div className="w-48 h-[2px] bg-slate-800 rounded-full overflow-hidden relative">
+            <div className="absolute top-0 left-0 h-full w-1/3 bg-gradient-to-r from-indigo-500 to-purple-500 rounded-full animate-[slide-shimmer_1.5s_infinite_linear]" />
+          </div>
+          
+          <p className="mt-4 text-[10px] font-bold tracking-[0.25em] text-slate-400 uppercase font-mono animate-pulse">
+            Securely Authorizing Access
+          </p>
         </div>
-        <p className="mt-4 text-xs font-semibold tracking-widest text-slate-400 uppercase font-mono animate-pulse">Initializing Session...</p>
+      </div>
+    );
+  }
+
+  // Show premium loader only when verifying user session initially
+  if (isLoading && !user) {
+    return (
+      <div className="h-screen w-screen flex flex-col items-center justify-center bg-slate-950 text-white relative overflow-hidden">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(99,102,241,0.12),rgba(15,23,42,1))] pointer-events-none" />
+        <div className="relative z-10 flex flex-col items-center">
+          <div className="h-16 w-16 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center shadow-[0_0_50px_rgba(99,102,241,0.15)] animate-pulse mb-6">
+            <Sparkles className="h-8 w-8 text-indigo-400" />
+          </div>
+          
+          <div className="w-48 h-[2px] bg-slate-800 rounded-full overflow-hidden relative">
+            <div className="absolute top-0 left-0 h-full w-1/3 bg-gradient-to-r from-indigo-500 to-purple-500 rounded-full animate-[slide-shimmer_1.5s_infinite_linear]" />
+          </div>
+          
+          <p className="mt-4 text-[10px] font-bold tracking-[0.25em] text-slate-400 uppercase font-mono animate-pulse">
+            Verifying Credentials
+          </p>
+        </div>
       </div>
     );
   }
@@ -208,7 +232,13 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   ];
 
   return (
-    <div className="flex h-screen bg-slate-50 font-sans overflow-hidden">
+    <div className="flex h-screen bg-slate-50 font-sans overflow-hidden relative">
+      {/* Top micro loading bar when data is loading in the background */}
+      {isLoading && (
+        <div className="absolute top-0 left-0 right-0 h-[2.5px] bg-slate-100 z-50 overflow-hidden">
+          <div className="h-full w-1/3 bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500 rounded-full animate-[slide-shimmer_1.2s_infinite_linear]" />
+        </div>
+      )}
       
       {/* Mobile Sidebar Overlay */}
       {isMobileSidebarOpen && (

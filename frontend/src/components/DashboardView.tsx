@@ -9,6 +9,7 @@ interface DashboardViewProps {
   tasks: Task[];
   onNavigate: (page: string) => void;
   onOpenAddModal: (type: 'candidate' | 'job' | 'company' | 'resume') => void;
+  isLoading?: boolean;
 }
 
 export default function DashboardView({
@@ -17,7 +18,8 @@ export default function DashboardView({
   companies,
   tasks,
   onNavigate,
-  onOpenAddModal
+  onOpenAddModal,
+  isLoading = false
 }: DashboardViewProps) {
   // Calculations
   const totalCandidates = candidates.length;
@@ -42,6 +44,101 @@ export default function DashboardView({
   const todayInterviews = tasks
     .filter(t => t.type === 'Interview' && t.status === 'Pending')
     .slice(0, 3);
+
+  if (isLoading) {
+    return (
+      <div className="space-y-6 animate-fade-in" id="dashboard-view">
+        {/* Page Header */}
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 pb-2">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900 font-display">Dashboard</h1>
+            <p className="text-xs text-slate-500 mt-1 font-sans animate-pulse">
+              Syncing active workspaces...
+            </p>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="text-xs font-mono px-2.5 py-1 bg-blue-50 text-blue-700 border border-blue-100 rounded-lg font-medium">
+              Active Workspace
+            </span>
+          </div>
+        </div>
+
+        {/* Bento loading Metric Cards */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4">
+          {[...Array(5)].map((_, i) => (
+            <div key={i} className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm animate-pulse">
+              <div className="flex items-center justify-between">
+                <div className="h-3.5 w-16 bg-slate-100 rounded" />
+                <div className="h-7 w-7 rounded-lg bg-slate-50" />
+              </div>
+              <div className="mt-4 flex items-baseline gap-1.5">
+                <div className="h-7 w-12 bg-slate-200 rounded" />
+                <div className="h-3 w-8 bg-slate-100 rounded" />
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Main Grid: Bento Columns 12-span */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+          <div className="lg:col-span-8 space-y-6">
+            {/* Interviews Skeleton */}
+            <section className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm animate-pulse">
+              <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-white">
+                <div className="h-4 w-32 bg-slate-200 rounded" />
+                <div className="h-4 w-16 bg-slate-100 rounded" />
+              </div>
+              <div className="divide-y divide-slate-100 bg-white">
+                {[...Array(2)].map((_, i) => (
+                  <div key={i} className="px-6 py-4 flex items-center gap-4">
+                    <div className="w-12 h-8 bg-slate-100 rounded" />
+                    <div className="flex-1 space-y-2">
+                      <div className="h-4 w-32 bg-slate-200 rounded" />
+                      <div className="h-3.5 w-48 bg-slate-100 rounded" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            {/* Candidates Skeleton */}
+            <section className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm animate-pulse">
+              <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-white">
+                <div className="h-4 w-32 bg-slate-200 rounded" />
+                <div className="h-4 w-16 bg-slate-100 rounded" />
+              </div>
+              <div className="px-6 py-4 space-y-4">
+                {[...Array(3)].map((_, i) => (
+                  <div key={i} className="flex justify-between items-center">
+                    <div className="h-4 w-24 bg-slate-200 rounded" />
+                    <div className="h-4 w-36 bg-slate-100 rounded" />
+                    <div className="h-4 w-16 bg-slate-200 rounded" />
+                  </div>
+                ))}
+              </div>
+            </section>
+          </div>
+
+          {/* Right Column (4-cols) Skeleton */}
+          <div className="lg:col-span-4 space-y-6">
+            <section className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm animate-pulse">
+              <div className="px-6 py-4 border-b border-slate-100">
+                <div className="h-4 w-32 bg-slate-200 rounded" />
+              </div>
+              <div className="p-6 space-y-4">
+                {[...Array(3)].map((_, i) => (
+                  <div key={i} className="flex items-center gap-3">
+                    <div className="h-4 w-4 rounded-full bg-slate-200" />
+                    <div className="flex-1 h-4 bg-slate-100 rounded" />
+                  </div>
+                ))}
+              </div>
+            </section>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 animate-fade-in" id="dashboard-view">
