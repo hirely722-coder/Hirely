@@ -847,6 +847,90 @@ createCRUD('custom_field_definitions');
 createCRUD('interviews');
 createCRUD('job_notes');
 
+// Unified Ingestion Bootstrapping
+async function fetchAllTableData(tableName: string, workspaceId: string) {
+  let allData: any[] = [];
+  let start = 0;
+  const limit = 1000;
+  let hasMore = true;
+
+  while (hasMore) {
+    const { data, error } = await supabase
+      .from(tableName)
+      .select('*')
+      .eq('workspace_id', workspaceId)
+      .order('created_at', { ascending: false })
+      .range(start, start + limit - 1);
+
+    if (error) {
+      throw error;
+    }
+
+    if (!data || data.length === 0) {
+      hasMore = false;
+    } else {
+      allData.push(...data);
+      if (data.length < limit) {
+        hasMore = false;
+      } else {
+        start += limit;
+      }
+    }
+  }
+  return keysToCamel(allData);
+}
+
+app.get('/api/bootstrap', async (c) => {
+  const user = c.get('user') as any;
+  try {
+    const [
+      companies,
+      jobs,
+      candidates,
+      tasks,
+      emailTemplates,
+      activityLogs,
+      teamMembers,
+      communicationLogs,
+      emailConfig,
+      customFieldDefinitions
+    ] = await Promise.all([
+      fetchAllTableData('companies', user.workspace_id),
+      fetchAllTableData('jobs', user.workspace_id),
+      fetchAllTableData('candidates', user.workspace_id),
+      fetchAllTableData('tasks', user.workspace_id),
+      fetchAllTableData('email_templates', user.workspace_id),
+      fetchAllTableData('activity_logs', user.workspace_id),
+      supabase.from('profiles').select('*').eq('workspace_id', user.workspace_id).then(({ data, error }) => {
+        if (error) throw error;
+        return keysToCamel(data || []);
+      }),
+      fetchAllTableData('communication_logs', user.workspace_id),
+      supabase.from('email_configs').select('*').eq('workspace_id', user.workspace_id).single().then(({ data, error }) => {
+        if (error && error.code !== 'PGRST116') throw error;
+        return data ? keysToCamel(data) : { provider: 'Gmail', isConnected: false };
+      }),
+      fetchAllTableData('custom_field_definitions', user.workspace_id)
+    ]);
+
+    return c.json({
+      companies,
+      jobs,
+      candidates,
+      tasks,
+      emailTemplates,
+      activityLogs,
+      teamMembers,
+      communicationLogs,
+      emailConfig,
+      customFieldDefinitions
+    });
+  } catch (err: any) {
+    console.error('Error in bootstrapping API:', err.message);
+    return c.json({ error: err.message }, 500);
+  }
+});
+
 // Profiles / Team Members Dedicated Workspace-Scoped Endpoints
 app.get('/api/team_members', async (c) => {
   const user = c.get('user') as any;

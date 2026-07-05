@@ -163,6 +163,19 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       await supabase.auth.signOut();
       setUser(null);
       setToken(null);
+      
+      // Clear SWR cache on logout
+      localStorage.removeItem('hirely_cache_companies');
+      localStorage.removeItem('hirely_cache_jobs');
+      localStorage.removeItem('hirely_cache_candidates');
+      localStorage.removeItem('hirely_cache_tasks');
+      localStorage.removeItem('hirely_cache_templates');
+      localStorage.removeItem('hirely_cache_activity_logs');
+      localStorage.removeItem('hirely_cache_team_members');
+      localStorage.removeItem('hirely_cache_communication_logs');
+      localStorage.removeItem('hirely_cache_email_config');
+      localStorage.removeItem('hirely_cache_custom_field_definitions');
+
       showToast('Successfully logged out');
     } catch (err) {
       showToast('Failed to log out', 'error');
@@ -178,49 +191,99 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     return fetch(url, { ...options, headers });
   };
 
+  // Load initial cached data from localStorage (SWR cache resolution)
+  useEffect(() => {
+    if (!user) return;
+
+    try {
+      const cachedCompanies = localStorage.getItem('hirely_cache_companies');
+      const cachedJobs = localStorage.getItem('hirely_cache_jobs');
+      const cachedCandidates = localStorage.getItem('hirely_cache_candidates');
+      const cachedTasks = localStorage.getItem('hirely_cache_tasks');
+      const cachedTemplates = localStorage.getItem('hirely_cache_templates');
+      const cachedActivityLogs = localStorage.getItem('hirely_cache_activity_logs');
+      const cachedTeamMembers = localStorage.getItem('hirely_cache_team_members');
+      const cachedCommunicationLogs = localStorage.getItem('hirely_cache_communication_logs');
+      const cachedEmailConfig = localStorage.getItem('hirely_cache_email_config');
+      const cachedCustomFieldDefs = localStorage.getItem('hirely_cache_custom_field_definitions');
+
+      if (cachedCompanies || cachedJobs || cachedCandidates) {
+        if (cachedCompanies) setCompanies(JSON.parse(cachedCompanies));
+        if (cachedJobs) setJobs(JSON.parse(cachedJobs));
+        if (cachedCandidates) setCandidates(JSON.parse(cachedCandidates));
+        if (cachedTasks) setTasks(JSON.parse(cachedTasks));
+        if (cachedTemplates) setTemplates(JSON.parse(cachedTemplates));
+        if (cachedActivityLogs) setActivityLogs(JSON.parse(cachedActivityLogs));
+        if (cachedTeamMembers) setTeamMembers(JSON.parse(cachedTeamMembers));
+        if (cachedCommunicationLogs) setCommunicationLogs(JSON.parse(cachedCommunicationLogs));
+        if (cachedEmailConfig) setEmailConfig(JSON.parse(cachedEmailConfig));
+        if (cachedCustomFieldDefs) setCustomFieldDefinitions(JSON.parse(cachedCustomFieldDefs));
+        
+        setIsLoading(false); // SWR: Disable loading state immediately as we have cached data
+        console.log('Ingested database records from SWR cache.');
+      }
+    } catch (e) {
+      console.warn('Failed to parse cached data from localStorage:', e);
+    }
+  }, [user]);
+
   const fetchData = async () => {
     if (!token) {
       setIsLoading(false);
       return;
     }
     try {
-      setIsLoading(true);
-      const [
-        companiesRes,
-        jobsRes,
-        candidatesRes,
-        tasksRes,
-        templatesRes,
-        activityLogsRes,
-        teamMembersRes,
-        communicationLogsRes,
-        emailConfigRes,
-        customFieldDefinitionsRes
-      ] = await Promise.all([
-        fetchWithAuth(`${API_URL}/api/companies`).then(r => r.json()),
-        fetchWithAuth(`${API_URL}/api/jobs`).then(r => r.json()),
-        fetchWithAuth(`${API_URL}/api/candidates`).then(r => r.json()),
-        fetchWithAuth(`${API_URL}/api/tasks`).then(r => r.json()),
-        fetchWithAuth(`${API_URL}/api/email_templates`).then(r => r.json()),
-        fetchWithAuth(`${API_URL}/api/activity_logs`).then(r => r.json()),
-        fetchWithAuth(`${API_URL}/api/team_members`).then(r => r.json()),
-        fetchWithAuth(`${API_URL}/api/communication_logs`).then(r => r.json()),
-        fetchWithAuth(`${API_URL}/api/email-config`).then(r => r.json()),
-        fetchWithAuth(`${API_URL}/api/custom_field_definitions`).then(r => r.json())
-      ]);
+      // If we don't have any cached data loaded, set isLoading to true.
+      // If we already loaded cached data, we keep isLoading as false for background sync.
+      const cachedCompanies = localStorage.getItem('hirely_cache_companies');
+      if (!cachedCompanies) {
+        setIsLoading(true);
+      }
 
-      setCompanies(Array.isArray(companiesRes) ? companiesRes : []);
-      setJobs(Array.isArray(jobsRes) ? jobsRes : []);
-      setCandidates(Array.isArray(candidatesRes) ? candidatesRes : []);
-      setTasks(Array.isArray(tasksRes) ? tasksRes : []);
-      setTemplates(Array.isArray(templatesRes) ? templatesRes : []);
-      setActivityLogs(Array.isArray(activityLogsRes) ? activityLogsRes : []);
-      setTeamMembers(Array.isArray(teamMembersRes) ? teamMembersRes : []);
-      setCommunicationLogs(Array.isArray(communicationLogsRes) ? communicationLogsRes : []);
-      setEmailConfig(emailConfigRes && !emailConfigRes.error ? emailConfigRes : { provider: 'Gmail', isConnected: false });
-      setCustomFieldDefinitions(Array.isArray(customFieldDefinitionsRes) ? customFieldDefinitionsRes : []);
+      console.log('Fetching unified bootstrap payload from backend...');
+      const response = await fetchWithAuth(`${API_URL}/api/bootstrap`);
+      if (!response.ok) {
+        throw new Error(`Bootstrap failed with status ${response.status}`);
+      }
+      
+      const payload = await response.json();
+
+      const companiesData = Array.isArray(payload.companies) ? payload.companies : [];
+      const jobsData = Array.isArray(payload.jobs) ? payload.jobs : [];
+      const candidatesData = Array.isArray(payload.candidates) ? payload.candidates : [];
+      const tasksData = Array.isArray(payload.tasks) ? payload.tasks : [];
+      const templatesData = Array.isArray(payload.emailTemplates) ? payload.emailTemplates : [];
+      const activityLogsData = Array.isArray(payload.activityLogs) ? payload.activityLogs : [];
+      const teamMembersData = Array.isArray(payload.teamMembers) ? payload.teamMembers : [];
+      const communicationLogsData = Array.isArray(payload.communicationLogs) ? payload.communicationLogs : [];
+      const emailConfigData = payload.emailConfig && !payload.emailConfig.error ? payload.emailConfig : { provider: 'Gmail', isConnected: false };
+      const customFieldDefsData = Array.isArray(payload.customFieldDefinitions) ? payload.customFieldDefinitions : [];
+
+      setCompanies(companiesData);
+      setJobs(jobsData);
+      setCandidates(candidatesData);
+      setTasks(tasksData);
+      setTemplates(templatesData);
+      setActivityLogs(activityLogsData);
+      setTeamMembers(teamMembersData);
+      setCommunicationLogs(communicationLogsData);
+      setEmailConfig(emailConfigData);
+      setCustomFieldDefinitions(customFieldDefsData);
+
+      // Save to localStorage cache
+      localStorage.setItem('hirely_cache_companies', JSON.stringify(companiesData));
+      localStorage.setItem('hirely_cache_jobs', JSON.stringify(jobsData));
+      localStorage.setItem('hirely_cache_candidates', JSON.stringify(candidatesData));
+      localStorage.setItem('hirely_cache_tasks', JSON.stringify(tasksData));
+      localStorage.setItem('hirely_cache_templates', JSON.stringify(templatesData));
+      localStorage.setItem('hirely_cache_activity_logs', JSON.stringify(activityLogsData));
+      localStorage.setItem('hirely_cache_team_members', JSON.stringify(teamMembersData));
+      localStorage.setItem('hirely_cache_communication_logs', JSON.stringify(communicationLogsData));
+      localStorage.setItem('hirely_cache_email_config', JSON.stringify(emailConfigData));
+      localStorage.setItem('hirely_cache_custom_field_definitions', JSON.stringify(customFieldDefsData));
+
     } catch (err: any) {
-      console.error('Failed to fetch data from Hono backend:', err);
+      console.error('Failed to fetch bootstrapping data from Hono backend:', err);
       showToast('Failed to connect to backend server', 'error');
     } finally {
       setIsLoading(false);
