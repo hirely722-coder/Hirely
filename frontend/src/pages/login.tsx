@@ -57,7 +57,7 @@ export default function Login() {
         return;
       }
 
-      const { data, error: signUpErr } = await supabase.auth.signUp({
+      const { error: signUpErr } = await supabase.auth.signUp({
         email,
         password,
         options: {
@@ -70,8 +70,7 @@ export default function Login() {
       if (signUpErr) {
         setError(signUpErr.message);
       } else {
-        showToast('Account created successfully! Welcome to Hirly.');
-        // Auto sign-in will trigger via onAuthStateChange, but redirect directly
+        showToast('Account created successfully! Welcome to Hirely.');
         router.replace('/');
       }
     } else {
@@ -107,23 +106,33 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 flex flex-col justify-center items-center p-4 relative overflow-hidden selection:bg-blue-500 selection:text-white">
-      {/* Decorative background grid and glowing circles */}
-      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-blue-900/20 via-slate-950 to-slate-950 z-0 pointer-events-none" />
-      <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-blue-600/10 rounded-full blur-3xl z-0 pointer-events-none" />
-      <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-indigo-600/10 rounded-full blur-3xl z-0 pointer-events-none" />
+    <div className="min-h-screen flex flex-col justify-center items-center p-4 relative overflow-hidden text-white font-sans selection:bg-indigo-500/30 bg-[#07070d] w-full">
+      {/* Background Grid & Blobs */}
+      <div className="pointer-events-none fixed inset-0 -z-10 overflow-hidden bg-[#07070d]">
+        <div className="absolute inset-0 bg-grid [mask-image:radial-gradient(ellipse_80%_60%_at_50%_0%,#000_40%,transparent_100%)]" />
+        <div className="animate-blob absolute -top-32 -left-24 h-96 w-96 rounded-full bg-indigo-600/20 blur-3xl" />
+        <div className="animate-blob animation-delay-2000 absolute top-1/3 -right-32 h-[28rem] w-[28rem] rounded-full bg-violet-600/20 blur-3xl" />
+        <div className="animate-blob animation-delay-4000 absolute bottom-0 left-1/4 h-96 w-96 rounded-full bg-blue-600/15 blur-3xl" />
+      </div>
 
       {/* Main card */}
-      <div className="w-full max-w-md bg-slate-900/60 backdrop-blur-xl border border-slate-800 p-8 rounded-3xl shadow-2xl shadow-blue-950/20 z-10 animate-fade-in">
+      <div className="w-full max-w-md bg-[#07070d]/60 border border-white/10 p-8 rounded-3xl shadow-2xl backdrop-blur-xl z-10 animate-fade-in">
         {/* Branding header */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-500/10 border border-blue-500/20 text-xs font-bold text-blue-400 mb-4 tracking-wide uppercase">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-400/20 text-xs font-bold text-indigo-300 mb-4 tracking-wide uppercase">
             <Sparkles className="h-3 w-3" />
             <span>SaaS Recruitment Portal</span>
           </div>
-          <h1 className="text-3xl font-black text-white tracking-tight font-display">
-            Hirly<span className="text-blue-500">.ai</span>
-          </h1>
+          
+          <div className="flex items-center justify-center gap-2 mb-2">
+            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 via-violet-500 to-blue-500 shadow-lg shadow-indigo-500/30">
+              <Sparkles className="h-5 w-5 text-white" />
+            </span>
+            <h1 className="text-3xl font-black text-white tracking-tight font-display">
+              Hirely <span className="text-indigo-500">AI</span>
+            </h1>
+          </div>
+          
           <p className="text-slate-400 text-xs mt-2 font-medium">
             {isSignUp ? 'Create your agency account to get started' : 'Sign in to access your recruitment pipeline'}
           </p>
@@ -139,8 +148,8 @@ export default function Login() {
             }}
             className={`py-2 text-xs font-bold rounded-xl transition-all ${
               !isSignUp 
-                ? 'bg-blue-600 text-white shadow-md shadow-blue-900/30' 
-                : 'text-slate-400 hover:text-white'
+                ? 'bg-gradient-to-br from-indigo-500 via-violet-500 to-blue-500 text-white shadow-md shadow-indigo-500/25' 
+                : 'text-slate-400 hover:text-white font-semibold'
             }`}
           >
             Sign In
@@ -153,8 +162,8 @@ export default function Login() {
             }}
             className={`py-2 text-xs font-bold rounded-xl transition-all ${
               isSignUp 
-                ? 'bg-blue-600 text-white shadow-md shadow-blue-900/30' 
-                : 'text-slate-400 hover:text-white'
+                ? 'bg-gradient-to-br from-indigo-500 via-violet-500 to-blue-500 text-white shadow-md shadow-indigo-500/25' 
+                : 'text-slate-400 hover:text-white font-semibold'
             }`}
           >
             Create Account
@@ -164,7 +173,7 @@ export default function Login() {
         {/* Error Alert Panel */}
         {error && (
           <div className="mb-6 p-4 rounded-2xl bg-rose-500/10 border border-rose-500/20 flex items-start gap-3 animate-shake">
-            <AlertCircle className="h-5 w-5 text-rose-400 shrink-0 mt-0.5" />
+            <AlertCircle className="h-5 w-5 text-rose-500 shrink-0 mt-0.5" />
             <span className="text-xs font-semibold text-rose-300 leading-normal">{error}</span>
           </div>
         )}
@@ -175,14 +184,14 @@ export default function Login() {
             <div className="space-y-1.5">
               <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Full Name</label>
               <div className="relative">
-                <User className="absolute left-4 top-3.5 h-4 w-4 text-slate-500" />
+                <User className="absolute left-4 top-3.5 h-4 w-4 text-slate-400" />
                 <input
                   type="text"
                   required
                   placeholder="John Doe"
                   value={fullName}
                   onChange={(e) => setFullName(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-2xl pl-11 pr-4 py-3 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-blue-500 transition-colors font-medium"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-2xl pl-11 pr-4 py-3 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all font-medium"
                 />
               </div>
             </div>
@@ -191,14 +200,14 @@ export default function Login() {
           <div className="space-y-1.5">
             <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Email Address</label>
             <div className="relative">
-              <Mail className="absolute left-4 top-3.5 h-4 w-4 text-slate-500" />
+              <Mail className="absolute left-4 top-3.5 h-4 w-4 text-slate-400" />
               <input
                 type="email"
                 required
                 placeholder="you@company.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-800 rounded-2xl pl-11 pr-4 py-3 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-blue-500 transition-colors font-medium"
+                className="w-full bg-slate-950 border border-slate-800 rounded-2xl pl-11 pr-4 py-3 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all font-medium"
               />
             </div>
           </div>
@@ -206,14 +215,14 @@ export default function Login() {
           <div className="space-y-1.5">
             <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Password</label>
             <div className="relative">
-              <Lock className="absolute left-4 top-3.5 h-4 w-4 text-slate-500" />
+              <Lock className="absolute left-4 top-3.5 h-4 w-4 text-slate-400" />
               <input
                 type="password"
                 required
                 placeholder="••••••••"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-800 rounded-2xl pl-11 pr-4 py-3 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-blue-500 transition-colors font-medium"
+                className="w-full bg-slate-950 border border-slate-800 rounded-2xl pl-11 pr-4 py-3 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all font-medium"
               />
             </div>
           </div>
@@ -222,14 +231,14 @@ export default function Login() {
             <div className="space-y-1.5">
               <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Confirm Password</label>
               <div className="relative">
-                <Lock className="absolute left-4 top-3.5 h-4 w-4 text-slate-500" />
+                <Lock className="absolute left-4 top-3.5 h-4 w-4 text-slate-400" />
                 <input
                   type="password"
                   required
                   placeholder="••••••••"
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-2xl pl-11 pr-4 py-3 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-blue-500 transition-colors font-medium"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-2xl pl-11 pr-4 py-3 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all font-medium"
                 />
               </div>
             </div>
@@ -238,7 +247,7 @@ export default function Login() {
           <button
             type="submit"
             disabled={isLoading}
-            className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 px-4 rounded-2xl text-xs transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-blue-900/30 disabled:opacity-50"
+            className="w-full bg-gradient-to-br from-indigo-500 via-violet-500 to-blue-500 text-white font-bold py-3 px-4 rounded-2xl text-xs hover:shadow-lg hover:shadow-indigo-500/25 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
           >
             {isLoading ? (
               <span className="h-4 w-4 rounded-full border-2 border-white border-t-transparent animate-spin" />
@@ -251,16 +260,16 @@ export default function Login() {
         </form>
 
         {/* Divider */}
-        <div className="relative my-6 flex items-center justify-center text-[10px] uppercase font-bold text-slate-600 tracking-wider">
+        <div className="relative my-6 flex items-center justify-center text-[10px] uppercase font-bold text-slate-500 tracking-wider">
           <div className="absolute inset-x-0 h-px bg-slate-800" />
-          <span className="bg-slate-900 px-3 relative z-10">Or continue with</span>
+          <span className="bg-[#07070d] px-3 relative z-10">Or continue with</span>
         </div>
 
         {/* Google OAuth Login Button */}
         <button
           type="button"
           onClick={handleGoogleLogin}
-          className="w-full flex items-center justify-center gap-3 bg-white hover:bg-slate-50 border border-slate-200 text-slate-900 font-bold py-3 px-4 rounded-2xl text-xs transition-all cursor-pointer shadow-md hover:scale-[1.01]"
+          className="w-full flex items-center justify-center gap-3 bg-white/5 hover:bg-white/10 border border-white/10 text-white font-bold py-3 px-4 rounded-2xl text-xs transition-all cursor-pointer shadow-sm hover:scale-[1.01]"
         >
           <GoogleLogo size={18} />
           <span>Continue with Google</span>
