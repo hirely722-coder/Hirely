@@ -209,16 +209,16 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         fetchWithAuth(`${API_URL}/api/custom_field_definitions`).then(r => r.json())
       ]);
 
-      setCompanies(companiesRes || []);
-      setJobs(jobsRes || []);
-      setCandidates(candidatesRes || []);
-      setTasks(tasksRes || []);
-      setTemplates(templatesRes || []);
-      setActivityLogs(activityLogsRes || []);
-      setTeamMembers(teamMembersRes || []);
-      setCommunicationLogs(communicationLogsRes || []);
-      setEmailConfig(emailConfigRes || { provider: 'Gmail', isConnected: false });
-      setCustomFieldDefinitions(customFieldDefinitionsRes || []);
+      setCompanies(Array.isArray(companiesRes) ? companiesRes : []);
+      setJobs(Array.isArray(jobsRes) ? jobsRes : []);
+      setCandidates(Array.isArray(candidatesRes) ? candidatesRes : []);
+      setTasks(Array.isArray(tasksRes) ? tasksRes : []);
+      setTemplates(Array.isArray(templatesRes) ? templatesRes : []);
+      setActivityLogs(Array.isArray(activityLogsRes) ? activityLogsRes : []);
+      setTeamMembers(Array.isArray(teamMembersRes) ? teamMembersRes : []);
+      setCommunicationLogs(Array.isArray(communicationLogsRes) ? communicationLogsRes : []);
+      setEmailConfig(emailConfigRes && !emailConfigRes.error ? emailConfigRes : { provider: 'Gmail', isConnected: false });
+      setCustomFieldDefinitions(Array.isArray(customFieldDefinitionsRes) ? customFieldDefinitionsRes : []);
     } catch (err: any) {
       console.error('Failed to fetch data from Hono backend:', err);
       showToast('Failed to connect to backend server', 'error');

@@ -80,13 +80,19 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     setMounted(true);
   }, []);
 
-  // Redirect to login if user session is absent and we aren't on the login page
+  // Redirect to login if user session is absent and we aren't on the login page or landing page
   useEffect(() => {
-    if (!isLoading && !user && router.pathname !== '/login') {
+    if (!isLoading && !user && router.pathname !== '/login' && router.pathname !== '/') {
       router.replace('/login');
     }
   }, [user, isLoading, router.pathname]);
 
+  // Redirect authenticated users from landing page to recruiter dashboard
+  useEffect(() => {
+    if (!isLoading && user && router.pathname === '/') {
+      router.replace('/dashboard');
+    }
+  }, [user, isLoading, router.pathname]);
   // Load and apply themes
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -143,6 +149,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     return <div className="min-h-screen bg-slate-950 text-white font-sans">{children}</div>;
   }
 
+  if (router.pathname === '/') {
+    return <>{children}</>;
+  }
   if (isLoading) {
     return (
       <div className="h-screen w-screen flex flex-col items-center justify-center bg-slate-900 text-white">
@@ -187,12 +196,12 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
   // Nav Items
   const navItems = [
-    { name: 'Dashboard', path: '/', icon: LayoutDashboard },
+    { name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
     { name: 'Companies', path: '/companies', icon: Building2 },
     { name: 'Jobs', path: '/jobs', icon: Briefcase },
     { name: 'Candidates', path: '/candidates', icon: Users },
     { name: 'Pipeline', path: '/pipeline', icon: GitMerge },
-    { name: 'Tasks', path: '/tasks', icon: CheckSquare, badge: tasks.filter(t => t.status === 'Pending').length },
+    { name: 'Tasks', path: '/tasks', icon: CheckSquare, badge: Array.isArray(tasks) ? tasks.filter(t => t.status === 'Pending').length : 0 },
     { name: 'Templates', path: '/templates', icon: Mail },
     { name: 'Copilot', path: '/copilot', icon: Sparkles },
     { name: 'Settings', path: '/settings', icon: Settings },

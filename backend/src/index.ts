@@ -185,52 +185,60 @@ app.post('/api/ai/parse-resume', async (c) => {
 
     const arrayBuffer = await file.arrayBuffer();
     const mimeType = file.type;
+    const isPdf = mimeType === 'application/pdf' || file.name.endsWith('.pdf');
+    const isTxt = mimeType === 'text/plain' || file.name.endsWith('.txt');
 
-    let textContent = '';
-    
-    if (mimeType === 'text/plain' || file.name.endsWith('.txt')) {
-      textContent = Buffer.from(arrayBuffer).toString('utf-8');
-    } else if (mimeType === 'application/pdf' || file.name.endsWith('.pdf')) {
-      const pdf = await getDocumentProxy(new Uint8Array(arrayBuffer));
-      const result = await extractText(pdf);
-      textContent = typeof result === 'string' ? result : (result as any).text?.join('\n') || '';
-    } else {
-      throw new Error(`Unsupported file format: ${mimeType || 'unknown'}. Only PDF and TXT are supported.`);
+    if (!isPdf && !isTxt) {
+      return c.json({ error: `Unsupported file format: ${mimeType || 'unknown'}. Only PDF and TXT are supported.` }, 400);
     }
-
-    const userContent = `Please extract candidate profile fields from this resume text:\n\n${textContent}`;
-
-    const systemInstruction = `You are an expert AI resume parser. Extract the relevant fields from the provided resume text or document as accurately as possible.
-Return ONLY a valid JSON object matching the requested schema. Do not include any explanation, markdown code blocks, or extra text. Output ONLY the JSON.`;
-
-    const resumeSchema = {
-      type: 'object',
-      properties: {
-        name: { type: 'string', description: 'Candidate full name' },
-        email: { type: 'string', description: 'Candidate email address' },
-        phone: { type: 'string', description: 'Candidate phone number' },
-        skills: {
-          type: 'array',
-          items: { type: 'string' },
-          description: 'List of technical skills, frameworks, and programming languages'
-        },
-        experience: { type: 'string', description: 'Years or level of experience, e.g. "5 Years" or "Senior"' },
-        education: { type: 'string', description: 'Highest degree and school name' },
-        currentCompany: { type: 'string', description: 'Most recent company name' },
-        address: { type: 'string', description: 'Location, city and state' },
-        resumeTextSummary: { type: 'string', description: 'Comprehensive plain-text reconstruction or summary of the resume' }
-      },
-      required: ['name', 'email', 'phone', 'skills', 'experience', 'education', 'currentCompany', 'address', 'resumeTextSummary']
-    };
 
     const taskId = 'task_parse_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
     backgroundTasks.set(taskId, { status: 'pending' });
 
-    // Run AI call in background
+    // Run parsing in background
     (async () => {
       try {
+        console.log("--- START PARSE RESUME ---");
+        console.log("File Name:", file.name);
+        console.log("File Type / MIME:", mimeType);
+
+        let textContent = '';
+        
+        if (isTxt) {
+          textContent = Buffer.from(arrayBuffer).toString('utf-8');
+        } else if (isPdf) {
+          const pdf = await getDocumentProxy(new Uint8Array(arrayBuffer));
+          const result = await extractText(pdf);
+          textContent = typeof result === 'string' ? result : (result as any).text?.join('\n') || '';
+        }
+
+        console.log("Extracted text length:", textContent.length);
+
+        const userContent = `Please extract candidate profile fields from this resume text:\n\n${textContent}`;
+        const systemInstruction = `You are an expert AI resume parser. Extract the relevant fields from the provided resume text or document as accurately as possible.
+Return ONLY a valid JSON object matching the requested schema. Do not include any explanation, markdown code blocks, or extra text. Output ONLY the JSON.`;
+
+        const resumeSchema = {
+          type: 'object',
+          properties: {
+            name: { type: 'string', description: 'Candidate full name' },
+            email: { type: 'string', description: 'Candidate email address' },
+            phone: { type: 'string', description: 'Candidate phone number' },
+            skills: { type: 'array', items: { type: 'string' }, description: 'List of technical skills, frameworks, and programming languages' },
+            experience: { type: 'string', description: 'Years or level of experience, e.g. "5 Years" or "Senior"' },
+            education: { type: 'string', description: 'Highest degree and school name' },
+            currentCompany: { type: 'string', description: 'Most recent company name' },
+            address: { type: 'string', description: 'Location, city and state' },
+            resumeTextSummary: { type: 'string', description: 'Comprehensive plain-text reconstruction or summary of the resume' }
+          },
+          required: ['name', 'email', 'phone', 'skills', 'experience', 'education', 'currentCompany', 'address', 'resumeTextSummary']
+        };
+
         const parsedText = await callLLM(systemInstruction, userContent, 0.2, resumeSchema);
-        const parsedData = cleanJsonResponse(parsedText);
+        parsedData = cleanJsonResponse(parsedText);
+
+        console.log("Final parsed data:", JSON.stringify(parsedData, null, 2));
+        console.log("--- END PARSE RESUME ---");
         backgroundTasks.set(taskId, { status: 'completed', result: { data: parsedData } });
       } catch (err: any) {
         console.error('Error in background parse-resume task:', err.message);
@@ -490,7 +498,23 @@ app.use('/api/*', async (c, next) => {
     return c.json({ error: 'Unauthorized: Invalid session token' }, 401);
   }
 
-  c.set('user', user);
+  // Fetch profiles to retrieve workspace_id and role
+  const { data: profile, error: profileError } = await supabase
+    .from('profiles')
+    .select('workspace_id, role, name')
+    .eq('id', user.id)
+    .single();
+
+  if (profileError || !profile || !profile.workspace_id) {
+    return c.json({ error: 'Unauthorized: User workspace profile not found' }, 403);
+  }
+
+  c.set('user', {
+    ...user,
+    workspace_id: profile.workspace_id,
+    role: profile.role,
+    name: profile.name
+  });
   await next();
 });
 
@@ -513,9 +537,8 @@ const createCRUD = (tableName: string) => {
         const { data, error } = await supabase
           .from(tableName)
           .select('*')
-          .eq('user_id', user.id)
+          .eq('workspace_id', user.workspace_id)
           .order('created_at', { ascending: false })
-          .order('id', { ascending: true })
           .range(start, start + limit - 1);
 
         if (error) {
@@ -543,9 +566,17 @@ const createCRUD = (tableName: string) => {
   // POST create
   app.post(`/api/${tableName}`, async (c) => {
     const user = c.get('user') as any;
+    if (user.role === 'Viewer') {
+      return c.json({ error: 'Forbidden: Viewers cannot create records.' }, 403);
+    }
+
     const body = await c.req.json();
     const snakeBody = keysToSnake(body);
-    snakeBody.user_id = user.id;
+    snakeBody.workspace_id = user.workspace_id;
+    snakeBody.created_by = user.id;
+    snakeBody.updated_by = user.id;
+    delete snakeBody.user_id;
+
     const { data, error } = await supabase.from(tableName).insert([snakeBody]).select();
     if (error) return c.json({ error: error.message }, 500);
 
@@ -555,7 +586,7 @@ const createCRUD = (tableName: string) => {
         let { data: config } = await supabase
           .from('email_configs')
           .select('*')
-          .eq('id', user.id)
+          .eq('workspace_id', user.workspace_id)
           .single();
 
         if (!config) {
@@ -589,7 +620,9 @@ Skills: ${Array.isArray(snakeBody.skills) ? snakeBody.skills.join(', ') : (snake
               sent_by: 'System (Auto-Alert)',
               subject: `New Candidate Alert: ${snakeBody.name}`,
               message: `Automatic alert dispatched to ${targetEmail} for parsed candidate ${snakeBody.name} (File: ${snakeBody.resume_file_name}).`,
-              user_id: user.id
+              workspace_id: user.workspace_id,
+              created_by: user.id,
+              updated_by: user.id
             };
             await supabase.from('communication_logs').insert([newCommLog]);
           }
@@ -629,7 +662,9 @@ Skills: ${Array.isArray(snakeBody.skills) ? snakeBody.skills.join(', ') : (snake
               sent_by: 'System (Telegram Alert)',
               subject: `New Candidate Telegram Alert: ${snakeBody.name}`,
               message: `Telegram notification alert sent to verified chat ID ${config.telegram_chat_id} for candidate ${snakeBody.name}.`,
-              user_id: user.id
+              workspace_id: user.workspace_id,
+              created_by: user.id,
+              updated_by: user.id
             };
             await supabase.from('communication_logs').insert([newCommLog]);
           }
@@ -645,11 +680,18 @@ Skills: ${Array.isArray(snakeBody.skills) ? snakeBody.skills.join(', ') : (snake
   // POST bulk
   app.post(`/api/${tableName}/bulk`, async (c) => {
     const user = c.get('user') as any;
+    if (user.role === 'Viewer') {
+      return c.json({ error: 'Forbidden: Viewers cannot create records.' }, 403);
+    }
+
     const list = await c.req.json();
     if (!Array.isArray(list)) return c.json({ error: 'Body must be an array' }, 400);
     const snakeList = list.map(item => {
       const snakeItem = keysToSnake(item);
-      snakeItem.user_id = user.id;
+      snakeItem.workspace_id = user.workspace_id;
+      snakeItem.created_by = user.id;
+      snakeItem.updated_by = user.id;
+      delete snakeItem.user_id;
       return snakeItem;
     });
     const { data, error } = await supabase.from(tableName).upsert(snakeList).select();
@@ -660,20 +702,28 @@ Skills: ${Array.isArray(snakeBody.skills) ? snakeBody.skills.join(', ') : (snake
   // PUT update
   app.put(`/api/${tableName}/:id`, async (c) => {
     const user = c.get('user') as any;
+    if (user.role === 'Viewer') {
+      return c.json({ error: 'Forbidden: Viewers cannot edit records.' }, 403);
+    }
+
     const id = c.req.param('id');
     const body = await c.req.json();
     const snakeBody = keysToSnake(body);
     
-    // Don't update PRIMARY KEY if it's sent in the body
     delete snakeBody.id;
     delete snakeBody.created_at;
+    delete snakeBody.workspace_id;
+    delete snakeBody.created_by;
     delete snakeBody.user_id;
+
+    snakeBody.updated_by = user.id;
+    snakeBody.updated_at = new Date().toISOString();
 
     const { data, error } = await supabase
       .from(tableName)
       .update(snakeBody)
       .eq('id', id)
-      .eq('user_id', user.id)
+      .eq('workspace_id', user.workspace_id)
       .select();
     if (error) return c.json({ error: error.message }, 500);
     if (!data || data.length === 0) return c.json({ error: 'Record not found or access denied' }, 404);
@@ -683,20 +733,28 @@ Skills: ${Array.isArray(snakeBody.skills) ? snakeBody.skills.join(', ') : (snake
   // PATCH update
   app.patch(`/api/${tableName}/:id`, async (c) => {
     const user = c.get('user') as any;
+    if (user.role === 'Viewer') {
+      return c.json({ error: 'Forbidden: Viewers cannot edit records.' }, 403);
+    }
+
     const id = c.req.param('id');
     const body = await c.req.json();
     const snakeBody = keysToSnake(body);
     
-    // Don't update PRIMARY KEY if it's sent in the body
     delete snakeBody.id;
     delete snakeBody.created_at;
+    delete snakeBody.workspace_id;
+    delete snakeBody.created_by;
     delete snakeBody.user_id;
+
+    snakeBody.updated_by = user.id;
+    snakeBody.updated_at = new Date().toISOString();
 
     const { data, error } = await supabase
       .from(tableName)
       .update(snakeBody)
       .eq('id', id)
-      .eq('user_id', user.id)
+      .eq('workspace_id', user.workspace_id)
       .select();
     if (error) return c.json({ error: error.message }, 500);
     if (!data || data.length === 0) return c.json({ error: 'Record not found or access denied' }, 404);
@@ -706,12 +764,16 @@ Skills: ${Array.isArray(snakeBody.skills) ? snakeBody.skills.join(', ') : (snake
   // DELETE single
   app.delete(`/api/${tableName}/:id`, async (c) => {
     const user = c.get('user') as any;
+    if (user.role === 'Viewer' || user.role === 'Recruiter') {
+      return c.json({ error: 'Forbidden: Only Admins and Owners can delete records.' }, 403);
+    }
+
     const id = c.req.param('id');
     const { error } = await supabase
       .from(tableName)
       .delete()
       .eq('id', id)
-      .eq('user_id', user.id);
+      .eq('workspace_id', user.workspace_id);
     if (error) return c.json({ error: error.message }, 500);
     return c.json({ success: true, id });
   });
@@ -719,13 +781,17 @@ Skills: ${Array.isArray(snakeBody.skills) ? snakeBody.skills.join(', ') : (snake
   // DELETE by query (e.g. importId rollback)
   app.delete(`/api/${tableName}`, async (c) => {
     const user = c.get('user') as any;
+    if (user.role === 'Viewer' || user.role === 'Recruiter') {
+      return c.json({ error: 'Forbidden: Only Admins and Owners can perform mass deletions.' }, 403);
+    }
+
     const importId = c.req.query('importId');
     if (!importId) return c.json({ error: 'importId query parameter is required' }, 400);
     const { error } = await supabase
       .from(tableName)
       .delete()
       .eq('import_id', importId)
-      .eq('user_id', user.id);
+      .eq('workspace_id', user.workspace_id);
     if (error) return c.json({ error: error.message }, 500);
     return c.json({ success: true, importId });
   });
@@ -738,16 +804,107 @@ createCRUD('candidates');
 createCRUD('tasks');
 createCRUD('email_templates');
 createCRUD('activity_logs');
-createCRUD('team_members');
 createCRUD('communication_logs');
 createCRUD('custom_field_definitions');
 createCRUD('interviews');
 createCRUD('job_notes');
 
+// Profiles / Team Members Dedicated Workspace-Scoped Endpoints
+app.get('/api/team_members', async (c) => {
+  const user = c.get('user') as any;
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('workspace_id', user.workspace_id);
+  if (error) return c.json({ error: error.message }, 500);
+  return c.json(keysToCamel(data));
+});
+
+app.post('/api/team_members', async (c) => {
+  const user = c.get('user') as any;
+  if (user.role !== 'Owner' && user.role !== 'Admin') {
+    return c.json({ error: 'Forbidden: Only Owners and Admins can add team members.' }, 403);
+  }
+  const body = await c.req.json();
+  const snakeBody = keysToSnake(body);
+  
+  const { data, error } = await supabase.rpc('create_invited_user', {
+    p_email: snakeBody.email,
+    p_name: snakeBody.name,
+    p_role: snakeBody.role || 'Recruiter',
+    p_workspace_id: user.workspace_id,
+    p_department: snakeBody.department
+  });
+  
+  if (error) return c.json({ error: error.message }, 500);
+  
+  const { data: newProfile, error: fetchError } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('id', data)
+    .single();
+    
+  if (fetchError) return c.json({ error: fetchError.message }, 500);
+  return c.json(keysToCamel(newProfile));
+});
+
+app.put('/api/team_members/:id', async (c) => {
+  const user = c.get('user') as any;
+  if (user.role !== 'Owner' && user.role !== 'Admin') {
+    return c.json({ error: 'Forbidden: Only Owners and Admins can update team members.' }, 403);
+  }
+  const id = c.req.param('id');
+  const body = await c.req.json();
+  const snakeBody = keysToSnake(body);
+  
+  delete snakeBody.id;
+  delete snakeBody.created_at;
+  delete snakeBody.workspace_id;
+  delete snakeBody.email;
+  
+  const { data, error } = await supabase
+    .from('profiles')
+    .update(snakeBody)
+    .eq('id', id)
+    .eq('workspace_id', user.workspace_id)
+    .select();
+    
+  if (error) return c.json({ error: error.message }, 500);
+  if (!data || data.length === 0) return c.json({ error: 'Not found' }, 404);
+  return c.json(keysToCamel(data[0]));
+});
+
+app.delete('/api/team_members/:id', async (c) => {
+  const user = c.get('user') as any;
+  if (user.role !== 'Owner' && user.role !== 'Admin') {
+    return c.json({ error: 'Forbidden: Only Owners and Admins can delete team members.' }, 403);
+  }
+  const id = c.req.param('id');
+  
+  const { data: targetProfile } = await supabase
+    .from('profiles')
+    .select('role')
+    .eq('id', id)
+    .single();
+    
+  if (targetProfile && targetProfile.role === 'Owner') {
+    return c.json({ error: 'Forbidden: Cannot delete the workspace Owner.' }, 403);
+  }
+  
+  const { error } = await supabase
+    .from('profiles')
+    .delete()
+    .eq('id', id)
+    .eq('workspace_id', user.workspace_id);
+    
+  if (error) return c.json({ error: error.message }, 500);
+  return c.json({ success: true, id });
+});
+
 // Special Single-Row Endpoint for Email Config
 app.get('/api/email-config', async (c) => {
   const user = c.get('user') as any;
-  const { data, error } = await supabase.from('email_configs').select('*').eq('id', user.id).single();
+  const { data, error } = await supabase.from('email_configs').select('*').eq('workspace_id', user.workspace_id).single();
   if (error) {
     if (error.code === 'PGRST116') {
       return c.json({ provider: 'Gmail', isConnected: false });
@@ -759,10 +916,13 @@ app.get('/api/email-config', async (c) => {
 
 app.post('/api/email-config', async (c) => {
   const user = c.get('user') as any;
+  if (user.role === 'Viewer') {
+    return c.json({ error: 'Forbidden: Viewers cannot edit configuration.' }, 403);
+  }
   const body = await c.req.json();
   const snakeBody = keysToSnake(body);
-  snakeBody.id = user.id;
-  snakeBody.user_id = user.id;
+  snakeBody.workspace_id = user.workspace_id;
+  snakeBody.updated_by = user.id;
   
   const { data, error } = await supabase.from('email_configs').upsert([snakeBody]).select();
   if (error) return c.json({ error: error.message }, 500);
@@ -786,7 +946,7 @@ app.get('/api/job-candidates', async (c) => {
       const { data, error } = await supabase
         .from('job_candidates')
         .select('*')
-        .eq('user_id', user.id)
+        .eq('workspace_id', user.workspace_id)
         .order('id', { ascending: true })
         .range(start, start + limit - 1);
 
@@ -828,7 +988,7 @@ app.get('/api/job-candidates/:jobId', async (c) => {
         .from('job_candidates')
         .select('*, candidate:candidates(*)')
         .eq('job_id', jobId)
-        .eq('user_id', user.id)
+        .eq('workspace_id', user.workspace_id)
         .order('added_date', { ascending: false })
         .order('id', { ascending: true })
         .range(start, start + limit - 1);
@@ -862,6 +1022,9 @@ app.get('/api/job-candidates/:jobId', async (c) => {
 // POST — link a candidate to a job (add to pipeline)
 app.post('/api/job-candidates', async (c) => {
   const user = c.get('user') as any;
+  if (user.role === 'Viewer') {
+    return c.json({ error: 'Forbidden: Viewers cannot edit pipeline.' }, 403);
+  }
   const body = await c.req.json();
 
   const row = {
@@ -869,7 +1032,9 @@ app.post('/api/job-candidates', async (c) => {
     candidate_id: body.candidateId,
     stage: body.stage || 'Applied',
     added_date: new Date().toISOString().split('T')[0],
-    user_id: user.id,
+    workspace_id: user.workspace_id,
+    created_by: user.id,
+    updated_by: user.id
   };
 
   const { data, error } = await supabase
@@ -884,20 +1049,26 @@ app.post('/api/job-candidates', async (c) => {
 // PATCH — update stage or details for a specific job_candidate row
 app.patch('/api/job-candidates/:id', async (c) => {
   const user = c.get('user') as any;
+  if (user.role === 'Viewer') {
+    return c.json({ error: 'Forbidden: Viewers cannot edit pipeline.' }, 403);
+  }
   const id = c.req.param('id');
   const body = await c.req.json();
   const snakeBody = keysToSnake(body);
 
-  // Strip read-only properties
   delete snakeBody.id;
   delete snakeBody.created_at;
+  delete snakeBody.workspace_id;
+  delete snakeBody.created_by;
   delete snakeBody.user_id;
+
+  snakeBody.updated_by = user.id;
 
   const { data, error } = await supabase
     .from('job_candidates')
     .update(snakeBody)
     .eq('id', id)
-    .eq('user_id', user.id)
+    .eq('workspace_id', user.workspace_id)
     .select();
 
   if (error) return c.json({ error: error.message }, 500);
@@ -908,13 +1079,16 @@ app.patch('/api/job-candidates/:id', async (c) => {
 // DELETE — remove candidate from a job's pipeline (returns them to Talent Pool)
 app.delete('/api/job-candidates/:id', async (c) => {
   const user = c.get('user') as any;
+  if (user.role === 'Viewer' || user.role === 'Recruiter') {
+    return c.json({ error: 'Forbidden: Recruiters and Viewers cannot delete pipeline links.' }, 403);
+  }
   const id = c.req.param('id');
 
   const { error } = await supabase
     .from('job_candidates')
     .delete()
     .eq('id', id)
-    .eq('user_id', user.id);
+    .eq('workspace_id', user.workspace_id);
 
   if (error) return c.json({ error: error.message }, 500);
   return c.json({ success: true });

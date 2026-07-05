@@ -116,13 +116,19 @@ export interface ActivityLog {
 
 export interface TeamMember {
   id: string;
+  workspaceId?: string;
   name: string;
   email: string;
+  avatar?: string;
   role: 'Owner' | 'Admin' | 'Recruiter' | 'HR Executive' | 'Viewer';
   status: 'Active' | 'Pending' | 'Disabled';
-  lastLogin: string;
+  phone?: string;
+  designation?: string;
   department?: string;
   message?: string;
+  lastLogin?: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface EmailConfig {
