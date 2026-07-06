@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import ReactMarkdown from 'react-markdown';
 import { Sparkles, Send, Loader2, Bot, User, Trash2, Search, ArrowRight, HelpCircle, Paperclip, X, FileText } from 'lucide-react';
 import { Candidate, Job, Company, Task, EmailTemplate } from '../types';
 import { supabase } from '../utils/supabase';
@@ -292,28 +293,22 @@ How can I speed up your recruiting workflow today?`
                       ? 'bg-white text-slate-800 border-slate-100 shadow-xs' 
                       : 'bg-slate-900 text-white border-slate-800 shadow-sm'
                   }`}>
-                    {/* Simplified markdown formatter for bolding, bullet points and spacing */}
                     <div className="space-y-2 whitespace-pre-wrap">
-                      {m.content.split('\n').map((line, lIdx) => {
-                        // Bold parsing **some text**
-                        let content: any = line;
-                        if (line.includes('**')) {
-                          const parts = line.split('**');
-                          content = parts.map((part, pIdx) => pIdx % 2 === 1 ? <strong key={pIdx} className={isAi ? 'text-slate-950' : 'text-emerald-300'}>{part}</strong> : part);
-                        }
-                        
-                        // Bullet parsing starting with "-"
-                        if (line.trim().startsWith('-')) {
-                          return (
-                            <div key={lIdx} className="flex items-start gap-2 pl-2">
-                              <span className="text-blue-500 mt-1">•</span>
-                              <span>{content.toString().replace(/^\s*-\s*/, '')}</span>
-                            </div>
-                          );
-                        }
-
-                        return <p key={lIdx}>{content}</p>;
-                      })}
+                      <ReactMarkdown
+                        components={{
+                          p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                          strong: ({ children }) => (
+                            <strong className={isAi ? 'text-slate-950 font-semibold' : 'text-emerald-350 font-semibold'}>
+                              {children}
+                            </strong>
+                          ),
+                          ul: ({ children }) => <ul className="list-disc pl-4 space-y-1 my-2">{children}</ul>,
+                          ol: ({ children }) => <ol className="list-decimal pl-4 space-y-1 my-2">{children}</ol>,
+                          li: ({ children }) => <li className="pl-0.5">{children}</li>,
+                        }}
+                      >
+                        {m.content}
+                      </ReactMarkdown>
                     </div>
 
                     {/* Visual display of attachments in user message */}
