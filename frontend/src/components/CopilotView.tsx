@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { Sparkles, Send, Loader2, Bot, User, Trash2, Search, ArrowRight, HelpCircle, Paperclip, X, FileText, ChevronRight } from 'lucide-react';
 import { Candidate, Job, Company, Task, EmailTemplate } from '../types';
 import { supabase } from '../utils/supabase';
@@ -487,6 +488,7 @@ How can I speed up your recruiting workflow today?`
                         />
                       ) : (
                         <ReactMarkdown
+                          remarkPlugins={[remarkGfm]}
                           components={{
                             p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
                             strong: ({ children }) => (
@@ -497,6 +499,30 @@ How can I speed up your recruiting workflow today?`
                             ul: ({ children }) => <ul className="list-disc pl-4 space-y-1 my-2">{children}</ul>,
                             ol: ({ children }) => <ol className="list-decimal pl-4 space-y-1 my-2">{children}</ol>,
                             li: ({ children }) => <li className="pl-0.5">{children}</li>,
+                            // High-fidelity custom table styling components for a premium look
+                            table: ({ children }) => (
+                              <div className="overflow-x-auto my-3 border border-slate-200/80 rounded-lg shadow-3xs max-w-full">
+                                <table className="min-w-full divide-y divide-slate-200 text-[10px] sm:text-[11px] bg-white">
+                                  {children}
+                                </table>
+                              </div>
+                            ),
+                            thead: ({ children }) => <thead className="bg-slate-50/80 font-bold text-slate-700">{children}</thead>,
+                            th: ({ children }) => (
+                              <th className="px-3 py-2 border-b border-slate-250 font-semibold text-slate-700 text-left whitespace-nowrap bg-slate-50">
+                                {children}
+                              </th>
+                            ),
+                            td: ({ children }) => (
+                              <td className="px-3 py-2 text-slate-600 border-b border-slate-100 whitespace-nowrap align-middle max-w-[200px] truncate">
+                                {children}
+                              </td>
+                            ),
+                            tr: ({ children }) => (
+                              <tr className="hover:bg-slate-50/40 transition-colors last:border-b-0">
+                                {children}
+                              </tr>
+                            )
                           }}
                         >
                           {m.content}
