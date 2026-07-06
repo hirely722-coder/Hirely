@@ -653,6 +653,17 @@ app.post('/api/ai/copilot', requirePermission('copilot.open'), async (c) => {
             properties: {}
           }
         }
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'get_pipeline_summary',
+          description: 'Returns a summary count of candidates grouped by their current pipeline stages (Applied, Screening, Shortlisted, Selected, Rejected, Joined, etc.). Use this to check overall pipeline health.',
+          parameters: {
+            type: 'object',
+            properties: {}
+          }
+        }
       }
     ];
 
@@ -666,6 +677,7 @@ Instead of having all data pre-loaded, you have ACCESS to live tools to search t
 - Use 'list_companies' to check companies.
 - Use 'get_workspace_tasks' to check tasks.
 - Use 'get_custom_field_definitions' to check what dynamic custom fields (like charges, current salary, etc.) are available in this workspace.
+- Use 'get_pipeline_summary' to see candidate counts grouped by stage (Applied, Screening, Shortlisted, Selected, Rejected, etc.). Always use this instead of loading all candidates when the user asks about pipeline status or candidate counts.
 
 Always perform candidate search or lookup first before answering! Only request candidate resumes if explicitly asked to read, summarize, or evaluate details of a candidate.
 
@@ -913,20 +925,28 @@ Only generate ONE action block at the very end of your message. Ensure the JSON 
           candidates = candidates.filter(c => (c.status || '').toLowerCase() === args.stage.toLowerCase());
         }
 
-        // Limit fields returned to reduce tokens, but include customFields!
-        return candidates.map(c => ({
-          id: c.id,
-          name: c.name,
-          email: c.email,
-          phone: c.phone,
-          experience: c.experience,
-          skills: c.skills,
-          currentCompany: c.currentCompany,
-          status: c.status,
-          designation: c.designation,
-          city: c.city,
-          customFields: c.customFields
-        }));
+        const totalMatches = candidates.length;
+        const LIMIT = 15;
+        const sliced = candidates.slice(0, LIMIT);
+
+        return {
+          totalMatches,
+          resultsCount: sliced.length,
+          warning: totalMatches > LIMIT ? `Only the first ${LIMIT} results are returned to prevent token limit errors. Please search with a more specific keyword or filters if the candidate you want is not here.` : undefined,
+          results: sliced.map(c => ({
+            id: c.id,
+            name: c.name,
+            email: c.email,
+            phone: c.phone,
+            experience: c.experience,
+            skills: c.skills,
+            currentCompany: c.currentCompany,
+            status: c.status,
+            designation: c.designation,
+            city: c.city,
+            customFields: c.customFields
+          }))
+        };
       }
 
       if (name === 'get_candidate_resume') {
@@ -994,6 +1014,17 @@ Only generate ONE action block at the very end of your message. Ensure the JSON 
           options: d.options,
           isRequired: d.isRequired
         }));
+      }
+
+      if (name === 'get_pipeline_summary') {
+        const repo = new WorkspaceRepository('candidates', user);
+        const candidates = await repo.getAll();
+        const summary: Record<string, number> = {};
+        for (const c of candidates) {
+          const stage = c.status || 'Pool';
+          summary[stage] = (summary[stage] || 0) + 1;
+        }
+        return summary;
       }
 
       return { error: `Tool ${name} not found` };
