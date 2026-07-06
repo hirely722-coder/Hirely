@@ -2,6 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { X } from 'lucide-react';
 import AnimatedModal from '../AnimatedModal';
 
+const EXPERIENCE_OPTIONS = ['Entry (0-2 Years)', 'Mid (3-5 Years)', 'Senior (5+ Years)', 'Lead / Staff (9+ Years)'];
+const SALARY_OPTIONS = ['₹50,000 - ₹80,000', '₹80,000 - ₹120,000', '₹120,000 - ₹150,000', '₹150,000 - ₹180,000', '₹180,000 - ₹220,000', 'Over ₹220,000'];
+
 interface CompanyAddJobModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -90,21 +93,65 @@ export function CompanyAddJobModal({
                 </div>
                 <div>
                   <label className="block text-[10px] font-mono text-slate-400 uppercase mb-1 font-bold">Experience</label>
-                  <input 
-                    type="text" 
-                    value={newJobExp} 
-                    onChange={(e) => setNewJobExp(e.target.value)}
-                    className="w-full px-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:ring-1 focus:ring-blue-500 bg-slate-50/50"
-                  />
+                  <select 
+                    value={EXPERIENCE_OPTIONS.includes(newJobExp) ? newJobExp : 'Custom'} 
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (val === 'Custom') {
+                        setNewJobExp('');
+                      } else {
+                        setNewJobExp(val);
+                      }
+                    }}
+                    className="w-full px-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:ring-1 focus:ring-blue-500 bg-white"
+                  >
+                    <option value="Entry (0-2 Years)">Entry (0-2 Years)</option>
+                    <option value="Mid (3-5 Years)">Mid (3-5 Years)</option>
+                    <option value="Senior (5+ Years)">Senior (5+ Years)</option>
+                    <option value="Lead / Staff (9+ Years)">Lead / Staff (9+ Years)</option>
+                    <option value="Custom">Custom...</option>
+                  </select>
+                  {!EXPERIENCE_OPTIONS.includes(newJobExp) && (
+                    <input 
+                      type="text" 
+                      value={newJobExp} 
+                      onChange={(e) => setNewJobExp(e.target.value)}
+                      placeholder="E.g., 6+ Years"
+                      className="w-full mt-1.5 px-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:ring-1 focus:ring-blue-500 bg-slate-50/50"
+                    />
+                  )}
                 </div>
                 <div>
                   <label className="block text-[10px] font-mono text-slate-400 uppercase mb-1 font-bold">Salary Range</label>
-                  <input 
-                    type="text" 
-                    value={newJobSalary} 
-                    onChange={(e) => setNewJobSalary(e.target.value)}
-                    className="w-full px-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:ring-1 focus:ring-blue-500 bg-slate-50/50"
-                  />
+                  <select 
+                    value={SALARY_OPTIONS.includes(newJobSalary) ? newJobSalary : 'Custom'} 
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (val === 'Custom') {
+                        setNewJobSalary('');
+                      } else {
+                        setNewJobSalary(val);
+                      }
+                    }}
+                    className="w-full px-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:ring-1 focus:ring-blue-500 bg-white"
+                  >
+                    <option value="₹50,000 - ₹80,000">₹50,000 - ₹80,000</option>
+                    <option value="₹80,000 - ₹120,000">₹80,000 - ₹120,000</option>
+                    <option value="₹120,000 - ₹150,000">₹120,000 - ₹150,000</option>
+                    <option value="₹150,000 - ₹180,000">₹150,000 - ₹180,000</option>
+                    <option value="₹180,000 - ₹220,000">₹180,000 - ₹220,000</option>
+                    <option value="Over ₹220,000">Over ₹220,000</option>
+                    <option value="Custom">Custom...</option>
+                  </select>
+                  {!SALARY_OPTIONS.includes(newJobSalary) && (
+                    <input 
+                      type="text" 
+                      value={newJobSalary} 
+                      onChange={(e) => setNewJobSalary(e.target.value)}
+                      placeholder="E.g., ₹250k - ₹300k"
+                      className="w-full mt-1.5 px-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:ring-1 focus:ring-blue-500 bg-slate-50/50"
+                    />
+                  )}
                 </div>
               </div>
 

@@ -53,10 +53,14 @@ export function Pricing() {
             <p className="relative mt-2 text-sm text-slate-400">
               Get complete access to all AI features and recruitment tools.
             </p>
-            <div className="relative mt-6 flex items-end gap-1">
+            <div className="relative mt-6 flex items-end gap-2">
+              <span className="text-xl font-bold text-slate-500 line-through decoration-rose-500/70 decoration-2">₹3,000</span>
               <span className="text-4xl font-extrabold text-white">₹2,000</span>
               <span className="pb-1 text-sm text-slate-400">/month</span>
             </div>
+            <p className="relative mt-2 text-xs font-semibold text-amber-400/90">
+              ✨ Introductory offer — this price is just for one year!
+            </p>
 
             <ul className="relative mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2">
               {allFeatures.map((f) => (

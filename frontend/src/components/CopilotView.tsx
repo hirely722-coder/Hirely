@@ -1,6 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Sparkles, Send, Loader2, Bot, User, Trash2, Search, ArrowRight, HelpCircle } from 'lucide-react';
+import { Sparkles, Send, Loader2, Bot, User, Trash2, Search, ArrowRight, HelpCircle, Paperclip, X, FileText } from 'lucide-react';
 import { Candidate, Job, Company, Task, EmailTemplate } from '../types';
+import { supabase } from '../utils/supabase';
+import { useApp } from '../context/AppContext';
 
 interface CopilotViewProps {
   candidates: Candidate[];
@@ -13,6 +15,7 @@ interface CopilotViewProps {
 interface Message {
   role: 'user' | 'assistant';
   content: string;
+  attachments?: string[];
 }
 
 const SUGGESTIONS = [
@@ -30,6 +33,7 @@ export default function CopilotView({
   tasks,
   templates
 }: CopilotViewProps) {
+  const { fetchData } = useApp();
   const [messages, setMessages] = useState<Message[]>([
     {
       role: 'assistant',
@@ -46,23 +50,100 @@ How can I speed up your recruiting workflow today?`
   ]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [attachedFiles, setAttachedFiles] = useState<{ name: string; text: string }[]>([]);
+  const [isParsingFile, setIsParsingFile] = useState(false);
+  const [hasLoadedHistory, setHasLoadedHistory] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  // Load saved chat history on mount
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('hirely_copilot_messages');
+      if (saved) {
+        try {
+          setMessages(JSON.parse(saved));
+        } catch (e) {
+          console.error('Failed to parse saved copilot messages:', e);
+        }
+      }
+      setHasLoadedHistory(true);
+    }
+  }, []);
+
+  // Save messages to localStorage whenever they change
+  useEffect(() => {
+    if (hasLoadedHistory && typeof window !== 'undefined') {
+      localStorage.setItem('hirely_copilot_messages', JSON.stringify(messages));
+    }
+  }, [messages, hasLoadedHistory]);
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    const file = files[0];
+    setIsParsingFile(true);
+
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+
+      const response = await fetch('/api/ai/parse-file', {
+        method: 'POST',
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        },
+        body: formData
+      });
+
+      const result = await response.json();
+      if (!response.ok || result.error) {
+        throw new Error(result.error || 'Failed to parse file.');
+      }
+
+      setAttachedFiles(prev => [...prev, { name: result.fileName, text: result.text }]);
+    } catch (err: any) {
+      console.error(err);
+      alert(`Error reading file: ${err.message || 'Unknown error'}`);
+    } finally {
+      setIsParsingFile(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
+  const handleRemoveFile = (index: number) => {
+    setAttachedFiles(prev => prev.filter((_, i) => i !== index));
+  };
+
   const handleSend = async (textToSend: string) => {
     const text = textToSend.trim();
-    if (!text) return;
+    if (!text && attachedFiles.length === 0) return;
 
-    const userMsg: Message = { role: 'user', content: text };
+    const userMsg: Message = { 
+      role: 'user', 
+      content: text || `Analyzed file: ${attachedFiles.map(f => f.name).join(', ')}`,
+      attachments: attachedFiles.map(f => f.name)
+    };
     const updatedMessages = [...messages, userMsg];
     setMessages(updatedMessages);
     setInput('');
+    setAttachedFiles([]);
     setIsLoading(true);
 
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+
       // Gather current context to send to server
       const context = {
         candidates,
@@ -74,9 +155,27 @@ How can I speed up your recruiting workflow today?`
 
       const response = await fetch('/api/ai/copilot', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        },
         body: JSON.stringify({
-          messages: updatedMessages,
+          messages: updatedMessages.map((m, idx) => {
+            // For the last message, append the text content of the attached files so the LLM has it
+            if (idx === updatedMessages.length - 1 && attachedFiles.length > 0) {
+              const fileContentBlock = attachedFiles.map(f => 
+                `[ATTACHED FILE: ${f.name}]\n${f.text}\n[END OF FILE: ${f.name}]`
+              ).join('\n\n');
+              return {
+                role: m.role,
+                content: `${fileContentBlock}\n\nUser Question:\n${m.content}`
+              };
+            }
+            return {
+              role: m.role,
+              content: m.content
+            };
+          }),
           context
         })
       });
@@ -92,7 +191,11 @@ How can I speed up your recruiting workflow today?`
       const finalResult = await new Promise<any>((resolve, reject) => {
         const checkStatus = async () => {
           try {
-            const statusRes = await fetch(`/api/ai/task-status/${taskId}`);
+            const { data: { session: s } } = await supabase.auth.getSession();
+            const t = s?.access_token;
+            const statusRes = await fetch(`/api/ai/task-status/${taskId}`, {
+              headers: t ? { Authorization: `Bearer ${t}` } : {}
+            });
             if (!statusRes.ok) {
               throw new Error('Failed to fetch task status');
             }
@@ -115,6 +218,7 @@ How can I speed up your recruiting workflow today?`
         ...prev,
         { role: 'assistant', content: finalResult.responseText || 'Sorry, I couldn\'t formulate an answer.' }
       ]);
+      await fetchData();
 
     } catch (err: any) {
       console.error(err);
@@ -128,12 +232,16 @@ How can I speed up your recruiting workflow today?`
   };
 
   const handleClear = () => {
-    setMessages([
+    const clearedState: Message[] = [
       {
         role: 'assistant',
         content: "Cleared chat session history. How can I assist you with candidate sourcing or templates now?"
       }
-    ]);
+    ];
+    setMessages(clearedState);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('hirely_copilot_messages', JSON.stringify(clearedState));
+    }
   };
 
   return (
@@ -207,6 +315,18 @@ How can I speed up your recruiting workflow today?`
                         return <p key={lIdx}>{content}</p>;
                       })}
                     </div>
+
+                    {/* Visual display of attachments in user message */}
+                    {!isAi && m.attachments && m.attachments.length > 0 && (
+                      <div className="mt-3 pt-2.5 border-t border-slate-800 flex flex-wrap gap-2">
+                        {m.attachments.map((fileName, fIdx) => (
+                          <div key={fIdx} className="flex items-center gap-1.5 px-2.5 py-1 bg-slate-800 text-slate-350 rounded-lg text-[10px] font-semibold border border-slate-700">
+                            <FileText className="h-3.5 w-3.5 text-slate-400" />
+                            <span className="max-w-[120px] truncate text-slate-300">{fileName}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
               );
@@ -225,6 +345,32 @@ How can I speed up your recruiting workflow today?`
 
           {/* Form input */}
           <div className="p-3 md:p-4 border-t border-slate-100 bg-white shrink-0">
+            {/* Attached files list */}
+            {attachedFiles.length > 0 && (
+              <div className="flex flex-wrap gap-2 mb-3 shrink-0">
+                {attachedFiles.map((file, idx) => (
+                  <div key={idx} className="flex items-center gap-1.5 px-3 py-1 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg text-xs font-semibold border border-slate-200">
+                    <FileText className="h-3.5 w-3.5 text-slate-500" />
+                    <span className="max-w-[150px] truncate">{file.name}</span>
+                    <button 
+                      type="button" 
+                      onClick={() => handleRemoveFile(idx)}
+                      className="p-0.5 hover:bg-slate-300 rounded text-slate-500 hover:text-slate-800 cursor-pointer"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {isParsingFile && (
+              <div className="flex items-center gap-2 mb-3 text-xs text-blue-600 font-semibold shrink-0 animate-pulse">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                <span>Reading and extracting file contents...</span>
+              </div>
+            )}
+
             {/* Horizontal scrollable suggestions on mobile/tablet */}
             <div className="flex lg:hidden overflow-x-auto pb-2 mb-2 gap-2 scrollbar-none shrink-0" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
               {SUGGESTIONS.map((sug, i) => (
@@ -232,7 +378,7 @@ How can I speed up your recruiting workflow today?`
                   key={i}
                   type="button"
                   onClick={() => handleSend(sug)}
-                  disabled={isLoading}
+                  disabled={isLoading || isParsingFile}
                   className="px-3 py-1.5 bg-slate-50 hover:bg-blue-50 hover:text-blue-600 border border-slate-200/60 rounded-full text-[10px] font-semibold text-slate-600 transition-all shrink-0 cursor-pointer whitespace-nowrap shadow-2xs"
                 >
                   {sug}
@@ -244,17 +390,35 @@ How can I speed up your recruiting workflow today?`
               onSubmit={(e) => { e.preventDefault(); handleSend(input); }}
               className="flex items-center gap-2 border border-slate-200 focus-within:border-blue-500 rounded-xl p-1.5 bg-slate-50/50 transition-colors"
             >
+              {/* File Input Trigger */}
+              <input 
+                type="file"
+                ref={fileInputRef}
+                onChange={handleFileChange}
+                className="hidden"
+                accept=".txt,.csv,.pdf"
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isLoading || isParsingFile}
+                className="p-2 hover:bg-slate-100 rounded-lg text-slate-500 hover:text-slate-700 transition-colors cursor-pointer disabled:opacity-40"
+                title="Attach text, CSV, or PDF file"
+              >
+                <Paperclip className="h-4 w-4" />
+              </button>
+
               <input
                 type="text"
                 placeholder="Ask anything about candidates, skills, active jobs, or tasks..."
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                disabled={isLoading}
+                disabled={isLoading || isParsingFile}
                 className="flex-1 text-xs px-3 py-2 bg-transparent border-none focus:outline-none"
               />
               <button
                 type="submit"
-                disabled={isLoading || !input.trim()}
+                disabled={isLoading || isParsingFile || (!input.trim() && attachedFiles.length === 0)}
                 className="h-8 px-3 md:px-4 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:opacity-40 transition-colors text-xs font-semibold flex items-center gap-1 shrink-0 cursor-pointer"
               >
                 <Send className="h-3 w-3" />

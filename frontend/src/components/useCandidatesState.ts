@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Candidate, CommunicationLog, EmailConfig, Job, Task } from '../types';
+import { supabase } from '../utils/supabase';
 
 interface UseCandidatesStateProps {
   candidates: Candidate[];
@@ -314,12 +315,16 @@ export function useCandidatesState({
       setBulkItems(prev => prev.map(p => p.id === item.id ? { ...p, status: 'parsing' } : p));
       
       try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const token = session?.access_token;
+
         const formData = new FormData();
         formData.append('file', item.file);
 
         const response = await fetch('/api/ai/parse-resume', {
           method: 'POST',
-          body: formData
+          body: formData,
+          headers: token ? { Authorization: `Bearer ${token}` } : {}
         });
 
         if (!response.ok) {
@@ -333,7 +338,11 @@ export function useCandidatesState({
         const extracted = await new Promise<any>((resolve, reject) => {
           const checkStatus = async () => {
             try {
-              const statusRes = await fetch(`/api/ai/task-status/${taskId}`);
+              const { data: { session: s } } = await supabase.auth.getSession();
+              const t = s?.access_token;
+              const statusRes = await fetch(`/api/ai/task-status/${taskId}`, {
+                headers: t ? { Authorization: `Bearer ${t}` } : {}
+              });
               if (!statusRes.ok) {
                 throw new Error('Failed to fetch task status');
               }

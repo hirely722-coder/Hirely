@@ -63,8 +63,8 @@ export function useCompanyState({
 
   const [newJobTitle, setNewJobTitle] = useState('');
   const [newJobLocation, setNewJobLocation] = useState('Remote');
-  const [newJobExp, setNewJobExp] = useState('3-5 Years');
-  const [newJobSalary, setNewJobSalary] = useState('$120k - $140k');
+  const [newJobExp, setNewJobExp] = useState('Mid (3-5 Years)');
+  const [newJobSalary, setNewJobSalary] = useState('₹120,000 - ₹150,000');
   const [newJobDesc, setNewJobDesc] = useState('');
   const [newJobSkills, setNewJobSkills] = useState('');
 

@@ -118,7 +118,7 @@ export function generateInitialInterviews(jobs: Job[], candidates: Candidate[]):
       interviewer: 'Sophia Chen (Airbnb HR)',
       round: 'Initial Screening',
       status: 'Completed',
-      feedback: 'Excellent communicator. Confirmed salary expectations of $175,000. Approved for Technical Panel.'
+      feedback: 'Excellent communicator. Confirmed salary expectations of ₹175,000. Approved for Technical Panel.'
     },
     {
       id: 'int_3',

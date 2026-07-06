@@ -8,6 +8,11 @@ import { Job, Company, Candidate } from '../types';
 import JobDetailsPage from './job/JobDetailsPage';
 import Portal from './Portal';
 import { SearchableDropdown } from './SearchableDropdown';
+import { usePermission } from '../hooks/usePermission';
+import { useApp } from '../context/AppContext';
+
+const EXPERIENCE_OPTIONS = ['Entry (0-2 Years)', 'Mid (3-5 Years)', 'Senior (5+ Years)', 'Lead / Staff (9+ Years)'];
+const SALARY_OPTIONS = ['₹50,000 - ₹80,000', '₹80,000 - ₹120,000', '₹120,000 - ₹150,000', '₹150,000 - ₹180,000', '₹180,000 - ₹220,000', 'Over ₹220,000'];
 
 interface JobsViewProps {
   jobs: Job[];
@@ -36,6 +41,9 @@ export default function JobsView({
   onOpenCSVImport,
   isLoading = false
 }: JobsViewProps) {
+  const { showToast } = useApp();
+  const { can } = usePermission();
+
   // Search & Filters
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'All' | 'Open' | 'Closed'>('All');
@@ -120,7 +128,7 @@ export default function JobsView({
   const [formLocation, setFormLocation] = useState('San Francisco, CA');
   const [formDescription, setFormDescription] = useState('');
   const [formSkillsText, setFormSkillsText] = useState('React, TypeScript, CSS');
-  const [formSalary, setFormSalary] = useState('$150,000 - $180,000');
+  const [formSalary, setFormSalary] = useState('₹150,000 - ₹180,000');
   const [formStatus, setFormStatus] = useState<'Open' | 'Closed'>('Open');
   const [formEmploymentType, setFormEmploymentType] = useState<'Full-time' | 'Part-time' | 'Contract' | 'Internship'>('Full-time');
   const [formDepartment, setFormDepartment] = useState('Engineering');
@@ -178,13 +186,13 @@ export default function JobsView({
             averageSalary = parsed.reduce((sum, n) => sum + n, 0) / parsed.length;
           }
           
-          if (salaryFilter === 'Under $100k') {
+          if (salaryFilter === 'Under ₹100k') {
             matchesSalary = averageSalary > 0 && averageSalary < 100000;
-          } else if (salaryFilter === '$100k - $150k') {
+          } else if (salaryFilter === '₹100k - ₹150k') {
             matchesSalary = averageSalary >= 100000 && averageSalary <= 150000;
-          } else if (salaryFilter === '$150k - $200k') {
+          } else if (salaryFilter === '₹150k - ₹200k') {
             matchesSalary = averageSalary >= 150000 && averageSalary <= 200000;
-          } else if (salaryFilter === 'Over $200k') {
+          } else if (salaryFilter === 'Over ₹200k') {
             matchesSalary = averageSalary > 200000;
           }
         }
@@ -267,13 +275,17 @@ export default function JobsView({
 
   // Add Job trigger
   const startAdd = () => {
+    if (!can('jobs.add')) {
+      showToast('❌ Access Denied: You do not have permission to add job positions.', 'error');
+      return;
+    }
     setFormTitle('');
     setFormCompanyId(companies[0]?.id || '');
     setFormExperience('5+ Years');
     setFormLocation('San Francisco, CA / Hybrid');
     setFormDescription('');
     setFormSkillsText('React, TypeScript, Tailwind CSS');
-    setFormSalary('$150,000 - $180,000');
+    setFormSalary('₹150,000 - ₹180,000');
     setFormStatus('Open');
     setFormEmploymentType('Full-time');
     setFormDepartment('Engineering');
@@ -315,6 +327,10 @@ export default function JobsView({
 
   // Edit Job trigger
   const startEdit = (job: Job) => {
+    if (!can('jobs.edit')) {
+      showToast('❌ Access Denied: You do not have permission to edit job positions.', 'error');
+      return;
+    }
     setFormTitle(job.title);
     setFormCompanyId(job.companyId || '');
     setFormExperience(job.experience);
@@ -364,6 +380,10 @@ export default function JobsView({
   };
 
   const handleDuplicate = (job: Job) => {
+    if (!can('jobs.add')) {
+      showToast('❌ Access Denied: You do not have permission to add job positions.', 'error');
+      return;
+    }
     const dup: Job = {
       ...job,
       id: 'j_' + Date.now(),
@@ -375,6 +395,10 @@ export default function JobsView({
   };
 
   const handleToggleClose = (job: Job) => {
+    if (!can('jobs.edit')) {
+      showToast('❌ Access Denied: You do not have permission to edit job positions.', 'error');
+      return;
+    }
     const updated: Job = {
       ...job,
       status: job.status === 'Open' ? 'Closed' : 'Open'
@@ -423,10 +447,20 @@ export default function JobsView({
           // Refresh list pointers
         }}
         onEditJob={(updated) => {
+          if (!can('jobs.edit')) {
+            showToast('❌ Access Denied: You do not have permission to edit job positions.', 'error');
+            return;
+          }
           onEditJob(updated);
           setSelectedJob(updated);
         }}
-        onDeleteJob={onDeleteJob}
+        onDeleteJob={(id) => {
+          if (!can('jobs.delete')) {
+            showToast('❌ Access Denied: You do not have permission to delete job positions.', 'error');
+            return;
+          }
+          onDeleteJob(id);
+        }}
         onEditCandidate={onEditCandidate}
         onUpdateCandidateStage={onUpdateCandidateStage}
       />
@@ -509,7 +543,13 @@ export default function JobsView({
 
             {onOpenCSVImport && (
               <button 
-                onClick={() => onOpenCSVImport('jobs')}
+                onClick={() => {
+                  if (!can('jobs.import')) {
+                    showToast('❌ Access Denied: You do not have permission to import job postings.', 'error');
+                    return;
+                  }
+                  onOpenCSVImport('jobs');
+                }}
                 title="Import jobs from a CSV or Excel file"
                 className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold bg-white border border-slate-200 text-slate-700 rounded-lg hover:bg-slate-50 transition-colors"
               >
@@ -542,7 +582,7 @@ export default function JobsView({
 
             <SearchableDropdown
               label="Salary Range"
-              options={['All', 'Under $100k', '$100k - $150k', '$150k - $200k', 'Over $200k']}
+              options={['All', 'Under ₹100k', '₹100k - ₹150k', '₹150k - ₹200k', 'Over ₹200k']}
               value={salaryFilter}
               onChange={setSalaryFilter}
               placeholder="Search salaries..."
@@ -771,6 +811,10 @@ export default function JobsView({
                           </button>
                           <button 
                             onClick={() => {
+                              if (!can('jobs.delete')) {
+                                showToast('❌ Access Denied: You do not have permission to delete job positions.', 'error');
+                                return;
+                              }
                               if (confirm(`Are you sure you want to delete ${job.title}?`)) {
                                 onDeleteJob(job.id);
                               }
@@ -859,24 +903,66 @@ export default function JobsView({
 
                 <div>
                   <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-wider mb-1">Required Experience</label>
-                  <input
-                    type="text"
-                    value={formExperience}
-                    onChange={(e) => setFormExperience(e.target.value)}
-                    placeholder="E.g., 5+ Years"
-                    className="w-full px-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:ring-1 focus:ring-slate-500 bg-slate-50/50"
-                  />
+                  <select
+                    value={EXPERIENCE_OPTIONS.includes(formExperience) ? formExperience : 'Custom'}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (val === 'Custom') {
+                        setFormExperience('');
+                      } else {
+                        setFormExperience(val);
+                      }
+                    }}
+                    className="w-full px-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:ring-1 focus:ring-slate-500 bg-white"
+                  >
+                    <option value="Entry (0-2 Years)">Entry (0-2 Years)</option>
+                    <option value="Mid (3-5 Years)">Mid (3-5 Years)</option>
+                    <option value="Senior (5+ Years)">Senior (5+ Years)</option>
+                    <option value="Lead / Staff (9+ Years)">Lead / Staff (9+ Years)</option>
+                    <option value="Custom">Custom...</option>
+                  </select>
+                  {!EXPERIENCE_OPTIONS.includes(formExperience) && (
+                    <input
+                      type="text"
+                      value={formExperience}
+                      onChange={(e) => setFormExperience(e.target.value)}
+                      placeholder="Enter custom experience (e.g., 6+ Years)"
+                      className="w-full mt-1.5 px-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:ring-1 focus:ring-slate-500 bg-slate-50/50"
+                    />
+                  )}
                 </div>
 
                 <div>
                   <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-wider mb-1">Salary Range</label>
-                  <input
-                    type="text"
-                    value={formSalary}
-                    onChange={(e) => setFormSalary(e.target.value)}
-                    placeholder="E.g., $150,000 - $180,000"
-                    className="w-full px-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:ring-1 focus:ring-slate-500 bg-slate-50/50"
-                  />
+                  <select
+                    value={SALARY_OPTIONS.includes(formSalary) ? formSalary : 'Custom'}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (val === 'Custom') {
+                        setFormSalary('');
+                      } else {
+                        setFormSalary(val);
+                      }
+                    }}
+                    className="w-full px-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:ring-1 focus:ring-slate-500 bg-white"
+                  >
+                    <option value="₹50,000 - ₹80,000">₹50,000 - ₹80,000</option>
+                    <option value="₹80,000 - ₹120,000">₹80,000 - ₹120,000</option>
+                    <option value="₹120,000 - ₹150,000">₹120,000 - ₹150,000</option>
+                    <option value="₹150,000 - ₹180,000">₹150,000 - ₹180,000</option>
+                    <option value="₹180,000 - ₹220,000">₹180,000 - ₹220,000</option>
+                    <option value="Over ₹220,000">Over ₹220,000</option>
+                    <option value="Custom">Custom...</option>
+                  </select>
+                  {!SALARY_OPTIONS.includes(formSalary) && (
+                    <input
+                      type="text"
+                      value={formSalary}
+                      onChange={(e) => setFormSalary(e.target.value)}
+                      placeholder="Enter custom salary range (e.g., ₹250k - ₹300k)"
+                      className="w-full mt-1.5 px-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:ring-1 focus:ring-slate-500 bg-slate-50/50"
+                    />
+                  )}
                 </div>
 
                 <div>
@@ -1028,22 +1114,66 @@ export default function JobsView({
 
                 <div>
                   <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-wider mb-1">Required Experience</label>
-                  <input
-                    type="text"
-                    value={formExperience}
-                    onChange={(e) => setFormExperience(e.target.value)}
-                    className="w-full px-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:ring-1 focus:ring-slate-500 bg-slate-50/50"
-                  />
+                  <select
+                    value={EXPERIENCE_OPTIONS.includes(formExperience) ? formExperience : 'Custom'}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (val === 'Custom') {
+                        setFormExperience('');
+                      } else {
+                        setFormExperience(val);
+                      }
+                    }}
+                    className="w-full px-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:ring-1 focus:ring-slate-500 bg-white"
+                  >
+                    <option value="Entry (0-2 Years)">Entry (0-2 Years)</option>
+                    <option value="Mid (3-5 Years)">Mid (3-5 Years)</option>
+                    <option value="Senior (5+ Years)">Senior (5+ Years)</option>
+                    <option value="Lead / Staff (9+ Years)">Lead / Staff (9+ Years)</option>
+                    <option value="Custom">Custom...</option>
+                  </select>
+                  {!EXPERIENCE_OPTIONS.includes(formExperience) && (
+                    <input
+                      type="text"
+                      value={formExperience}
+                      onChange={(e) => setFormExperience(e.target.value)}
+                      placeholder="Enter custom experience (e.g., 6+ Years)"
+                      className="w-full mt-1.5 px-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:ring-1 focus:ring-slate-500 bg-slate-50/50"
+                    />
+                  )}
                 </div>
 
                 <div>
                   <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-wider mb-1">Salary Range</label>
-                  <input
-                    type="text"
-                    value={formSalary}
-                    onChange={(e) => setFormSalary(e.target.value)}
-                    className="w-full px-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:ring-1 focus:ring-slate-500 bg-slate-50/50"
-                  />
+                  <select
+                    value={SALARY_OPTIONS.includes(formSalary) ? formSalary : 'Custom'}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (val === 'Custom') {
+                        setFormSalary('');
+                      } else {
+                        setFormSalary(val);
+                      }
+                    }}
+                    className="w-full px-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:ring-1 focus:ring-slate-500 bg-white"
+                  >
+                    <option value="₹50,000 - ₹80,000">₹50,000 - ₹80,000</option>
+                    <option value="₹80,000 - ₹120,000">₹80,000 - ₹120,000</option>
+                    <option value="₹120,000 - ₹150,000">₹120,000 - ₹150,000</option>
+                    <option value="₹150,000 - ₹180,000">₹150,000 - ₹180,000</option>
+                    <option value="₹180,000 - ₹220,000">₹180,000 - ₹220,000</option>
+                    <option value="Over ₹220,000">Over ₹220,000</option>
+                    <option value="Custom">Custom...</option>
+                  </select>
+                  {!SALARY_OPTIONS.includes(formSalary) && (
+                    <input
+                      type="text"
+                      value={formSalary}
+                      onChange={(e) => setFormSalary(e.target.value)}
+                      placeholder="Enter custom salary range (e.g., ₹250k - ₹300k)"
+                      className="w-full mt-1.5 px-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:ring-1 focus:ring-slate-500 bg-slate-50/50"
+                    />
+                  )}
                 </div>
 
                 <div>

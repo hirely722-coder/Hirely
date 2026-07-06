@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Mail, Phone, MapPin, DollarSign, Clock, CheckCircle2, AlertTriangle, ArrowRight, Calendar, Check, Eye } from 'lucide-react';
+import { X, Mail, Phone, MapPin, IndianRupee, Clock, CheckCircle2, AlertTriangle, ArrowRight, Calendar, Check, Eye } from 'lucide-react';
 import { Candidate, Job } from '../../types';
 import AnimatedModal from '../AnimatedModal';
 import { calculateMatchScore } from '../../utils/matching';
@@ -118,7 +118,7 @@ export function CandidateDetailsModal({
       success: false
     },
     expectedSalaryK <= jobMaxSalaryK ? {
-      text: `Salary within budget ($${expectedSalaryK}k ≤ $${jobMaxSalaryK}k)`,
+      text: `Salary within budget (₹${expectedSalaryK}k ≤ ₹${jobMaxSalaryK}k)`,
       success: true
     } : {
       text: `Salary within budget`,
@@ -251,11 +251,11 @@ export function CandidateDetailsModal({
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
-                  <div className="border border-slate-100 bg-slate-50/40 rounded-xl p-3 text-xs">
+                  <div className="border border-slate-100 bg-slate-50/45 rounded-xl p-3 text-xs">
                     <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider font-mono block mb-1">Salary Expectations</span>
                     <div className="flex items-center gap-1.5 text-slate-800 font-extrabold text-sm">
-                      <DollarSign className="h-4 w-4 text-amber-500 shrink-0" />
-                      <span>${expectedSalaryK}k / year</span>
+                      <IndianRupee className="h-4 w-4 text-amber-500 shrink-0" />
+                      <span>₹{expectedSalaryK}k / year</span>
                     </div>
                   </div>
                   <div className="border border-slate-100 bg-slate-50/40 rounded-xl p-3 text-xs">

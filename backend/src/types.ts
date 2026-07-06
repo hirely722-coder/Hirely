@@ -121,6 +121,7 @@ export interface TeamMember {
   lastLogin: string;
   department?: string;
   message?: string;
+  password?: string;
 }
 
 export interface EmailConfig {

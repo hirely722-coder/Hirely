@@ -1,5 +1,5 @@
 import React from 'react';
-import { Sliders, Paintbrush, Mail, Users, Bell, Database } from 'lucide-react';
+import { Sliders, Paintbrush, Mail, Users, Bell, Database, Shield, Lock, History } from 'lucide-react';
 import { TeamMember, EmailConfig } from '../types';
 import ThemeBuilderView from './ThemeBuilderView';
 import { useSettingsState } from './settings/useSettingsState';
@@ -9,6 +9,9 @@ import { SettingsTeamTab } from './settings/SettingsTeamTab';
 import { SettingsNotificationsTab } from './settings/SettingsNotificationsTab';
 import { SettingsCustomFieldsTab } from './settings/SettingsCustomFieldsTab';
 import { SettingsTeamModals } from './settings/SettingsTeamModals';
+import { SettingsRbacTab } from './settings/SettingsRbacTab';
+import { SettingsFeatureLocksTab } from './settings/SettingsFeatureLocksTab';
+import { SettingsSecurityLogsTab } from './settings/SettingsSecurityLogsTab';
 
 interface SettingsViewProps {
   teamMembers: TeamMember[];
@@ -138,6 +141,42 @@ export default function SettingsView({
             <Database className="h-4 w-4" />
             Custom Fields
           </button>
+
+          <button
+            onClick={() => state.setActiveTab('rbac')}
+            className={`w-full flex items-center gap-2.5 px-3 py-2 text-xs font-semibold rounded-lg text-left transition-colors cursor-pointer ${
+              state.activeTab === 'rbac' 
+                ? 'bg-white text-blue-600 shadow-xs border border-slate-200/40' 
+                : 'text-slate-505 hover:bg-slate-100 hover:text-slate-800'
+            }`}
+          >
+            <Shield className="h-4 w-4" />
+            Roles & Permissions
+          </button>
+
+          <button
+            onClick={() => state.setActiveTab('locks')}
+            className={`w-full flex items-center gap-2.5 px-3 py-2 text-xs font-semibold rounded-lg text-left transition-colors cursor-pointer ${
+              state.activeTab === 'locks' 
+                ? 'bg-white text-blue-600 shadow-xs border border-slate-200/40' 
+                : 'text-slate-505 hover:bg-slate-100 hover:text-slate-800'
+            }`}
+          >
+            <Lock className="h-4 w-4" />
+            Feature Management
+          </button>
+
+          <button
+            onClick={() => state.setActiveTab('logs')}
+            className={`w-full flex items-center gap-2.5 px-3 py-2 text-xs font-semibold rounded-lg text-left transition-colors cursor-pointer ${
+              state.activeTab === 'logs' 
+                ? 'bg-white text-blue-600 shadow-xs border border-slate-200/40' 
+                : 'text-slate-505 hover:bg-slate-100 hover:text-slate-800'
+            }`}
+          >
+            <History className="h-4 w-4" />
+            Security Audit Logs
+          </button>
         </div>
 
         {/* Right Settings Pane */}
@@ -249,6 +288,21 @@ export default function SettingsView({
             <SettingsCustomFieldsTab />
           )}
 
+          {/* ROLES & PERMISSIONS */}
+          {state.activeTab === 'rbac' && (
+            <SettingsRbacTab />
+          )}
+
+          {/* FEATURE MANAGEMENT */}
+          {state.activeTab === 'locks' && (
+            <SettingsFeatureLocksTab />
+          )}
+
+          {/* SECURITY AUDIT LOGS */}
+          {state.activeTab === 'logs' && (
+            <SettingsSecurityLogsTab />
+          )}
+
             </>
           )}
 
@@ -263,6 +317,8 @@ export default function SettingsView({
         setInviteName={state.setInviteName}
         inviteEmail={state.inviteEmail}
         setInviteEmail={state.setInviteEmail}
+        invitePassword={state.invitePassword}
+        setInvitePassword={state.setInvitePassword}
         inviteRole={state.inviteRole}
         setInviteRole={state.setInviteRole}
         inviteDept={state.inviteDept}

@@ -4,9 +4,10 @@ import Link from 'next/link';
 import { 
   LayoutDashboard, Building2, Briefcase, Users, GitMerge, CheckSquare, 
   Mail, Sparkles, Settings, User, Bell, Search, ChevronRight, Check, X,
-  Palette, Menu, LogOut
+  Palette, Menu, LogOut, Shield
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import { usePermission } from '../hooks/usePermission';
 import { injectThemeCSS } from './theme/themeHelpers';
 import { THEME_PRESETS } from './theme/themePresets';
 import { EmailComposeModal, WhatsAppComposeModal, InterviewSchedulerModal, AddTaskModal } from './GlobalModals';
@@ -58,7 +59,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     scheduleInterviewCandidate,
     setScheduleInterviewCandidate,
     addTaskCandidate,
-    setAddTaskCandidate
+    setAddTaskCandidate,
+    notifications,
+    setNotifications
   } = useApp();
 
   const [mounted, setMounted] = useState(false);
@@ -69,12 +72,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const [globalSearch, setGlobalSearch] = useState('');
   const [isCSVImportOpen, setIsCSVImportOpen] = useState(false);
   const [csvImportInitialType, setCsvImportInitialType] = useState<'companies' | 'jobs' | 'candidates'>('candidates');
-  
-  const [notifications, setNotifications] = useState<Array<{ id: string; text: string; time: string; read: boolean }>>([
-    { id: 'n1', text: 'Sarah Connor scheduled AWS Interview.', time: '2 mins ago', read: false },
-    { id: 'n2', text: 'New candidate Emily Watson applied for Senior React Developer.', time: '1 hour ago', read: false },
-    { id: 'n3', text: 'Weekly pipeline sync report is ready.', time: 'Yesterday', read: true }
-  ]);
 
   useEffect(() => {
     setMounted(true);
@@ -121,6 +118,34 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     }
   }, [theme]);
 
+  // Synchronize document.documentElement "dark" class based on active theme
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const darkThemes = ['dark', 'nord', 'dracula', 'github-dark'];
+      let isDark = darkThemes.includes(theme);
+
+      // Check if custom theme is dark
+      const savedActive = localStorage.getItem('apex-custom-theme-active-data');
+      if (savedActive) {
+        try {
+          const themeData = JSON.parse(savedActive);
+          if (themeData && themeData.id === theme) {
+            const textCol = themeData.colors?.textColor || '';
+            if (textCol.toLowerCase().startsWith('#f') || textCol.toLowerCase().startsWith('#e') || textCol.toLowerCase().startsWith('#c')) {
+              isDark = true;
+            }
+          }
+        } catch (e) {}
+      }
+
+      const root = document.documentElement;
+      if (isDark) {
+        root.classList.add('dark');
+      } else {
+        root.classList.remove('dark');
+      }
+    }
+  }, [theme]);
   useEffect(() => {
     if (router.query.import === 'true') {
       const type = (router.query.type as 'companies' | 'jobs' | 'candidates') || 'candidates';
@@ -184,8 +209,46 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     { name: 'Settings', path: '/settings', icon: Settings },
   ];
 
+  const { can, isLocked } = usePermission();
+
+  const isLockedRoute = () => {
+    const path = router.pathname;
+    if (path === '/dashboard') return isLocked('disable_dashboard');
+    if (path === '/pipeline') return isLocked('disable_pipeline');
+    if (path === '/templates') return isLocked('disable_templates');
+    if (path === '/copilot') return isLocked('disable_copilot') || isLocked('disable_ai');
+    return false;
+  };
+
+  const isPermittedRoute = () => {
+    const path = router.pathname;
+    if (path === '/dashboard') return can('dashboard.view');
+    if (path === '/companies') return can('companies.view');
+    if (path === '/jobs') return can('jobs.view');
+    if (path === '/candidates') return can('candidates.view');
+    if (path === '/pipeline') return can('pipeline.view');
+    if (path === '/tasks') return can('tasks.view');
+    if (path === '/templates') return can('templates.view');
+    if (path === '/copilot') return can('copilot.open');
+    if (path === '/settings') return can('settings.view');
+    return true;
+  };
+
+  const filteredNavItems = navItems.filter((item) => {
+    if (item.path === '/dashboard') return can('dashboard.view') && !isLocked('disable_dashboard');
+    if (item.path === '/companies') return can('companies.view');
+    if (item.path === '/jobs') return can('jobs.view');
+    if (item.path === '/candidates') return can('candidates.view');
+    if (item.path === '/pipeline') return can('pipeline.view') && !isLocked('disable_pipeline');
+    if (item.path === '/tasks') return can('tasks.view');
+    if (item.path === '/templates') return can('templates.view') && !isLocked('disable_templates');
+    if (item.path === '/copilot') return can('copilot.open') && !isLocked('disable_copilot') && !isLocked('disable_ai');
+    if (item.path === '/settings') return can('settings.view');
+    return true;
+  });
+
   return (
-    <div className="flex h-screen bg-slate-50 font-sans overflow-hidden">
+    <div className={`flex h-screen bg-slate-50 font-sans overflow-hidden theme-${theme}`}>
       
       {/* Mobile Sidebar Overlay */}
       {isMobileSidebarOpen && (
@@ -222,7 +285,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         {/* Scrollable Navigation Items */}
         <div className="flex-1 overflow-y-auto p-4 space-y-6">
           <nav className="space-y-1">
-            {navItems.map((item) => {
+            {filteredNavItems.map((item) => {
               const Icon = item.icon;
               const isActive = router.pathname === item.path;
               return (
@@ -441,7 +504,29 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
         {/* Page Content Panel */}
         <main className="flex-1 overflow-y-auto p-4 md:p-8 bg-slate-50/30">
-          {children}
+          {isLockedRoute() ? (
+            <div className="flex flex-col items-center justify-center min-h-[60vh] text-center p-8">
+              <div className="h-16 w-16 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center mb-4 border border-amber-100 shadow-sm animate-pulse">
+                <Shield className="h-8 w-8" />
+              </div>
+              <h2 className="text-lg font-bold text-slate-900 font-sans tracking-tight">Feature Disabled by Administrator</h2>
+              <p className="text-xs text-slate-500 max-w-sm mt-2 leading-relaxed">
+                This feature has been temporarily deactivated for your workspace. Please contact your account administrator or owner to enable access.
+              </p>
+            </div>
+          ) : !isPermittedRoute() ? (
+            <div className="flex flex-col items-center justify-center min-h-[60vh] text-center p-8">
+              <div className="h-16 w-16 rounded-2xl bg-rose-50 text-rose-600 flex items-center justify-center mb-4 border border-rose-100 shadow-sm">
+                <Shield className="h-8 w-8" />
+              </div>
+              <h2 className="text-lg font-bold text-slate-900 font-sans tracking-tight">Access Denied</h2>
+              <p className="text-xs text-slate-500 max-w-sm mt-2 leading-relaxed">
+                You do not have the required role permissions to view this page. If you believe this is an error, please reach out to your administrator.
+              </p>
+            </div>
+          ) : (
+            children
+          )}
         </main>
 
       </div>

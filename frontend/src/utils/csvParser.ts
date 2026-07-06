@@ -79,13 +79,13 @@ export const CSV_TEMPLATES = {
   ],
   jobs: [
     ['Job Title', 'Company Name', 'Experience', 'Location', 'Salary Range', 'Status', 'Description', 'Required Skills', 'Employment Type', 'Department', 'Urgency', 'Assigned Recruiter'],
-    ['Senior React Developer', 'Acme Corp', '5+ Years', 'San Francisco, CA / Hybrid', '$140,000 - $170,000', 'Open', 'Looking for an expert React and TypeScript engineer.', 'React, TypeScript, Tailwind CSS, Webpack', 'Full-time', 'Engineering', 'High', 'Sarah Jenkins'],
-    ['Junior HR Specialist', 'Stark Industries', '1-3 Years', 'Malibu, CA / Remote', '$75,000 - $95,000', 'Open', 'Support global talent operations and scheduling.', 'Recruiting, Sourcing, Excel, HRIS', 'Full-time', 'Human Resources', 'Medium', 'Sarah Jenkins']
+    ['Senior React Developer', 'Acme Corp', '5+ Years', 'San Francisco, CA / Hybrid', '₹140,000 - ₹170,000', 'Open', 'Looking for an expert React and TypeScript engineer.', 'React, TypeScript, Tailwind CSS, Webpack', 'Full-time', 'Engineering', 'High', 'Sarah Jenkins'],
+    ['Junior HR Specialist', 'Stark Industries', '1-3 Years', 'Malibu, CA / Remote', '₹75,000 - ₹95,000', 'Open', 'Support global talent operations and scheduling.', 'Recruiting, Sourcing, Excel, HRIS', 'Full-time', 'Human Resources', 'Medium', 'Sarah Jenkins']
   ],
   candidates: [
     ['Name', 'Email', 'Phone', 'Experience', 'Skills', 'Current Company', 'Pipeline Stage', 'Education', 'Address', 'Notes', 'Designation', 'Gender', 'City', 'Expected Salary'],
-    ['Alice Smith', 'alice.smith@gmail.com', '+1-555-1234', '4 Years', 'React, TypeScript, Node.js', 'Framer', 'Shortlisted', 'B.S. in Computer Science', 'Austin, Texas', 'Strong architectural backend knowledge.', 'Full Stack Engineer', 'Female', 'Austin', '$135,000'],
-    ['Bob Jones', 'bob.jones@outlook.com', '+1-555-5678', '7 Years', 'Figma, UI/UX, User Research', 'Retool', 'Applied', 'B.A. in Graphic Design', 'New York, NY', 'Outstanding visual portfolio.', 'Senior UI/UX Designer', 'Male', 'New York', '$145,000']
+    ['Alice Smith', 'alice.smith@gmail.com', '+1-555-1234', '4 Years', 'React, TypeScript, Node.js', 'Framer', 'Shortlisted', 'B.S. in Computer Science', 'Austin, Texas', 'Strong architectural backend knowledge.', 'Full Stack Engineer', 'Female', 'Austin', '₹135,000'],
+    ['Bob Jones', 'bob.jones@outlook.com', '+1-555-5678', '7 Years', 'Figma, UI/UX, User Research', 'Retool', 'Applied', 'B.A. in Graphic Design', 'New York, NY', 'Outstanding visual portfolio.', 'Senior UI/UX Designer', 'Male', 'New York', '₹145,000']
   ]
 };
 

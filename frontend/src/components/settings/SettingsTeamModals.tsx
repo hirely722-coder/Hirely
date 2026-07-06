@@ -10,6 +10,8 @@ interface SettingsTeamModalsProps {
   setInviteName: (val: string) => void;
   inviteEmail: string;
   setInviteEmail: (val: string) => void;
+  invitePassword: string;
+  setInvitePassword: (val: string) => void;
   inviteRole: 'Owner' | 'Admin' | 'Recruiter' | 'HR Executive' | 'Viewer';
   setInviteRole: (val: 'Owner' | 'Admin' | 'Recruiter' | 'HR Executive' | 'Viewer') => void;
   inviteDept: string;
@@ -40,6 +42,8 @@ export function SettingsTeamModals({
   setInviteName,
   inviteEmail,
   setInviteEmail,
+  invitePassword,
+  setInvitePassword,
   inviteRole,
   setInviteRole,
   inviteDept,
@@ -106,6 +110,18 @@ export function SettingsTeamModals({
                   value={inviteEmail}
                   onChange={(e) => setInviteEmail(e.target.value)}
                   placeholder="liam.c@agency.com"
+                  className="w-full px-3 py-1.5 border border-slate-200 rounded-lg focus:ring-1 focus:ring-blue-500 bg-white focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-wider mb-1 font-bold">Password</label>
+                <input 
+                  type="password" 
+                  required
+                  value={invitePassword}
+                  onChange={(e) => setInvitePassword(e.target.value)}
+                  placeholder="Enter login password..."
                   className="w-full px-3 py-1.5 border border-slate-200 rounded-lg focus:ring-1 focus:ring-blue-500 bg-white focus:outline-none"
                 />
               </div>
@@ -292,6 +308,17 @@ export function SettingsTeamModals({
                     required
                     value={editingMember.email}
                     onChange={(e) => setEditingMember(prev => prev ? { ...prev, email: e.target.value } : null)}
+                    className="w-full px-3 py-1.5 border border-slate-200 rounded-lg focus:ring-1 focus:ring-blue-500 bg-white focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-wider mb-1 font-bold">New Password (Optional)</label>
+                  <input 
+                    type="password" 
+                    value={editingMember.password || ''}
+                    onChange={(e) => setEditingMember(prev => prev ? { ...prev, password: e.target.value } : null)}
+                    placeholder="Leave blank to keep current password..."
                     className="w-full px-3 py-1.5 border border-slate-200 rounded-lg focus:ring-1 focus:ring-blue-500 bg-white focus:outline-none"
                   />
                 </div>

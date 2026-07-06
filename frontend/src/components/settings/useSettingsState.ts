@@ -20,7 +20,7 @@ export function useSettingsState({
   setNotifications,
   showToast
 }: UseSettingsStateProps) {
-  const [activeTab, setActiveTab] = useState<'general' | 'appearance' | 'team' | 'email' | 'notifications' | 'custom_fields'>('general');
+  const [activeTab, setActiveTab] = useState<'general' | 'appearance' | 'team' | 'email' | 'notifications' | 'custom_fields' | 'rbac' | 'locks' | 'logs'>('general');
   const [savedMessage, setSavedMessage] = useState(false);
 
   // General tab form values
@@ -207,6 +207,7 @@ export function useSettingsState({
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [inviteName, setInviteName] = useState('');
   const [inviteEmail, setInviteEmail] = useState('');
+  const [invitePassword, setInvitePassword] = useState('');
   const [inviteRole, setInviteRole] = useState<'Owner' | 'Admin' | 'Recruiter' | 'HR Executive' | 'Viewer'>('Recruiter');
   const [inviteDept, setInviteDept] = useState('');
   const [inviteMsg, setInviteMsg] = useState('');
@@ -328,7 +329,8 @@ export function useSettingsState({
         role: inviteRole,
         status: 'Pending',
         department: inviteDept || 'HR Recruitment',
-        lastLogin: 'Never'
+        lastLogin: 'Never',
+        password: invitePassword || undefined
       };
 
       setTeamMembers(prev => [...prev, newMember]);
@@ -343,6 +345,7 @@ export function useSettingsState({
       
       setInviteName('');
       setInviteEmail('');
+      setInvitePassword('');
       setInviteRole('Recruiter');
       setInviteDept('');
       setInviteMsg('');
@@ -429,6 +432,8 @@ export function useSettingsState({
     setInviteName,
     inviteEmail,
     setInviteEmail,
+    invitePassword,
+    setInvitePassword,
     inviteRole,
     setInviteRole,
     inviteDept,

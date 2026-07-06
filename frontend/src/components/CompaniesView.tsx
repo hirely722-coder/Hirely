@@ -8,6 +8,8 @@ import { Company, Job, Candidate } from '../types';
 import CompanyDetailsPage from './company/CompanyDetailsPage';
 import Portal from './Portal';
 import { SearchableDropdown } from './SearchableDropdown';
+import { usePermission } from '../hooks/usePermission';
+import { useApp } from '../context/AppContext';
 
 interface CompaniesViewProps {
   companies: Company[];
@@ -46,6 +48,9 @@ export default function CompaniesView({
   onOpenCSVImport,
   isLoading = false
 }: CompaniesViewProps) {
+  const { showToast } = useApp();
+  const { can } = usePermission();
+
   // Navigation drilldown state
   const [focusedCompanyId, setFocusedCompanyId] = useState<string | null>(null);
 
@@ -291,6 +296,10 @@ export default function CompaniesView({
   };
 
   const startEdit = (company: Company) => {
+    if (!can('companies.edit')) {
+      showToast('❌ Access Denied: You do not have permission to edit company registries.', 'error');
+      return;
+    }
     setFormName(company.name);
     setFormContact(company.contactPerson);
     setFormStatus(company.status);
@@ -309,6 +318,10 @@ export default function CompaniesView({
   };
 
   const startAdd = () => {
+    if (!can('companies.add')) {
+      showToast('❌ Access Denied: You do not have permission to add corporate partners.', 'error');
+      return;
+    }
     resetForm();
     setShowAddModal(true);
   };
@@ -351,11 +364,35 @@ export default function CompaniesView({
         onBack={() => setFocusedCompanyId(null)}
         jobs={jobs}
         candidates={candidates}
-        onEditCompany={onEditCompany}
+        onEditCompany={(updated) => {
+          if (!can('companies.edit')) {
+            showToast('❌ Access Denied: You do not have permission to edit company registries.', 'error');
+            return;
+          }
+          onEditCompany(updated);
+        }}
         onEditCandidate={onEditCandidate}
-        onAddJob={onAddJob}
-        onEditJob={onEditJob}
-        onDeleteJob={onDeleteJob}
+        onAddJob={(job) => {
+          if (!can('jobs.add')) {
+            showToast('❌ Access Denied: You do not have permission to add job positions.', 'error');
+            return;
+          }
+          onAddJob(job);
+        }}
+        onEditJob={(job) => {
+          if (!can('jobs.edit')) {
+            showToast('❌ Access Denied: You do not have permission to edit job positions.', 'error');
+            return;
+          }
+          onEditJob(job);
+        }}
+        onDeleteJob={(id) => {
+          if (!can('jobs.delete')) {
+            showToast('❌ Access Denied: You do not have permission to delete job positions.', 'error');
+            return;
+          }
+          onDeleteJob(id);
+        }}
         onComposeEmail={onComposeEmail}
         onComposeWhatsApp={onComposeWhatsApp}
       />
@@ -374,7 +411,13 @@ export default function CompaniesView({
         <div className="flex items-center gap-2.5 w-full sm:w-auto sm:justify-end">
           {onOpenCSVImport && (
             <button 
-              onClick={() => onOpenCSVImport('companies')}
+              onClick={() => {
+                if (!can('companies.import')) {
+                  showToast('❌ Access Denied: You do not have permission to import company partner registries.', 'error');
+                  return;
+                }
+                onOpenCSVImport('companies');
+              }}
               className="flex flex-1 sm:flex-initial items-center justify-center gap-1.5 px-3.5 py-2 text-xs font-semibold border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-50 transition-colors bg-white shadow-xs"
             >
               <Upload className="h-4 w-4 text-slate-400" />
@@ -740,7 +783,15 @@ export default function CompaniesView({
                             <MessageSquare className="h-4 w-4" />
                           </button>
                           <button 
-                            onClick={() => onDeleteCompany(company.id)}
+                            onClick={() => {
+                              if (!can('companies.delete')) {
+                                showToast('❌ Access Denied: You do not have permission to delete company registries.', 'error');
+                                return;
+                              }
+                              if (confirm(`Are you sure you want to delete ${company.name}?`)) {
+                                onDeleteCompany(company.id);
+                              }
+                            }}
                             title="Delete"
                             className="p-1.5 text-slate-400 hover:text-red-600 rounded hover:bg-slate-100"
                           >

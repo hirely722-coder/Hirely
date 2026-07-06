@@ -241,7 +241,7 @@ export function CandidateFormModal({
             type="text"
             value={formExpectedSalary}
             onChange={(e) => setFormExpectedSalary(e.target.value)}
-            placeholder="E.g., $140,000"
+            placeholder="E.g., ₹140,000"
             className="w-full px-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:ring-1 focus:ring-blue-500 bg-slate-50/50"
           />
         </div>

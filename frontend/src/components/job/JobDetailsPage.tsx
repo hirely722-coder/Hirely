@@ -16,6 +16,7 @@ import { JobInterviewModal } from './JobInterviewModal';
 import { JobOutreachModals } from './JobOutreachModals';
 import { CandidateDetailsModal } from './CandidateDetailsModal';
 import { JobBudgetTab } from './JobBudgetTab';
+import { useApp } from '../../context/AppContext';
 
 interface JobDetailsPageProps {
   job: Job;
@@ -136,26 +137,52 @@ export default function JobDetailsPage(props: JobDetailsPageProps) {
     );
   }, [candidates, state.detailSearch]);
 
-  const EMAIL_TEMPLATES: EmailTemplate[] = [
-    {
-      id: 't1',
-      name: 'Initial outreach request',
-      category: 'Outreach',
-      subject: `Exploring Opportunities: ${job.title} opening at ${job.companyName}`,
-      body: `Dear [Candidate],\n\nI hope this email finds you well. I came across your impressive professional background and wanted to see if you might be interested in exploring a ${job.title} opportunity at ${job.companyName}.\n\nLet me know your availability for a brief call.\n\nBest,\nSarah Jenkins`,
-      lastUpdated: '2026-06-25',
-      variables: ['Candidate']
-    },
-    {
-      id: 't2',
-      name: 'Interview calendar setup',
-      category: 'Scheduling',
-      subject: `Interview Invitation: ${job.title} - ${job.companyName}`,
-      body: `Hi [Candidate],\n\nWe are excited to advance your application to the technical round. Please select a suitable slot from our recruiter link or reply with your preferred days next week.\n\nBest,\nSarah Jenkins`,
-      lastUpdated: '2026-06-24',
-      variables: ['Candidate']
+  const { templates } = useApp();
+  const EMAIL_TEMPLATES = useMemo(() => {
+    const candidateTemplates = (templates || []).filter(t => (t.audience || 'Candidate') === 'Candidate');
+    if (candidateTemplates.length > 0) {
+      return candidateTemplates.map(t => {
+        const activeJob = job;
+        const finalSubject = t.subject
+          .replace(/\{\{JobTitle\}\}/gi, activeJob ? activeJob.title : 'the position')
+          .replace(/\{\{job_title\}\}/gi, activeJob ? activeJob.title : 'the position')
+          .replace(/\{\{CompanyName\}\}/gi, activeJob ? (activeJob.companyName || 'Hirly') : 'Hirly')
+          .replace(/\{\{company_name\}\}/gi, activeJob ? (activeJob.companyName || 'Hirly') : 'Hirly');
+
+        const finalBody = t.body
+          .replace(/\{\{JobTitle\}\}/gi, activeJob ? activeJob.title : 'the position')
+          .replace(/\{\{job_title\}\}/gi, activeJob ? activeJob.title : 'the position')
+          .replace(/\{\{CompanyName\}\}/gi, activeJob ? (activeJob.companyName || 'Hirly') : 'Hirly')
+          .replace(/\{\{company_name\}\}/gi, activeJob ? (activeJob.companyName || 'Hirly') : 'Hirly');
+
+        return {
+          ...t,
+          subject: finalSubject,
+          body: finalBody
+        };
+      });
     }
-  ];
+    return [
+      {
+        id: 't1',
+        name: 'Initial outreach request',
+        category: 'Outreach',
+        subject: `Exploring Opportunities: ${job.title} opening at ${job.companyName}`,
+        body: `Dear [Candidate],\n\nI hope this email finds you well. I came across your impressive professional background and wanted to see if you might be interested in exploring a ${job.title} opportunity at ${job.companyName}.\n\nLet me know your availability for a brief call.\n\nBest,\nSarah Jenkins`,
+        lastUpdated: '2026-06-25',
+        variables: ['Candidate']
+      },
+      {
+        id: 't2',
+        name: 'Interview calendar setup',
+        category: 'Scheduling',
+        subject: `Interview Invitation: ${job.title} - ${job.companyName}`,
+        body: `Hi [Candidate],\n\nWe are excited to advance your application to the technical round. Please select a suitable slot from our recruiter link or reply with your preferred days next week.\n\nBest,\nSarah Jenkins`,
+        lastUpdated: '2026-06-24',
+        variables: ['Candidate']
+      }
+    ];
+  }, [templates, job]);
 
   return (
     <div className="space-y-6 animate-fade-in" id="job-details-workspace">

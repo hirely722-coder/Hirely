@@ -129,6 +129,9 @@ export interface TeamMember {
   lastLogin?: string;
   createdAt?: string;
   updatedAt?: string;
+  password?: string;
+  customPermissions?: string[];
+  restrictedFeatures?: string[];
 }
 
 export interface EmailConfig {
@@ -215,4 +218,27 @@ export interface CustomFieldDefinition {
   type: 'text' | 'number' | 'date' | 'boolean' | 'dropdown';
   options?: string[];
   isRequired: boolean;
+}
+
+export interface WorkspaceRole {
+  id: string;
+  workspaceId: string;
+  name: string;
+  permissions: string[];
+  isCustom: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface RbacAuditLog {
+  id: string;
+  workspaceId: string;
+  targetUserId: string;
+  targetUserName?: string;
+  action: string;
+  previousRole?: string;
+  newRole?: string;
+  changedById: string;
+  changedByName?: string;
+  timestamp: string;
 }

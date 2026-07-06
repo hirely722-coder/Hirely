@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { 
   Sparkles, Award, HelpCircle, FileText, AlertTriangle, 
-  TrendingUp, DollarSign, Sliders, Mail, Phone, Copy, Maximize2, CheckCircle2, ChevronDown, ChevronUp, BookOpen, Check
+  TrendingUp, IndianRupee, Sliders, Mail, Phone, Copy, Maximize2, CheckCircle2, ChevronDown, ChevronUp, BookOpen, Check
 } from 'lucide-react';
 import { Job } from '../../types';
 
@@ -237,7 +237,7 @@ export function JobOverviewTab({
               className="group flex flex-col text-left p-3.5 rounded-xl border border-slate-100 bg-slate-50 hover:bg-gradient-to-br hover:from-white hover:to-indigo-50/40 hover:border-indigo-200 hover:shadow-xs transition-all cursor-pointer"
             >
               <div className="h-7 w-7 rounded-lg bg-indigo-100/60 text-indigo-700 flex items-center justify-center mb-1.5 group-hover:bg-indigo-100 transition-colors">
-                <DollarSign className="h-4 w-4" />
+                <IndianRupee className="h-4 w-4" />
               </div>
               <div className="font-bold text-[11px] text-slate-800 leading-tight">Salary Advice</div>
               <div className="text-[9px] text-slate-400 font-normal mt-0.5 leading-tight">Local market benchmark</div>

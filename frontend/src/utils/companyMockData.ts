@@ -117,7 +117,7 @@ export const generateInitialNotes = (company: Company): Note[] => {
     },
     {
       id: `note_2_${company.id}`,
-      content: 'Base salary is negotiable up to $160,000 + equity for stellar candidates. They are willing to offer relocation assistance for the right talent.',
+      content: 'Base salary is negotiable up to ₹160,000 + equity for stellar candidates. They are willing to offer relocation assistance for the right talent.',
       author: 'Sarah Jenkins',
       timestamp: '2026-06-20 02:30 PM'
     },

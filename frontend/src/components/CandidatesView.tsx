@@ -7,6 +7,7 @@ import { CandidatesListView } from './CandidatesListView';
 import { CandidateDetailsView } from './CandidateDetailsView';
 import { CandidateFormModal } from './CandidateFormModal';
 import { BulkUploadModal } from './BulkUploadModal';
+import { usePermission } from '../hooks/usePermission';
 import { 
   extractUniqueDesignations, 
   extractUniqueCities, 
@@ -61,13 +62,64 @@ export default function CandidatesView(props: CandidatesViewProps) {
   } = props;
 
   const { customFieldDefinitions } = useApp();
+  const { can } = usePermission();
+
+  // Wrapped actions with permission checks
+  const handleCSVImport = () => {
+    if (!can('candidates.import')) {
+      showToast('❌ Access Denied: You do not have permission to import candidate databases.', 'error');
+      return;
+    }
+    onOpenCSVImport?.('candidates');
+  };
+
+  const handleImportResume = () => {
+    if (!can('candidates.upload_resume')) {
+      showToast('❌ Access Denied: You do not have permission to upload resumes.', 'error');
+      return;
+    }
+    state.resetForm();
+    state.setShowUploadModal(true);
+  };
+
+  const handleAddCandidate = () => {
+    if (!can('candidates.add')) {
+      showToast('❌ Access Denied: You do not have permission to add candidates.', 'error');
+      return;
+    }
+    state.startAddManually();
+  };
+
+  const handleStartEdit = (candidate: Candidate) => {
+    if (!can('candidates.edit')) {
+      showToast('❌ Access Denied: You do not have permission to edit candidates.', 'error');
+      return;
+    }
+    state.startEdit(candidate);
+  };
+
+  const handleDeleteCandidateWithPermission = (id: string) => {
+    if (!can('candidates.delete')) {
+      showToast('❌ Access Denied: You do not have permission to delete candidates.', 'error');
+      return;
+    }
+    onDeleteCandidate(id);
+  };
+
+  const handleEditCandidateWithPermission = (candidate: Candidate) => {
+    if (!can('candidates.edit')) {
+      showToast('❌ Access Denied: You do not have permission to edit candidates.', 'error');
+      return;
+    }
+    onEditCandidate(candidate);
+  };
 
   // Instantiate candidate state custom hook
   const state = useCandidatesState({
     candidates,
     onAddCandidate,
-    onEditCandidate,
-    onDeleteCandidate,
+    onEditCandidate: handleEditCandidateWithPermission,
+    onDeleteCandidate: handleDeleteCandidateWithPermission,
     openResumeUploadOnLoad,
     onAddCommunicationLog,
     showToast,
@@ -162,8 +214,8 @@ export default function CandidatesView(props: CandidatesViewProps) {
           candidateNotes={state.candidateNotes}
           setCandidateNotes={state.setCandidateNotes}
           handleSaveNotes={state.handleSaveNotes}
-          onEditCandidate={onEditCandidate}
-          onDeleteCandidate={onDeleteCandidate}
+          onEditCandidate={handleEditCandidateWithPermission}
+          onDeleteCandidate={handleDeleteCandidateWithPermission}
           communicationLogs={communicationLogs}
           onComposeEmail={onComposeEmail}
           onComposeWhatsApp={onComposeWhatsApp}
@@ -171,7 +223,7 @@ export default function CandidatesView(props: CandidatesViewProps) {
           handleLogCompletedCall={state.handleLogCompletedCall}
           onAddTaskForCandidate={onAddTaskForCandidate}
           showToast={showToast}
-          startEdit={state.startEdit}
+          startEdit={handleStartEdit}
         />
       ) : (
         /* ==================== CANDIDATES LIST VIEW (DEFAULT FULL-WIDTH) ==================== */
@@ -185,8 +237,8 @@ export default function CandidatesView(props: CandidatesViewProps) {
             <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto sm:justify-end">
               {onOpenCSVImport && (
                 <button 
-                  onClick={() => onOpenCSVImport('candidates')}
-                  className="flex flex-1 sm:flex-none items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-50 transition-colors cursor-pointer bg-white"
+                  onClick={handleCSVImport}
+                  className="flex flex-1 sm:flex-none items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-55 transition-colors cursor-pointer bg-white"
                 >
                   <Upload className="h-3.5 w-3.5 text-slate-500" />
                   Import CSV/Excel
@@ -194,15 +246,15 @@ export default function CandidatesView(props: CandidatesViewProps) {
               )}
               
               <button 
-                onClick={() => { state.resetForm(); state.setShowUploadModal(true); }}
-                className="flex flex-1 sm:flex-none items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-50 transition-colors cursor-pointer bg-white"
+                onClick={handleImportResume}
+                className="flex flex-1 sm:flex-none items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-55 transition-colors cursor-pointer bg-white"
               >
                 <Upload className="h-3.5 w-3.5" />
                 Import Resume
               </button>
               
               <button 
-                onClick={state.startAddManually}
+                onClick={handleAddCandidate}
                 className="flex flex-1 sm:flex-none items-center justify-center gap-1.5 px-4 py-2 text-xs font-semibold bg-blue-600 text-white rounded-lg hover:bg-blue-700 shadow-sm transition-colors cursor-pointer"
               >
                 <Plus className="h-4 w-4" />
@@ -261,8 +313,8 @@ export default function CandidatesView(props: CandidatesViewProps) {
             setSelectedCandidate={state.setSelectedCandidate}
             onComposeEmail={onComposeEmail}
             onComposeWhatsApp={onComposeWhatsApp}
-            startEdit={state.startEdit}
-            onDeleteCandidate={onDeleteCandidate}
+            startEdit={handleStartEdit}
+            onDeleteCandidate={handleDeleteCandidateWithPermission}
             showToast={showToast}
           />
         </>

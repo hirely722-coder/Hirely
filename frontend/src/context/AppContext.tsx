@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
-import { Company, Job, Candidate, Task, EmailTemplate, ActivityLog, TeamMember, CommunicationLog, EmailConfig, CustomFieldDefinition } from '../types';
+import { Company, Job, Candidate, Task, EmailTemplate, ActivityLog, TeamMember, CommunicationLog, EmailConfig, CustomFieldDefinition, WorkspaceRole, RbacAuditLog } from '../types';
 import { ImportTask, ImportHistoryItem, cleanEmail, cleanPhone, cleanName, cleanSkills, cleanExperience, cleanSalary, validateRecord, addImportHistoryItem } from '../utils/importEngine';
 import { supabase } from '../utils/supabase';
 
@@ -92,6 +92,23 @@ interface AppContextType {
   handleUpdateCustomFieldDef: (def: CustomFieldDefinition) => Promise<void>;
   handleDeleteCustomFieldDef: (id: string) => Promise<void>;
 
+  workspaceRoles: WorkspaceRole[];
+  lockedFeatures: string[];
+  rbacAuditLogs: RbacAuditLog[];
+  currentUserRole: string;
+  currentUserPermissions: string[];
+  currentUserRestrictedFeatures: string[];
+
+  handleSaveRolePermissions: (roleId: string, permissions: string[]) => Promise<void>;
+  handleCreateCustomRole: (name: string, permissions: string[]) => Promise<void>;
+  handleDeleteCustomRole: (roleId: string) => Promise<void>;
+  handleToggleFeatureLock: (lockedFeatures: string[]) => Promise<void>;
+  fetchRbacAuditLogs: () => Promise<void>;
+
+  notifications: Array<{ id: string; text: string; time: string; read: boolean }>;
+  setNotifications: React.Dispatch<React.SetStateAction<Array<{ id: string; text: string; time: string; read: boolean }>>>;
+  addNotification: (text: string) => void;
+
   user: any | null;
   logout: () => Promise<void>;
 }
@@ -113,8 +130,114 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [communicationLogs, setCommunicationLogs] = useState<CommunicationLog[]>([]);
   const [emailConfig, setEmailConfig] = useState<EmailConfig>({ provider: 'Gmail', isConnected: false });
   const [customFieldDefinitions, setCustomFieldDefinitions] = useState<CustomFieldDefinition[]>([]);
+  const [workspaceRoles, setWorkspaceRoles] = useState<WorkspaceRole[]>([]);
+  const [lockedFeatures, setLockedFeatures] = useState<string[]>([]);
+  const [rbacAuditLogs, setRbacAuditLogs] = useState<RbacAuditLog[]>([]);
+  const [currentUserRole, setCurrentUserRole] = useState<string>('');
+  const [currentUserPermissions, setCurrentUserPermissions] = useState<string[]>([]);
+  const [currentUserRestrictedFeatures, setCurrentUserRestrictedFeatures] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [toast, setToast] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+
+  const [notifications, setNotifications] = useState<Array<{ id: string; text: string; time: string; read: boolean }>>([]);
+  const notificationsLoadedRef = useRef(false);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const cached = localStorage.getItem('hirely_cache_notifications');
+      if (cached) {
+        setNotifications(JSON.parse(cached));
+      } else {
+        const defaults = [
+          { id: 'n1', text: 'Sarah Connor scheduled AWS Interview.', time: '2 mins ago', read: false },
+          { id: 'n2', text: 'New candidate Emily Watson applied for Senior React Developer.', time: '1 hour ago', read: false },
+          { id: 'n3', text: 'Weekly pipeline sync report is ready.', time: 'Yesterday', read: true }
+        ];
+        setNotifications(defaults);
+      }
+      notificationsLoadedRef.current = true;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && notificationsLoadedRef.current) {
+      localStorage.setItem('hirely_cache_notifications', JSON.stringify(notifications));
+    }
+  }, [notifications]);
+
+  const addNotification = (text: string) => {
+    setNotifications(prev => {
+      const next = [
+        {
+          id: 'n_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9),
+          text,
+          time: 'Just now',
+          read: false
+        },
+        ...prev
+      ];
+      return next;
+    });
+  };
+
+  const currentUserProfile = teamMembers.find(m => m.id === user?.id);
+  const workspaceId = currentUserProfile?.workspaceId;
+
+  // Real-time subscriptions for permissions/roles changes
+  useEffect(() => {
+    if (!user) return;
+
+    console.log(`Setting up real-time subscription for profile changes: public.profiles.id=eq.${user.id}`);
+    const profileChannel = supabase
+      .channel(`user-profile-${user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'profiles',
+          filter: `id=eq.${user.id}`
+        },
+        async (payload: any) => {
+          console.log('Real-time profile update detected:', payload.new);
+          await fetchData();
+          addNotification('⚠️ Your access permissions have been updated by the workspace administrator.');
+          showToast('⚠️ Your access permissions have been updated by the workspace administrator.', 'success');
+        }
+      )
+      .subscribe();
+
+    // Listen to changes to workspace roles in the same workspace
+    let rolesChannel: any = null;
+    if (workspaceId) {
+      console.log(`Setting up real-time subscription for role changes in workspace: ${workspaceId}`);
+      rolesChannel = supabase
+        .channel(`workspace-roles-${workspaceId}`)
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'workspace_roles',
+            filter: `workspace_id=eq.${workspaceId}`
+          },
+          async (payload: any) => {
+            console.log('Real-time workspace role updated detected:', payload);
+            await fetchData();
+            addNotification('⚠️ Workspace roles and permissions have been updated.');
+            showToast('⚠️ Workspace roles and permissions have been updated.', 'success');
+          }
+        )
+        .subscribe();
+    }
+
+    return () => {
+      supabase.removeChannel(profileChannel);
+      if (rolesChannel) {
+        supabase.removeChannel(rolesChannel);
+      }
+    };
+  }, [user, workspaceId]);
 
   // Global Compose Modals State
   const [emailComposeCandidate, setEmailComposeCandidate] = useState<Candidate | null>(null);
@@ -175,6 +298,12 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       localStorage.removeItem('hirely_cache_communication_logs');
       localStorage.removeItem('hirely_cache_email_config');
       localStorage.removeItem('hirely_cache_custom_field_definitions');
+      localStorage.removeItem('hirely_cache_workspace_roles');
+      localStorage.removeItem('hirely_cache_locked_features');
+      localStorage.removeItem('hirely_cache_rbac_audit_logs');
+      localStorage.removeItem('hirely_cache_current_user_role');
+      localStorage.removeItem('hirely_cache_current_user_permissions');
+      localStorage.removeItem('hirely_cache_user_id');
 
       showToast('Successfully logged out');
     } catch (err) {
@@ -196,6 +325,53 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     if (!user) return;
 
     try {
+      const cachedUserId = localStorage.getItem('hirely_cache_user_id');
+      if (cachedUserId && cachedUserId !== user.id) {
+        // Different user logged in, clear all caches!
+        localStorage.removeItem('hirely_cache_companies');
+        localStorage.removeItem('hirely_cache_jobs');
+        localStorage.removeItem('hirely_cache_candidates');
+        localStorage.removeItem('hirely_cache_tasks');
+        localStorage.removeItem('hirely_cache_templates');
+        localStorage.removeItem('hirely_cache_activity_logs');
+        localStorage.removeItem('hirely_cache_team_members');
+        localStorage.removeItem('hirely_cache_communication_logs');
+        localStorage.removeItem('hirely_cache_email_config');
+        localStorage.removeItem('hirely_cache_custom_field_definitions');
+        localStorage.removeItem('hirely_cache_workspace_roles');
+        localStorage.removeItem('hirely_cache_locked_features');
+        localStorage.removeItem('hirely_cache_rbac_audit_logs');
+        localStorage.removeItem('hirely_cache_current_user_role');
+        localStorage.removeItem('hirely_cache_current_user_permissions');
+        localStorage.removeItem('hirely_cache_current_user_restricted_features');
+        localStorage.removeItem('hirely_cache_user_id');
+        
+        // Reset states
+        setCompanies([]);
+        setJobs([]);
+        setCandidates([]);
+        setTasks([]);
+        setTemplates([]);
+        setActivityLogs([]);
+        setTeamMembers([]);
+        setCommunicationLogs([]);
+        setEmailConfig({ provider: 'Gmail', isConnected: false });
+        setCustomFieldDefinitions([]);
+        setWorkspaceRoles([]);
+        setLockedFeatures([]);
+        setRbacAuditLogs([]);
+        setCurrentUserRole('');
+        setCurrentUserPermissions([]);
+        setCurrentUserRestrictedFeatures([]);
+        setIsLoading(true);
+        return;
+      }
+
+      // If no cached user id, set it
+      if (!cachedUserId) {
+        localStorage.setItem('hirely_cache_user_id', user.id);
+      }
+
       const cachedCompanies = localStorage.getItem('hirely_cache_companies');
       const cachedJobs = localStorage.getItem('hirely_cache_jobs');
       const cachedCandidates = localStorage.getItem('hirely_cache_candidates');
@@ -206,6 +382,12 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       const cachedCommunicationLogs = localStorage.getItem('hirely_cache_communication_logs');
       const cachedEmailConfig = localStorage.getItem('hirely_cache_email_config');
       const cachedCustomFieldDefs = localStorage.getItem('hirely_cache_custom_field_definitions');
+      const cachedRoles = localStorage.getItem('hirely_cache_workspace_roles');
+      const cachedLocks = localStorage.getItem('hirely_cache_locked_features');
+      const cachedAudit = localStorage.getItem('hirely_cache_rbac_audit_logs');
+      const cachedRoleName = localStorage.getItem('hirely_cache_current_user_role');
+      const cachedPermissions = localStorage.getItem('hirely_cache_current_user_permissions');
+      const cachedRestricted = localStorage.getItem('hirely_cache_current_user_restricted_features');
 
       if (cachedCompanies || cachedJobs || cachedCandidates) {
         if (cachedCompanies) setCompanies(JSON.parse(cachedCompanies));
@@ -218,6 +400,12 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         if (cachedCommunicationLogs) setCommunicationLogs(JSON.parse(cachedCommunicationLogs));
         if (cachedEmailConfig) setEmailConfig(JSON.parse(cachedEmailConfig));
         if (cachedCustomFieldDefs) setCustomFieldDefinitions(JSON.parse(cachedCustomFieldDefs));
+        if (cachedRoles) setWorkspaceRoles(JSON.parse(cachedRoles));
+        if (cachedLocks) setLockedFeatures(JSON.parse(cachedLocks));
+        if (cachedAudit) setRbacAuditLogs(JSON.parse(cachedAudit));
+        if (cachedRoleName) setCurrentUserRole(cachedRoleName);
+        if (cachedPermissions) setCurrentUserPermissions(JSON.parse(cachedPermissions));
+        if (cachedRestricted) setCurrentUserRestrictedFeatures(JSON.parse(cachedRestricted));
         
         setIsLoading(false); // SWR: Disable loading state immediately as we have cached data
         console.log('Ingested database records from SWR cache.');
@@ -258,6 +446,12 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       const communicationLogsData = Array.isArray(payload.communicationLogs) ? payload.communicationLogs : [];
       const emailConfigData = payload.emailConfig && !payload.emailConfig.error ? payload.emailConfig : { provider: 'Gmail', isConnected: false };
       const customFieldDefsData = Array.isArray(payload.customFieldDefinitions) ? payload.customFieldDefinitions : [];
+      const rolesData = Array.isArray(payload.workspaceRoles) ? payload.workspaceRoles : [];
+      const locksData = Array.isArray(payload.lockedFeatures) ? payload.lockedFeatures : [];
+      const auditData = Array.isArray(payload.rbacAuditLogs) ? payload.rbacAuditLogs : [];
+      const roleNameData = payload.currentUser?.role || 'Viewer';
+      const permissionsData = Array.isArray(payload.currentUser?.permissions) ? payload.currentUser.permissions : [];
+      const restrictedFeaturesData = Array.isArray(payload.currentUser?.restrictedFeatures) ? payload.currentUser.restrictedFeatures : [];
 
       setCompanies(companiesData);
       setJobs(jobsData);
@@ -269,6 +463,12 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       setCommunicationLogs(communicationLogsData);
       setEmailConfig(emailConfigData);
       setCustomFieldDefinitions(customFieldDefsData);
+      setWorkspaceRoles(rolesData);
+      setLockedFeatures(locksData);
+      setRbacAuditLogs(auditData);
+      setCurrentUserRole(roleNameData);
+      setCurrentUserPermissions(permissionsData);
+      setCurrentUserRestrictedFeatures(restrictedFeaturesData);
 
       // Save to localStorage cache
       localStorage.setItem('hirely_cache_companies', JSON.stringify(companiesData));
@@ -281,6 +481,12 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       localStorage.setItem('hirely_cache_communication_logs', JSON.stringify(communicationLogsData));
       localStorage.setItem('hirely_cache_email_config', JSON.stringify(emailConfigData));
       localStorage.setItem('hirely_cache_custom_field_definitions', JSON.stringify(customFieldDefsData));
+      localStorage.setItem('hirely_cache_workspace_roles', JSON.stringify(rolesData));
+      localStorage.setItem('hirely_cache_locked_features', JSON.stringify(locksData));
+      localStorage.setItem('hirely_cache_rbac_audit_logs', JSON.stringify(auditData));
+      localStorage.setItem('hirely_cache_current_user_role', roleNameData);
+      localStorage.setItem('hirely_cache_current_user_permissions', JSON.stringify(permissionsData));
+      localStorage.setItem('hirely_cache_current_user_restricted_features', JSON.stringify(restrictedFeaturesData));
 
     } catch (err: any) {
       console.error('Failed to fetch bootstrapping data from Hono backend:', err);
@@ -304,6 +510,12 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       setCommunicationLogs([]);
       setEmailConfig({ provider: 'Gmail', isConnected: false });
       setCustomFieldDefinitions([]);
+      setWorkspaceRoles([]);
+      setLockedFeatures([]);
+      setRbacAuditLogs([]);
+      setCurrentUserRole('');
+      setCurrentUserPermissions([]);
+      setCurrentUserRestrictedFeatures([]);
       setIsLoading(false);
     }
   }, [token]);
@@ -588,16 +800,23 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const handleUpdateTeamMember = async (member: TeamMember) => {
     try {
+      console.log('[handleUpdateTeamMember] Sending update for:', member.id, 'keys:', Object.keys(member));
       const res = await fetchWithAuth(`${API_URL}/api/team_members/${member.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(member)
       });
       const data = await res.json();
+      if (!res.ok || data?.error) {
+        console.error('[handleUpdateTeamMember] API error:', data);
+        showToast(data?.error || 'Failed to update team member', 'error');
+        return;
+      }
       setTeamMembers(prev => prev.map(m => m.id === member.id ? data : m));
       showToast('✓ Team member updated successfully!');
-    } catch (err) {
-      showToast('Failed to update team member', 'error');
+    } catch (err: any) {
+      console.error('[handleUpdateTeamMember] Exception:', err);
+      showToast(err.message || 'Failed to update team member', 'error');
     }
   };
 
@@ -637,6 +856,97 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       showToast('✓ Email configuration saved successfully!');
     } catch (err) {
       showToast('Failed to save configuration', 'error');
+    }
+  };
+
+  const handleSaveRolePermissions = async (roleId: string, permissions: string[]) => {
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/workspace-roles/${roleId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ permissions })
+      });
+      const data = await res.json();
+      if (!res.ok || (data && data.error)) {
+        throw new Error(data?.error || 'Failed to update role permissions');
+      }
+      setWorkspaceRoles(prev => prev.map(r => r.id === roleId ? data : r));
+      localStorage.setItem('hirely_cache_workspace_roles', JSON.stringify(workspaceRoles.map(r => r.id === roleId ? data : r)));
+      showToast('✓ Role permissions updated successfully!');
+      await fetchRbacAuditLogs();
+    } catch (err: any) {
+      showToast(err.message || 'Failed to update role permissions', 'error');
+    }
+  };
+
+  const handleCreateCustomRole = async (name: string, permissions: string[]) => {
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/workspace-roles`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, permissions })
+      });
+      const data = await res.json();
+      if (!res.ok || (data && data.error)) {
+        throw new Error(data?.error || 'Failed to create role');
+      }
+      setWorkspaceRoles(prev => [...prev, data]);
+      localStorage.setItem('hirely_cache_workspace_roles', JSON.stringify([...workspaceRoles, data]));
+      showToast('✓ Custom role created successfully!');
+      await fetchRbacAuditLogs();
+    } catch (err: any) {
+      showToast(err.message || 'Failed to create role', 'error');
+    }
+  };
+
+  const handleDeleteCustomRole = async (roleId: string) => {
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/workspace-roles/${roleId}`, {
+        method: 'DELETE'
+      });
+      const data = await res.json();
+      if (!res.ok || (data && data.error)) {
+        throw new Error(data?.error || 'Failed to delete role');
+      }
+      setWorkspaceRoles(prev => prev.filter(r => r.id !== roleId));
+      localStorage.setItem('hirely_cache_workspace_roles', JSON.stringify(workspaceRoles.filter(r => r.id !== roleId)));
+      showToast('Custom role deleted');
+      await fetchRbacAuditLogs();
+    } catch (err: any) {
+      showToast(err.message || 'Failed to delete role', 'error');
+    }
+  };
+
+  const handleToggleFeatureLock = async (updatedLockedFeatures: string[]) => {
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/workspace/locked-features`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lockedFeatures: updatedLockedFeatures })
+      });
+      const data = await res.json();
+      if (!res.ok || (data && data.error)) {
+        throw new Error(data?.error || 'Failed to save feature locks');
+      }
+      setLockedFeatures(updatedLockedFeatures);
+      localStorage.setItem('hirely_cache_locked_features', JSON.stringify(updatedLockedFeatures));
+      showToast('✓ Feature configuration saved!');
+      await fetchRbacAuditLogs();
+    } catch (err: any) {
+      showToast(err.message || 'Failed to save feature locks', 'error');
+    }
+  };
+
+  const fetchRbacAuditLogs = async () => {
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/rbac-audit-logs`);
+      if (res.ok) {
+        const data = await res.json();
+        setRbacAuditLogs(data);
+        localStorage.setItem('hirely_cache_rbac_audit_logs', JSON.stringify(data));
+      }
+    } catch (err) {
+      console.error('Failed to fetch security audit logs:', err);
     }
   };
 
@@ -1171,10 +1481,25 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       handleUpdateCustomFieldDef,
       handleDeleteCustomFieldDef,
 
+      workspaceRoles,
+      lockedFeatures,
+      rbacAuditLogs,
+      currentUserRole,
+      currentUserPermissions,
+      currentUserRestrictedFeatures,
+      handleSaveRolePermissions,
+      handleCreateCustomRole,
+      handleDeleteCustomRole,
+      handleToggleFeatureLock,
+      fetchRbacAuditLogs,
+
       toast,
       showToast,
       user,
-      logout
+      logout,
+      notifications,
+      setNotifications,
+      addNotification
     }}>
       {children}
     </AppContext.Provider>
