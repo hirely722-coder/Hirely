@@ -35,6 +35,44 @@ const SUGGESTIONS = [
   "Summarize Marcus Vance resume notes"
 ];
 
+interface TypewriterTextProps {
+  content: string;
+  onComplete: () => void;
+}
+
+function TypewriterText({ content, onComplete }: TypewriterTextProps) {
+  const [displayText, setDisplayText] = useState('');
+  
+  useEffect(() => {
+    let index = 0;
+    // Split by words to keep it natural and avoid broken characters during build-up
+    const tokens = content.split(/(\s+)/).filter(Boolean);
+    
+    if (tokens.length === 0) {
+      onComplete();
+      return;
+    }
+
+    const interval = setInterval(() => {
+      setDisplayText((prev) => prev + tokens[index]);
+      index++;
+      if (index >= tokens.length) {
+        clearInterval(interval);
+        onComplete();
+      }
+    }, 25); // Smooth 25ms per word/separator
+
+    return () => clearInterval(interval);
+  }, [content, onComplete]);
+
+  return (
+    <p className="whitespace-pre-wrap leading-relaxed">
+      {displayText}
+      <span className="inline-block w-0.5 h-3.5 ml-0.5 align-middle bg-blue-600 animate-pulse rounded-sm" />
+    </p>
+  );
+}
+
 export default function CopilotView({
   candidates,
   jobs,
@@ -269,63 +307,16 @@ How can I speed up your recruiting workflow today?`
         return;
       }
 
-      // For streaming cases, open SSE stream and render tokens one-by-one
+      // Append the final response with isStreaming: true to kick off frontend typewriter animation
       setIsLoading(false);
-
-      const { data: { session: streamSession } } = await supabase.auth.getSession();
-      const streamToken = streamSession?.access_token;
-
-      // Add streaming placeholder message — marked isStreaming:true to use plain text rendering
-      setMessages(prev => [...prev, { role: 'assistant' as const, content: '', isStreaming: true }]);
-
-      const streamRes = await fetch(`/api/ai/copilot/stream/${taskId}`, {
-        headers: streamToken ? { Authorization: `Bearer ${streamToken}` } : {}
-      });
-
-      const reader = streamRes.body?.getReader();
-      const decoder = new TextDecoder();
-      
-      if (reader) {
-        let buffer = '';
-        let streamDone = false;
-        while (!streamDone) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split('\n');
-          buffer = lines.pop() || '';
-          for (const line of lines) {
-            if (line.startsWith('data: ')) {
-              try {
-                const chunk = JSON.parse(line.slice(6));
-                if (chunk.done) {
-                  // Stream finished — flip isStreaming off so ReactMarkdown renders formatted
-                  setMessages(prev => {
-                    const updated = [...prev];
-                    const last = updated[updated.length - 1];
-                    if (last && last.role === 'assistant') {
-                      updated[updated.length - 1] = { ...last, isStreaming: false };
-                    }
-                    return updated;
-                  });
-                  streamDone = true;
-                  break;
-                }
-                if (chunk.text) {
-                  setMessages(prev => {
-                    const updated = [...prev];
-                    const last = updated[updated.length - 1];
-                    if (last && last.role === 'assistant') {
-                      updated[updated.length - 1] = { ...last, content: last.content + chunk.text };
-                    }
-                    return updated;
-                  });
-                }
-              } catch { /* skip malformed chunk */ }
-            }
-          }
+      setMessages(prev => [
+        ...prev,
+        { 
+          role: 'assistant' as const, 
+          content: finalResult.responseText || 'Sorry, I couldn\'t formulate an answer.',
+          isStreaming: true
         }
-      }
+      ]);
 
       await fetchData();
 
@@ -482,11 +473,18 @@ How can I speed up your recruiting workflow today?`
                   }`}>
                     <div className="space-y-2">
                       {m.isStreaming ? (
-                        // While streaming: render plain text to avoid broken partial markdown syntax
-                        <p className="whitespace-pre-wrap leading-relaxed">
-                          {m.content}
-                          <span className="inline-block w-0.5 h-3.5 ml-0.5 align-middle bg-slate-400 animate-pulse rounded-sm" />
-                        </p>
+                        <TypewriterText
+                          content={m.content}
+                          onComplete={() => {
+                            setMessages(prev => {
+                              const updated = [...prev];
+                              if (updated[idx]) {
+                                updated[idx] = { ...updated[idx], isStreaming: false };
+                              }
+                              return updated;
+                            });
+                          }}
+                        />
                       ) : (
                         <ReactMarkdown
                           components={{

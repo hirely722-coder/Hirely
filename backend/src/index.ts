@@ -217,46 +217,7 @@ app.get('/api/ai/task-status/:id', (c) => {
 });
 
 // Task stream endpoint
-app.get('/api/ai/copilot/stream/:id', (c) => {
-  const taskId = c.req.param('id');
-  const task = backgroundTasks.get(taskId);
-  if (!task) {
-    return c.json({ error: 'Task not found' }, 404);
-  }
 
-  // Set up SSE headers
-  c.header('Content-Type', 'text/event-stream');
-  c.header('Cache-Control', 'no-cache');
-  c.header('Connection', 'keep-alive');
-
-  return stream(c, async (sseStream) => {
-    // Listen to streamEmitter events
-    const onToken = (data: any) => {
-      sseStream.write(`data: ${JSON.stringify(data)}\n\n`);
-    };
-
-    streamEmitter.on(`stream:${taskId}`, onToken);
-
-    // Keep connection alive until done or closed
-    return new Promise<void>((resolve) => {
-      const checkDone = (data: any) => {
-        if (data.done) {
-          streamEmitter.off(`stream:${taskId}`, onToken);
-          streamEmitter.off(`stream:${taskId}`, checkDone);
-          resolve();
-        }
-      };
-      streamEmitter.on(`stream:${taskId}`, checkDone);
-      
-      // Handle client disconnects
-      c.req.raw.signal.addEventListener('abort', () => {
-        streamEmitter.off(`stream:${taskId}`, onToken);
-        streamEmitter.off(`stream:${taskId}`, checkDone);
-        resolve();
-      });
-    });
-  });
-});
 
 // -------------------------------------------------------------
 // RBAC & Permission Helper Functions
@@ -1279,22 +1240,9 @@ Only generate ONE action block at the very end of your message. Ensure the JSON 
           throw new Error('Agent execution loop exceeded maximum steps without producing final answer.');
         }
 
-        // Stream the final response token-by-token via SSE
-        backgroundTasks.set(taskId, { status: 'streaming', result: { responseText: cleanedResponse } });
-        
-        // Stream word-by-word to prevent browser buffering caused by char-by-char SSE batching
-        const words = cleanedResponse.split(/(\s+)/); // split on whitespace, preserving separators
-        for (const word of words) {
-          if (word.length === 0) continue;
-          streamEmitter.emit(`stream:${taskId}`, { text: word, done: false });
-          await new Promise(resolve => setTimeout(resolve, 45));
-        }
-        streamEmitter.emit(`stream:${taskId}`, { text: '', done: true });
-
         backgroundTasks.set(taskId, { status: 'completed', result: { responseText: cleanedResponse } });
       } catch (err: any) {
         console.error('Error in background copilot task:', err.message);
-        streamEmitter.emit(`stream:${taskId}`, { error: err.message, done: true });
         backgroundTasks.set(taskId, { status: 'failed', error: err.message });
       }
     })();
