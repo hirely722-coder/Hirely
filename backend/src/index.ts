@@ -1282,10 +1282,12 @@ Only generate ONE action block at the very end of your message. Ensure the JSON 
         // Stream the final response token-by-token via SSE
         backgroundTasks.set(taskId, { status: 'streaming', result: { responseText: cleanedResponse } });
         
-        const tokens = cleanedResponse.split('');
-        for (const token of tokens) {
-          streamEmitter.emit(`stream:${taskId}`, { text: token, done: false });
-          await new Promise(resolve => setTimeout(resolve, 12));
+        // Stream word-by-word to prevent browser buffering caused by char-by-char SSE batching
+        const words = cleanedResponse.split(/(\s+)/); // split on whitespace, preserving separators
+        for (const word of words) {
+          if (word.length === 0) continue;
+          streamEmitter.emit(`stream:${taskId}`, { text: word, done: false });
+          await new Promise(resolve => setTimeout(resolve, 45));
         }
         streamEmitter.emit(`stream:${taskId}`, { text: '', done: true });
 

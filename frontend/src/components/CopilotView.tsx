@@ -17,6 +17,7 @@ interface Message {
   role: 'user' | 'assistant';
   content: string;
   attachments?: string[];
+  isStreaming?: boolean;
   pendingAction?: {
     taskId: string;
     command: string;
@@ -274,8 +275,8 @@ How can I speed up your recruiting workflow today?`
       const { data: { session: streamSession } } = await supabase.auth.getSession();
       const streamToken = streamSession?.access_token;
 
-      // Add empty streaming message placeholder
-      setMessages(prev => [...prev, { role: 'assistant' as const, content: '' }]);
+      // Add streaming placeholder message — marked isStreaming:true to use plain text rendering
+      setMessages(prev => [...prev, { role: 'assistant' as const, content: '', isStreaming: true }]);
 
       const streamRes = await fetch(`/api/ai/copilot/stream/${taskId}`, {
         headers: streamToken ? { Authorization: `Bearer ${streamToken}` } : {}
@@ -286,7 +287,8 @@ How can I speed up your recruiting workflow today?`
       
       if (reader) {
         let buffer = '';
-        while (true) {
+        let streamDone = false;
+        while (!streamDone) {
           const { done, value } = await reader.read();
           if (done) break;
           buffer += decoder.decode(value, { stream: true });
@@ -296,7 +298,19 @@ How can I speed up your recruiting workflow today?`
             if (line.startsWith('data: ')) {
               try {
                 const chunk = JSON.parse(line.slice(6));
-                if (chunk.done) break;
+                if (chunk.done) {
+                  // Stream finished — flip isStreaming off so ReactMarkdown renders formatted
+                  setMessages(prev => {
+                    const updated = [...prev];
+                    const last = updated[updated.length - 1];
+                    if (last && last.role === 'assistant') {
+                      updated[updated.length - 1] = { ...last, isStreaming: false };
+                    }
+                    return updated;
+                  });
+                  streamDone = true;
+                  break;
+                }
                 if (chunk.text) {
                   setMessages(prev => {
                     const updated = [...prev];
@@ -467,21 +481,29 @@ How can I speed up your recruiting workflow today?`
                       : 'bg-slate-900 text-white border-slate-800 shadow-sm'
                   }`}>
                     <div className="space-y-2">
-                      <ReactMarkdown
-                        components={{
-                          p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
-                          strong: ({ children }) => (
-                            <strong className={isAi ? 'text-slate-950 font-semibold' : 'text-emerald-350 font-semibold'}>
-                              {children}
-                            </strong>
-                          ),
-                          ul: ({ children }) => <ul className="list-disc pl-4 space-y-1 my-2">{children}</ul>,
-                          ol: ({ children }) => <ol className="list-decimal pl-4 space-y-1 my-2">{children}</ol>,
-                          li: ({ children }) => <li className="pl-0.5">{children}</li>,
-                        }}
-                      >
-                        {m.content}
-                      </ReactMarkdown>
+                      {m.isStreaming ? (
+                        // While streaming: render plain text to avoid broken partial markdown syntax
+                        <p className="whitespace-pre-wrap leading-relaxed">
+                          {m.content}
+                          <span className="inline-block w-0.5 h-3.5 ml-0.5 align-middle bg-slate-400 animate-pulse rounded-sm" />
+                        </p>
+                      ) : (
+                        <ReactMarkdown
+                          components={{
+                            p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                            strong: ({ children }) => (
+                              <strong className={isAi ? 'text-slate-950 font-semibold' : 'text-emerald-350 font-semibold'}>
+                                {children}
+                              </strong>
+                            ),
+                            ul: ({ children }) => <ul className="list-disc pl-4 space-y-1 my-2">{children}</ul>,
+                            ol: ({ children }) => <ol className="list-decimal pl-4 space-y-1 my-2">{children}</ol>,
+                            li: ({ children }) => <li className="pl-0.5">{children}</li>,
+                          }}
+                        >
+                          {m.content}
+                        </ReactMarkdown>
+                      )}
                     </div>
 
                     {/* Interactive Approval Card */}
