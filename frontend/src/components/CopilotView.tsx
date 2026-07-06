@@ -42,29 +42,37 @@ interface TypewriterTextProps {
 }
 
 function TypewriterText({ content, onComplete }: TypewriterTextProps) {
-  const [displayText, setDisplayText] = useState('');
+  const [index, setIndex] = React.useState(0);
   
-  useEffect(() => {
-    let index = 0;
-    // Split by words to keep it natural and avoid broken characters during build-up
-    const tokens = content.split(/(\s+)/).filter(Boolean);
-    
+  const tokens = React.useMemo(() => {
+    return content.split(/(\s+)/).filter(Boolean);
+  }, [content]);
+
+  React.useEffect(() => {
+    setIndex(0); // Reset typing animation if content changes
+  }, [content]);
+
+  React.useEffect(() => {
     if (tokens.length === 0) {
       onComplete();
       return;
     }
 
-    const interval = setInterval(() => {
-      setDisplayText((prev) => prev + tokens[index]);
-      index++;
-      if (index >= tokens.length) {
-        clearInterval(interval);
-        onComplete();
-      }
-    }, 25); // Smooth 25ms per word/separator
+    if (index >= tokens.length) {
+      onComplete();
+      return;
+    }
 
-    return () => clearInterval(interval);
-  }, [content, onComplete]);
+    const timeout = setTimeout(() => {
+      setIndex((i) => i + 1);
+    }, 20); // Smooth 20ms per token step
+
+    return () => clearTimeout(timeout);
+  }, [index, tokens, onComplete]);
+
+  const displayText = React.useMemo(() => {
+    return tokens.slice(0, index).join('');
+  }, [tokens, index]);
 
   return (
     <p className="whitespace-pre-wrap leading-relaxed">
