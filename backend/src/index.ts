@@ -591,7 +591,9 @@ app.post('/api/ai/copilot', requirePermission('copilot.open'), async (c) => {
             properties: {
               query: { type: 'string', description: 'Free text query to search across names, cities, designations, skills, or custom attributes' },
               skills: { type: 'array', items: { type: 'string' }, description: 'Specific candidate skills (e.g. [\'Python\', \'React\'])' },
-              stage: { type: 'string', description: 'Candidate stage (e.g. Applied, Shortlisted, Interviewing, Selected, Rejected)' }
+              stage: { type: 'string', description: 'Candidate stage (e.g. Applied, Shortlisted, Interviewing, Selected, Rejected)' },
+              limit: { type: 'integer', description: 'Number of candidate records to return (default: 15, max: 30)' },
+              offset: { type: 'integer', description: 'Number of candidates to skip for pagination offsets (default: 0)' }
             }
           }
         }
@@ -926,13 +928,16 @@ Only generate ONE action block at the very end of your message. Ensure the JSON 
         }
 
         const totalMatches = candidates.length;
-        const LIMIT = 15;
-        const sliced = candidates.slice(0, LIMIT);
+        const limit = args.limit || 15;
+        const offset = args.offset || 0;
+        const sliced = candidates.slice(offset, offset + limit);
 
         return {
           totalMatches,
           resultsCount: sliced.length,
-          warning: totalMatches > LIMIT ? `Only the first ${LIMIT} results are returned to prevent token limit errors. Please search with a more specific keyword or filters if the candidate you want is not here.` : undefined,
+          limit,
+          offset,
+          warning: totalMatches > (offset + limit) ? `Showing matches ${offset + 1} to ${offset + sliced.length} of ${totalMatches}. More matches are available. Ask to fetch the next page.` : undefined,
           results: sliced.map(c => ({
             id: c.id,
             name: c.name,
