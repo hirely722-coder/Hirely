@@ -172,7 +172,14 @@ How can I speed up your recruiting workflow today?`
         body: formData
       });
 
-      const result = await response.json();
+      const responseText = await response.text();
+      let result: any;
+      try {
+        result = JSON.parse(responseText);
+      } catch (jsonErr) {
+        throw new Error(`Server returned status ${response.status}: ${responseText || 'No response body'}`);
+      }
+
       if (!response.ok || result.error) {
         throw new Error(result.error || 'Failed to parse file.');
       }
