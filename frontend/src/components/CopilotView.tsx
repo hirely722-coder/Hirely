@@ -293,7 +293,7 @@ How can I speed up your recruiting workflow today?`
                       ? 'bg-white text-slate-800 border-slate-100 shadow-xs' 
                       : 'bg-slate-900 text-white border-slate-800 shadow-sm'
                   }`}>
-                    <div className="space-y-2 whitespace-pre-wrap">
+                    <div className="space-y-2">
                       <ReactMarkdown
                         components={{
                           p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
