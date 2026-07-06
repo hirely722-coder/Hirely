@@ -584,13 +584,13 @@ app.post('/api/ai/copilot', requirePermission('copilot.open'), async (c) => {
         type: 'function',
         function: {
           name: 'search_candidates',
-          description: 'Searches for candidate profiles in the workspace matching keywords (name, designation, location) or filter tags (skills, stage).',
+          description: 'Searches for candidate profiles in the workspace matching keywords (name, designation, location), skills, or dynamic custom fields (like charges, salary, etc.).',
           parameters: {
             type: 'object',
             properties: {
-              query: { type: 'string', description: 'Free text query (e.g. \'Akshay\' or \'React developer\')' },
-              skills: { type: 'array', items: { type: 'string' }, description: 'Candidate skills (e.g., [\'Python\', \'React\'])' },
-              stage: { type: 'string', description: 'Candidate stage (e.g., Applied, Shortlisted, Interviewing, Selected, Rejected)' }
+              query: { type: 'string', description: 'Free text query to search across names, cities, designations, skills, or custom attributes' },
+              skills: { type: 'array', items: { type: 'string' }, description: 'Specific candidate skills (e.g. [\'Python\', \'React\'])' },
+              stage: { type: 'string', description: 'Candidate stage (e.g. Applied, Shortlisted, Interviewing, Selected, Rejected)' }
             }
           }
         }
@@ -641,6 +641,17 @@ app.post('/api/ai/copilot', requirePermission('copilot.open'), async (c) => {
             properties: {}
           }
         }
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'get_custom_field_definitions',
+          description: 'Returns all active dynamic custom fields defined in the workspace (their names, keys, types, and options). Use this to understand what dynamic fields are available.',
+          parameters: {
+            type: 'object',
+            properties: {}
+          }
+        }
       }
     ];
 
@@ -653,6 +664,7 @@ Instead of having all data pre-loaded, you have ACCESS to live tools to search t
 - Use 'list_active_jobs' to check jobs.
 - Use 'list_companies' to check companies.
 - Use 'get_workspace_tasks' to check tasks.
+- Use 'get_custom_field_definitions' to check what dynamic custom fields (like charges, current salary, etc.) are available in this workspace.
 
 Always perform candidate search or lookup first before answering! Only request candidate resumes if explicitly asked to read, summarize, or evaluate details of a candidate.
 
@@ -868,11 +880,27 @@ Only generate ONE action block at the very end of your message. Ensure the JSON 
         
         if (args.query) {
           const q = args.query.toLowerCase();
-          candidates = candidates.filter(c => 
-            (c.name || '').toLowerCase().includes(q) ||
-            (c.designation || '').toLowerCase().includes(q) ||
-            (c.city || '').toLowerCase().includes(q)
-          );
+          candidates = candidates.filter(c => {
+            // 1. Scan standard fields
+            const matchesStandard = 
+              (c.name || '').toLowerCase().includes(q) ||
+              (c.designation || '').toLowerCase().includes(q) ||
+              (c.city || '').toLowerCase().includes(q) ||
+              (c.skills || []).some((s: string) => s.toLowerCase().includes(q));
+
+            if (matchesStandard) return true;
+
+            // 2. Scan custom fields dynamically (future-proof!)
+            if (c.customFields && typeof c.customFields === 'object') {
+              return Object.entries(c.customFields).some(([key, val]) => {
+                const fieldKey = key.toLowerCase();
+                const fieldValue = String(val || '').toLowerCase();
+                return fieldKey.includes(q) || fieldValue.includes(q);
+              });
+            }
+
+            return false;
+          });
         }
         if (args.skills && Array.isArray(args.skills)) {
           candidates = candidates.filter(c => {
@@ -884,7 +912,7 @@ Only generate ONE action block at the very end of your message. Ensure the JSON 
           candidates = candidates.filter(c => (c.status || '').toLowerCase() === args.stage.toLowerCase());
         }
 
-        // Limit fields returned to reduce tokens
+        // Limit fields returned to reduce tokens, but include customFields!
         return candidates.map(c => ({
           id: c.id,
           name: c.name,
@@ -895,7 +923,8 @@ Only generate ONE action block at the very end of your message. Ensure the JSON 
           currentCompany: c.currentCompany,
           status: c.status,
           designation: c.designation,
-          city: c.city
+          city: c.city,
+          customFields: c.customFields
         }));
       }
 
@@ -908,6 +937,7 @@ Only generate ONE action block at the very end of your message. Ensure the JSON 
           id: candidate.id,
           name: candidate.name,
           skills: candidate.skills,
+          customFields: candidate.customFields,
           parsedResumeText: candidate.parsedResumeText || candidate.notes || 'No resume text available'
         };
       }
@@ -952,6 +982,19 @@ Only generate ONE action block at the very end of your message. Ensure the JSON 
         }));
       }
 
+      if (name === 'get_custom_field_definitions') {
+        const repo = new WorkspaceRepository('custom_field_definitions', user);
+        const defs = await repo.getAll();
+        return defs.map(d => ({
+          id: d.id,
+          name: d.name,
+          key: d.key,
+          type: d.type,
+          options: d.options,
+          isRequired: d.isRequired
+        }));
+      }
+
       return { error: `Tool ${name} not found` };
     };
 
@@ -963,13 +1006,36 @@ Only generate ONE action block at the very end of your message. Ensure the JSON 
           ...messages
         ];
 
+        // Helper to transform tool calls & responses into plain text user/assistant messages to bypass Eden AI gateway bug
+        const transformMessagesForLLM = (msgs: any[]) => {
+          return msgs.map(msg => {
+            if (msg.tool_calls && msg.tool_calls.length > 0) {
+              const desc = msg.tool_calls.map((tc: any) => `${tc.function.name}(${tc.function.arguments || ''})`).join(', ');
+              return {
+                role: 'assistant',
+                content: `[System Action: Invoked tools: ${desc}]`
+              };
+            }
+            if (msg.role === 'tool') {
+              return {
+                role: 'user',
+                content: `[System Output for tool '${msg.name}': ${msg.content}]`
+              };
+            }
+            return {
+              role: msg.role,
+              content: msg.content
+            };
+          });
+        };
+
         let loopCount = 0;
         let responseText = '';
         let finalChoices = null;
 
         while (loopCount < 3) {
           console.log(`[Copilot Agent] Running ReAct iteration ${loopCount + 1}...`);
-          const result = await callEdenAIWithTools(messagesForLLM, tools);
+          const result = await callEdenAIWithTools(transformMessagesForLLM(messagesForLLM), tools);
           const rawMessage = result.choices?.[0]?.message;
 
           if (!rawMessage) {
