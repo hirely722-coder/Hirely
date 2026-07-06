@@ -555,31 +555,80 @@ How can I speed up your recruiting workflow today?`
 
                     {/* Interactive Approval Card */}
                     {isAi && m.pendingAction && (
-                      <div className="mt-4 p-4 border border-slate-200 rounded-xl bg-slate-50/50 max-w-md shadow-2xs font-sans text-slate-800">
+                      <div className="mt-4 p-4 border border-slate-200 rounded-xl bg-slate-50/50 max-w-lg shadow-2xs font-sans text-slate-800">
                         <div className="flex items-center gap-1.5 font-bold text-xs text-blue-600 mb-2.5">
                           <Sparkles className="h-4 w-4 text-blue-600" />
                           <span>Pending Action Confirmation</span>
                         </div>
                         
-                        <div className="bg-white border border-slate-100 rounded-lg p-3 text-xs space-y-1.5 shadow-3xs mb-3.5">
-                          <div>
+                        <div className="bg-white border border-slate-100 rounded-lg p-4 text-xs shadow-3xs mb-3.5">
+                          <div className="mb-3">
                             <span className="font-semibold text-slate-400">Action:</span>{' '}
-                            <span className="font-mono text-slate-700 bg-slate-50 px-1.5 py-0.5 rounded text-[10px] font-bold">
+                            <span className="font-mono text-blue-700 bg-blue-50/60 border border-blue-100/40 px-2 py-0.5 rounded text-[10px] font-bold tracking-wider">
                               {m.pendingAction.command.replace(/_/g, ' ').toUpperCase()}
                             </span>
                           </div>
-                          {m.pendingAction.data && typeof m.pendingAction.data === 'object' && (
-                            <div className="border-t border-slate-100 pt-2 mt-2 space-y-1 text-[11px]">
-                              {Object.entries(m.pendingAction.data).map(([key, val]) => (
-                                <div key={key} className="flex justify-between gap-4">
-                                  <span className="text-slate-400 capitalize">{key.replace(/([A-Z])/g, ' $1').toLowerCase()}:</span>
-                                  <span className="text-slate-800 font-medium truncate max-w-[200px]">
-                                    {Array.isArray(val) ? val.join(', ') : String(val || '')}
-                                  </span>
-                                </div>
-                              ))}
-                            </div>
-                          )}
+                          {m.pendingAction.data && typeof m.pendingAction.data === 'object' && (() => {
+                            const data = m.pendingAction.data as Record<string, any>;
+                            
+                            // Separate full-width fields from grid fields
+                            const fullWidthKeys = ['notes', 'description', 'requiredSkills', 'skills'];
+                            const gridFields = Object.entries(data).filter(([key]) => !fullWidthKeys.includes(key));
+                            const skills = data.skills || data.requiredSkills;
+                            const notes = data.notes || data.description;
+
+                            return (
+                              <div className="border-t border-slate-100 pt-3.5 mt-2.5 space-y-3 text-[11px]">
+                                {/* 2-Column Grid for short fields */}
+                                {gridFields.length > 0 && (
+                                  <div className="grid grid-cols-2 gap-x-4 gap-y-3.5">
+                                    {gridFields.map(([key, val]) => (
+                                      <div key={key} className="flex flex-col gap-0.5">
+                                        <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">
+                                          {key.replace(/([A-Z])/g, ' $1').toLowerCase()}
+                                        </span>
+                                        <span className="text-slate-800 font-semibold text-xs leading-normal break-words">
+                                          {String(val || '—')}
+                                        </span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+
+                                {/* Skills Badge Section */}
+                                {skills && (Array.isArray(skills) || typeof skills === 'string') && (
+                                  <div className="flex flex-col gap-1.5 border-t border-slate-100/70 pt-3">
+                                    <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">
+                                      Skills
+                                    </span>
+                                    <div className="flex flex-wrap gap-1 mt-0.5">
+                                      {(Array.isArray(skills) ? skills : String(skills).split(',')).map((sk: string, i: number) => {
+                                        const skillTrimmed = sk.trim();
+                                        if (!skillTrimmed) return null;
+                                        return (
+                                          <span key={i} className="px-2 py-0.5 bg-slate-100 text-slate-700 rounded-md font-semibold text-[10px] border border-slate-200/65">
+                                            {skillTrimmed}
+                                          </span>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* Notes / Description Section */}
+                                {notes && (
+                                  <div className="flex flex-col gap-1 border-t border-slate-100/70 pt-3">
+                                    <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">
+                                      Notes / Description
+                                    </span>
+                                    <p className="text-slate-600 italic bg-slate-50/70 border border-slate-100 rounded-lg p-2.5 text-[10.5px] leading-relaxed break-words mt-0.5">
+                                      {String(notes)}
+                                    </p>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })()}
                         </div>
 
                         {m.pendingAction.status === 'pending' ? (
