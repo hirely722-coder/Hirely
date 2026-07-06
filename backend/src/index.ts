@@ -851,6 +851,20 @@ Here are the supported commands and their payload schemas:
 }
 </action>
 
+- Assign Candidate to Job (Add/Move to Job Pipeline Stage):
+<action>
+{
+  "command": "assign_candidate_to_job",
+  "data": {
+    "candidateId": "Candidate ID",
+    "candidateName": "Candidate Name",
+    "jobId": "Job ID",
+    "jobTitle": "Job Title",
+    "stage": "Applied | Screening | Shortlisted | Interview | Selected | Offer Sent | Joined | Rejected"
+  }
+}
+</action>
+
 4. Task Commands:
 - Create Task:
 <action>
@@ -1316,6 +1330,23 @@ app.post('/api/ai/copilot/approve', requirePermission('copilot.open'), async (c)
     if (command === 'create_candidate') {
       const repo = new WorkspaceRepository('candidates', user);
       await repo.create(data);
+    } else if (command === 'assign_candidate_to_job') {
+      const snakeRow = keysToSnake({
+        jobId: data.jobId,
+        candidateId: data.candidateId,
+        stage: data.stage || 'Applied',
+        addedDate: new Date().toISOString().split('T')[0],
+        userId: user.id
+      });
+      snakeRow.workspace_id = user.workspace_id;
+      snakeRow.created_by = user.id;
+      snakeRow.updated_by = user.id;
+
+      const { error } = await supabase
+        .from('job_candidates')
+        .upsert([snakeRow], { onConflict: 'job_id,candidate_id' });
+
+      if (error) throw error;
     } else if (command === 'create_job') {
       const repo = new WorkspaceRepository('jobs', user);
       await repo.create(data);

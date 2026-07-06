@@ -573,7 +573,11 @@ How can I speed up your recruiting workflow today?`
                             
                             // Separate full-width fields from grid fields
                             const fullWidthKeys = ['notes', 'description', 'requiredSkills', 'skills'];
-                            const gridFields = Object.entries(data).filter(([key]) => !fullWidthKeys.includes(key));
+                            const isInternalId = (key: string) => {
+                              const k = key.toLowerCase();
+                              return k === 'id' || k.endsWith('id');
+                            };
+                            const gridFields = Object.entries(data).filter(([key]) => !fullWidthKeys.includes(key) && !isInternalId(key));
                             const skills = data.skills || data.requiredSkills;
                             const notes = data.notes || data.description;
 
