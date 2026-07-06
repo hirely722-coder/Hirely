@@ -192,9 +192,10 @@ async function callEdenAIWithTools(
 
 // Memory store for background LLM tasks
 export interface BackgroundTask {
-  status: 'pending' | 'completed' | 'failed';
+  status: 'pending' | 'completed' | 'failed' | 'pending_approval';
   result?: any;
   error?: string;
+  user?: any;
 }
 
 export const backgroundTasks = new Map<string, BackgroundTask>();
@@ -572,7 +573,7 @@ app.post('/api/ai/parse-file', requirePermission('candidates.run_ai_parsing'), a
 // Copilot Chat / Search Engine
 app.post('/api/ai/copilot', requirePermission('copilot.open'), async (c) => {
   try {
-    const { messages } = await c.req.json();
+    const { messages, autoExecute } = await c.req.json();
     if (!messages || !Array.isArray(messages)) {
       return c.json({ error: 'messages array is required' }, 400);
     }
@@ -1135,30 +1136,49 @@ Only generate ONE action block at the very end of your message. Ensure the JSON 
             // Catch database constraint violations synchronously inside the loop!
             const actionMatch = responseText.match(/<action>([\s\S]*?)<\/action>/);
             if (actionMatch) {
-              try {
-                const actionJson = JSON.parse(actionMatch[1].trim());
-                await executeDatabaseAction(actionJson);
-                
-                // Action executed successfully! Clean output and break loop.
-                cleanedResponse = responseText.replace(/<action>[\s\S]*?<\/action>/, '').trim();
-                break;
-              } catch (actionErr: any) {
-                console.error('[Copilot Agent Self-Healing] Database action failed:', actionErr.message);
+              if (autoExecute) {
+                try {
+                  const actionJson = JSON.parse(actionMatch[1].trim());
+                  await executeDatabaseAction(actionJson);
+                  
+                  // Action executed successfully! Clean output and break loop.
+                  cleanedResponse = responseText.replace(/<action>[\s\S]*?<\/action>/, '').trim();
+                  break;
+                } catch (actionErr: any) {
+                  console.error('[Copilot Agent Self-Healing] Database action failed:', actionErr.message);
 
-                // Append the failed assistant message and action block
-                messagesForLLM.push({
-                  role: 'assistant',
-                  content: responseText
-                });
+                  // Append the failed assistant message and action block
+                  messagesForLLM.push({
+                    role: 'assistant',
+                    content: responseText
+                  });
 
-                // Append direct error feedback to prompt history
-                messagesForLLM.push({
-                  role: 'user',
-                  content: `[System Action Error: The database action failed with error: "${actionErr.message}". This usually means a candidate, job, or task ID you provided does not exist, or you violated a database constraint. Please check your IDs, call the appropriate search tools (e.g. 'search_candidates') to get the correct UUID, and generate the corrected <action> block again.]`
-                });
+                  // Append direct error feedback to prompt history
+                  messagesForLLM.push({
+                    role: 'user',
+                    content: `[System Action Error: The database action failed with error: "${actionErr.message}". This usually means a candidate, job, or task ID you provided does not exist, or you violated a database constraint. Please check your IDs, call the appropriate search tools (e.g. 'search_candidates') to get the correct UUID, and generate the corrected <action> block again.]`
+                  });
 
-                loopCount++;
-                continue; // Re-run completions API to allow AI to self-correct!
+                  loopCount++;
+                  continue; // Re-run completions API to allow AI to self-correct!
+                }
+              } else {
+                // If auto-execute is disabled, we set status to pending_approval and stop loop!
+                try {
+                  const actionJson = JSON.parse(actionMatch[1].trim());
+                  cleanedResponse = responseText.replace(/<action>[\s\S]*?<\/action>/, '').trim();
+                  backgroundTasks.set(taskId, {
+                    status: 'pending_approval',
+                    user,
+                    result: {
+                      responseText: cleanedResponse,
+                      action: actionJson
+                    }
+                  });
+                  return; // Stop the background process right now!
+                } catch (parseErr: any) {
+                  console.error('Failed to parse action JSON during manual approval:', parseErr.message);
+                }
               }
             }
             break;
@@ -1183,6 +1203,91 @@ Only generate ONE action block at the very end of your message. Ensure the JSON 
       error: 'Failed to initiate AI Copilot.',
       details: err.message
     }, 500);
+  }
+});
+
+// Approve Copilot Action Endpoint
+app.post('/api/ai/copilot/approve', requirePermission('copilot.open'), async (c) => {
+  try {
+    const { taskId } = await c.req.json();
+    if (!taskId) {
+      return c.json({ error: 'taskId is required' }, 400);
+    }
+
+    const task = backgroundTasks.get(taskId);
+    if (!task) {
+      return c.json({ error: 'Task not found' }, 404);
+    }
+
+    if (task.status !== 'pending_approval') {
+      return c.json({ error: `Task cannot be approved. Current status: ${task.status}` }, 400);
+    }
+
+    // Execute database action command stored in task using stored user context
+    const actionJson = task.result.action;
+    
+    // Declare execution logic locally or call same repository structure
+    const { command, id, data } = actionJson;
+    const user = task.user;
+    console.log(`[Copilot Action Approval] Executing command: ${command} for user: ${user.email}`);
+
+    if (command === 'create_candidate') {
+      const repo = new WorkspaceRepository('candidates', user);
+      await repo.create(data);
+    } else if (command === 'create_job') {
+      const repo = new WorkspaceRepository('jobs', user);
+      await repo.create(data);
+    } else if (command === 'create_task') {
+      const repo = new WorkspaceRepository('tasks', user);
+      await repo.create(data);
+    } else if (command === 'create_company') {
+      const repo = new WorkspaceRepository('companies', user);
+      await repo.create(data);
+    } else if (command === 'create_template' || command === 'create_email_template') {
+      const repo = new WorkspaceRepository('email_templates', user);
+      await repo.create(data);
+    } else if (command === 'update_candidate') {
+      const repo = new WorkspaceRepository('candidates', user);
+      await repo.update(id, data);
+    } else if (command === 'update_job') {
+      const repo = new WorkspaceRepository('jobs', user);
+      await repo.update(id, data);
+    } else if (command === 'update_task') {
+      const repo = new WorkspaceRepository('tasks', user);
+      await repo.update(id, data);
+    } else if (command === 'update_company') {
+      const repo = new WorkspaceRepository('companies', user);
+      await repo.update(id, data);
+    } else if (command === 'update_template' || command === 'update_email_template') {
+      const repo = new WorkspaceRepository('email_templates', user);
+      await repo.update(id, data);
+    } else if (command === 'delete_candidate') {
+      const repo = new WorkspaceRepository('candidates', user);
+      await repo.delete(id);
+    } else if (command === 'delete_job') {
+      const repo = new WorkspaceRepository('jobs', user);
+      await repo.delete(id);
+    } else if (command === 'delete_task') {
+      const repo = new WorkspaceRepository('tasks', user);
+      await repo.delete(id);
+    } else if (command === 'delete_company') {
+      const repo = new WorkspaceRepository('companies', user);
+      await repo.delete(id);
+    } else if (command === 'delete_template' || command === 'delete_email_template') {
+      const repo = new WorkspaceRepository('email_templates', user);
+      await repo.delete(id);
+    } else {
+      throw new Error(`Unknown action command: ${command}`);
+    }
+
+    // Set status to completed
+    task.status = 'completed';
+    backgroundTasks.set(taskId, task);
+
+    return c.json({ success: true, message: `Action '${command}' executed successfully.` });
+  } catch (err: any) {
+    console.error('Error executing approved copilot task action:', err.message);
+    return c.json({ error: 'Failed to execute approved action.', details: err.message }, 500);
   }
 });
 

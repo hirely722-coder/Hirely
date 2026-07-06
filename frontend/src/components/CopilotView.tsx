@@ -17,6 +17,13 @@ interface Message {
   role: 'user' | 'assistant';
   content: string;
   attachments?: string[];
+  pendingAction?: {
+    taskId: string;
+    command: string;
+    data: any;
+    id?: string;
+    status: 'pending' | 'approved' | 'rejected';
+  };
 }
 
 const SUGGESTIONS = [
@@ -54,6 +61,9 @@ How can I speed up your recruiting workflow today?`
   const [attachedFiles, setAttachedFiles] = useState<{ name: string; text: string }[]>([]);
   const [isParsingFile, setIsParsingFile] = useState(false);
   const [hasLoadedHistory, setHasLoadedHistory] = useState(false);
+  const [autoExecute, setAutoExecute] = useState(false);
+  const [approvingTaskId, setApprovingTaskId] = useState<string | null>(null);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -61,7 +71,7 @@ How can I speed up your recruiting workflow today?`
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Load saved chat history on mount
+  // Load saved chat history and autoExecute setting on mount
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('hirely_copilot_messages');
@@ -71,6 +81,10 @@ How can I speed up your recruiting workflow today?`
         } catch (e) {
           console.error('Failed to parse saved copilot messages:', e);
         }
+      }
+      const savedAuto = localStorage.getItem('hirely_copilot_auto_execute');
+      if (savedAuto) {
+        setAutoExecute(savedAuto === 'true');
       }
       setHasLoadedHistory(true);
     }
@@ -177,7 +191,8 @@ How can I speed up your recruiting workflow today?`
               content: m.content
             };
           }),
-          context
+          context,
+          autoExecute
         })
       });
 
@@ -203,6 +218,12 @@ How can I speed up your recruiting workflow today?`
             const task = await statusRes.json();
             if (task.status === 'completed') {
               resolve(task.result);
+            } else if (task.status === 'pending_approval') {
+              resolve({
+                responseText: task.result.responseText,
+                action: task.result.action,
+                pendingApproval: true
+              });
             } else if (task.status === 'failed') {
               reject(new Error(task.error || 'Copilot query failed on server'));
             } else {
@@ -217,7 +238,17 @@ How can I speed up your recruiting workflow today?`
 
       setMessages(prev => [
         ...prev,
-        { role: 'assistant', content: finalResult.responseText || 'Sorry, I couldn\'t formulate an answer.' }
+        { 
+          role: 'assistant', 
+          content: finalResult.responseText || 'Sorry, I couldn\'t formulate an answer.',
+          pendingAction: finalResult.pendingApproval ? {
+            taskId,
+            command: finalResult.action.command,
+            data: finalResult.action.data,
+            id: finalResult.action.id,
+            status: 'pending'
+          } : undefined
+        }
       ]);
       await fetchData();
 
@@ -245,6 +276,54 @@ How can I speed up your recruiting workflow today?`
     }
   };
 
+  const handleApproveAction = async (taskId: string, messageIndex: number) => {
+    setApprovingTaskId(taskId);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      
+      const res = await fetch('/api/ai/copilot/approve', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify({ taskId })
+      });
+
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        throw new Error(data.error || 'Failed to approve task.');
+      }
+
+      // Update message state status to approved
+      setMessages(prev => 
+        prev.map((msg, idx) => 
+          idx === messageIndex && msg.pendingAction 
+            ? { ...msg, pendingAction: { ...msg.pendingAction, status: 'approved' } }
+            : msg
+        )
+      );
+
+      await fetchData();
+    } catch (err: any) {
+      console.error(err);
+      alert(`Approval error: ${err.message}`);
+    } finally {
+      setApprovingTaskId(null);
+    }
+  };
+
+  const handleRejectAction = (messageIndex: number) => {
+    setMessages(prev => 
+      prev.map((msg, idx) => 
+        idx === messageIndex && msg.pendingAction 
+          ? { ...msg, pendingAction: { ...msg.pendingAction, status: 'rejected' } }
+          : msg
+      )
+    );
+  };
+
   return (
     <div className="flex flex-col h-[calc(100vh-104px)] md:h-[calc(100vh-136px)] space-y-3 md:space-y-4 animate-fade-in" id="copilot-view">
       
@@ -258,13 +337,29 @@ How can I speed up your recruiting workflow today?`
           <p className="text-xs md:text-sm text-slate-500 mt-0.5">Chat directly with the ATS database. Search, summarize, and outline outreach drafts instantly.</p>
         </div>
         
-        <button 
-          onClick={handleClear}
-          className="flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-semibold border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-50 transition-colors bg-white cursor-pointer w-full sm:w-auto shrink-0"
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-          Clear Chat
-        </button>
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full sm:w-auto">
+          {/* Auto-Execute toggle switch */}
+          <label className="flex items-center justify-between sm:justify-start gap-2.5 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg cursor-pointer text-xs font-medium text-slate-700 hover:bg-slate-100/70 transition-colors">
+            <span>Auto-Execute Actions</span>
+            <input 
+              type="checkbox" 
+              checked={autoExecute}
+              onChange={(e) => {
+                setAutoExecute(e.target.checked);
+                localStorage.setItem('hirely_copilot_auto_execute', String(e.target.checked));
+              }}
+              className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500 cursor-pointer"
+            />
+          </label>
+
+          <button 
+            onClick={handleClear}
+            className="flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-semibold border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-50 transition-colors bg-white cursor-pointer w-full sm:w-auto shrink-0"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+            Clear Chat
+          </button>
+        </div>
       </div>
 
       {/* Main Panel layout */}
@@ -310,6 +405,74 @@ How can I speed up your recruiting workflow today?`
                         {m.content}
                       </ReactMarkdown>
                     </div>
+
+                    {/* Interactive Approval Card */}
+                    {isAi && m.pendingAction && (
+                      <div className="mt-4 p-4 border border-slate-200 rounded-xl bg-slate-50/50 max-w-md shadow-2xs font-sans text-slate-800">
+                        <div className="flex items-center gap-1.5 font-bold text-xs text-blue-600 mb-2.5">
+                          <Sparkles className="h-4 w-4 text-blue-600" />
+                          <span>Pending Action Confirmation</span>
+                        </div>
+                        
+                        <div className="bg-white border border-slate-100 rounded-lg p-3 text-xs space-y-1.5 shadow-3xs mb-3.5">
+                          <div>
+                            <span className="font-semibold text-slate-400">Action:</span>{' '}
+                            <span className="font-mono text-slate-700 bg-slate-50 px-1.5 py-0.5 rounded text-[10px] font-bold">
+                              {m.pendingAction.command.replace(/_/g, ' ').toUpperCase()}
+                            </span>
+                          </div>
+                          {m.pendingAction.data && typeof m.pendingAction.data === 'object' && (
+                            <div className="border-t border-slate-100 pt-2 mt-2 space-y-1 text-[11px]">
+                              {Object.entries(m.pendingAction.data).map(([key, val]) => (
+                                <div key={key} className="flex justify-between gap-4">
+                                  <span className="text-slate-400 capitalize">{key.replace(/([A-Z])/g, ' $1').toLowerCase()}:</span>
+                                  <span className="text-slate-800 font-medium truncate max-w-[200px]">
+                                    {Array.isArray(val) ? val.join(', ') : String(val || '')}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+
+                        {m.pendingAction.status === 'pending' ? (
+                          <div className="flex gap-2 justify-end">
+                            <button
+                              type="button"
+                              onClick={() => handleRejectAction(idx)}
+                              disabled={approvingTaskId !== null}
+                              className="px-3 py-1.5 text-xs font-semibold text-slate-600 hover:text-slate-800 border border-slate-200 hover:bg-slate-50 rounded-lg transition-colors cursor-pointer disabled:opacity-40"
+                            >
+                              Discard
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleApproveAction(m.pendingAction!.taskId, idx)}
+                              disabled={approvingTaskId !== null}
+                              className="flex items-center gap-1 px-3 py-1.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-750 rounded-lg transition-colors shadow-xs cursor-pointer disabled:opacity-40"
+                            >
+                              {approvingTaskId === m.pendingAction.taskId ? (
+                                <>
+                                  <Loader2 className="h-3 w-3 animate-spin" />
+                                  Executing...
+                                </>
+                              ) : (
+                                'Approve & Save'
+                              )}
+                            </button>
+                          </div>
+                        ) : m.pendingAction.status === 'approved' ? (
+                          <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-600 bg-emerald-50/70 border border-emerald-100/50 px-2.5 py-1.5 rounded-lg">
+                            <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                            <span>Executed Successfully</span>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1.5 text-xs font-bold text-slate-500 bg-slate-100 border border-slate-200/50 px-2.5 py-1.5 rounded-lg">
+                            <span>Cancelled / Discarded</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
 
                     {/* Visual display of attachments in user message */}
                     {!isAi && m.attachments && m.attachments.length > 0 && (
