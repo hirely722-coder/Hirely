@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { Sparkles, Send, Loader2, Bot, User, Trash2, Search, ArrowRight, HelpCircle, Paperclip, X, FileText } from 'lucide-react';
+import { Sparkles, Send, Loader2, Bot, User, Trash2, Search, ArrowRight, HelpCircle, Paperclip, X, FileText, ChevronRight } from 'lucide-react';
 import { Candidate, Job, Company, Task, EmailTemplate } from '../types';
 import { supabase } from '../utils/supabase';
 import { useApp } from '../context/AppContext';
@@ -63,6 +63,8 @@ How can I speed up your recruiting workflow today?`
   const [hasLoadedHistory, setHasLoadedHistory] = useState(false);
   const [autoExecute, setAutoExecute] = useState(false);
   const [approvingTaskId, setApprovingTaskId] = useState<string | null>(null);
+  const [currentStep, setCurrentStep] = useState<{ name: string; args: any } | null>(null);
+  const [showStepDetails, setShowStepDetails] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -203,7 +205,7 @@ How can I speed up your recruiting workflow today?`
 
       const { taskId } = result;
 
-      // Poll task status until complete or failed
+      // Poll task status — updating currentStep live — until streaming begins or approval needed
       const finalResult = await new Promise<any>((resolve, reject) => {
         const checkStatus = async () => {
           try {
@@ -216,18 +218,28 @@ How can I speed up your recruiting workflow today?`
               throw new Error('Failed to fetch task status');
             }
             const task = await statusRes.json();
-            if (task.status === 'completed') {
+
+            // Surface step indicator
+            if (task.currentStep) {
+              setCurrentStep(task.currentStep);
+              setShowStepDetails(false);
+            }
+
+            if (task.status === 'streaming' || task.status === 'completed') {
+              setCurrentStep(null);
               resolve(task.result);
             } else if (task.status === 'pending_approval') {
+              setCurrentStep(null);
               resolve({
                 responseText: task.result.responseText,
                 action: task.result.action,
                 pendingApproval: true
               });
             } else if (task.status === 'failed') {
+              setCurrentStep(null);
               reject(new Error(task.error || 'Copilot query failed on server'));
             } else {
-              setTimeout(checkStatus, 1500);
+              setTimeout(checkStatus, 800);
             }
           } catch (e) {
             reject(e);
@@ -236,30 +248,83 @@ How can I speed up your recruiting workflow today?`
         checkStatus();
       });
 
-      setMessages(prev => [
-        ...prev,
-        { 
-          role: 'assistant', 
-          content: finalResult.responseText || 'Sorry, I couldn\'t formulate an answer.',
-          pendingAction: finalResult.pendingApproval ? {
-            taskId,
-            command: finalResult.action.command,
-            data: finalResult.action.data,
-            id: finalResult.action.id,
-            status: 'pending'
-          } : undefined
+      // For pending approval cases, just append the message immediately
+      if (finalResult.pendingApproval) {
+        setMessages(prev => [
+          ...prev,
+          { 
+            role: 'assistant' as const, 
+            content: finalResult.responseText || 'Sorry, I couldn\'t formulate an answer.',
+            pendingAction: {
+              taskId,
+              command: finalResult.action.command,
+              data: finalResult.action.data,
+              id: finalResult.action.id,
+              status: 'pending' as const
+            }
+          }
+        ]);
+        await fetchData();
+        return;
+      }
+
+      // For streaming cases, open SSE stream and render tokens one-by-one
+      setIsLoading(false);
+
+      const { data: { session: streamSession } } = await supabase.auth.getSession();
+      const streamToken = streamSession?.access_token;
+
+      // Add empty streaming message placeholder
+      setMessages(prev => [...prev, { role: 'assistant' as const, content: '' }]);
+
+      const streamRes = await fetch(`/api/ai/copilot/stream/${taskId}`, {
+        headers: streamToken ? { Authorization: `Bearer ${streamToken}` } : {}
+      });
+
+      const reader = streamRes.body?.getReader();
+      const decoder = new TextDecoder();
+      
+      if (reader) {
+        let buffer = '';
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              try {
+                const chunk = JSON.parse(line.slice(6));
+                if (chunk.done) break;
+                if (chunk.text) {
+                  setMessages(prev => {
+                    const updated = [...prev];
+                    const last = updated[updated.length - 1];
+                    if (last && last.role === 'assistant') {
+                      updated[updated.length - 1] = { ...last, content: last.content + chunk.text };
+                    }
+                    return updated;
+                  });
+                }
+              } catch { /* skip malformed chunk */ }
+            }
+          }
         }
-      ]);
+      }
+
       await fetchData();
 
     } catch (err: any) {
       console.error(err);
+      setCurrentStep(null);
       setMessages(prev => [
         ...prev,
         { role: 'assistant', content: `**Error:** ${err.message || 'Failed to contact AI Copilot. Please make sure process.env.GEMINI_API_KEY is configured correctly.'}` }
       ]);
     } finally {
       setIsLoading(false);
+      setCurrentStep(null);
     }
   };
 
@@ -274,6 +339,19 @@ How can I speed up your recruiting workflow today?`
     if (typeof window !== 'undefined') {
       localStorage.setItem('hirely_copilot_messages', JSON.stringify(clearedState));
     }
+  };
+
+  const translateToolToHuman = (toolName: string): string => {
+    const map: Record<string, string> = {
+      search_candidates: '🔍 Searching candidate profiles...',
+      get_candidate_resume: '📄 Analyzing candidate resume...',
+      list_active_jobs: '💼 Reviewing open vacancies...',
+      list_companies: '🏢 Loading company directory...',
+      get_workspace_tasks: '📅 Retrieving schedule & task lists...',
+      get_pipeline_summary: '📊 Calculating pipeline statistics...',
+      get_custom_field_definitions: '⚙️ Fetching custom field definitions...',
+    };
+    return map[toolName] || `🔧 Running ${toolName.replace(/_/g, ' ')}...`;
   };
 
   const handleApproveAction = async (taskId: string, messageIndex: number) => {
@@ -491,11 +569,45 @@ How can I speed up your recruiting workflow today?`
             })}
 
             {isLoading && (
-              <div className="flex items-center gap-3 text-xs text-slate-500">
-                <div className="h-8 w-8 rounded-lg bg-blue-600/10 text-blue-600 flex items-center justify-center">
-                  <Loader2 className="h-4 w-4 animate-spin" />
+              <div className="flex items-start gap-3 md:gap-4 max-w-3xl">
+                <div className="h-8 w-8 rounded-lg bg-blue-600 text-white flex items-center justify-center shrink-0 shadow-xs animate-pulse">
+                  <Bot className="h-4 w-4" />
                 </div>
-                <span>Copilot is searching the ATS database and formulating candidate lists...</span>
+                <div className="p-3.5 md:p-4 rounded-xl text-xs border bg-white text-slate-800 border-slate-100 shadow-xs space-y-2 min-w-[200px]">
+                  <div className="flex items-center gap-2 text-slate-500 font-medium">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin text-blue-600 shrink-0" />
+                    <span>Thinking...</span>
+                  </div>
+
+                  {currentStep && (
+                    <div className="bg-slate-50 border border-slate-200/60 rounded-lg overflow-hidden">
+                      <div className="flex items-center justify-between gap-3 px-2.5 py-1.5">
+                        <span className="text-[11px] font-medium text-slate-700 flex items-center gap-1.5">
+                          <span className="h-1.5 w-1.5 rounded-full bg-blue-500 animate-ping shrink-0" />
+                          {translateToolToHuman(currentStep.name)}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setShowStepDetails(v => !v)}
+                          className="p-0.5 rounded hover:bg-slate-200/60 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer shrink-0"
+                          aria-label="Toggle details"
+                        >
+                          <ChevronRight className={`h-3.5 w-3.5 transition-transform duration-200 ${showStepDetails ? 'rotate-90' : ''}`} />
+                        </button>
+                      </div>
+                      {showStepDetails && currentStep.args && Object.keys(currentStep.args).length > 0 && (
+                        <div className="border-t border-slate-100 px-2.5 py-2 font-mono text-[10px] text-slate-400 space-y-0.5 bg-slate-50/80">
+                          {Object.entries(currentStep.args).map(([key, val]) => (
+                            <div key={key} className="flex gap-2">
+                              <span className="text-slate-500 font-semibold shrink-0">{key}:</span>
+                              <span className="truncate max-w-[200px]">{String(val ?? '')}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
             )}
             <div ref={messagesEndRef} />

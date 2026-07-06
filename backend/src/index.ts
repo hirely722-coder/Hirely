@@ -1,5 +1,7 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
+import { stream } from 'hono/streaming';
+import { EventEmitter } from 'events';
 import { supabase } from './db';
 import { keysToCamel, keysToSnake } from './utils';
 import { WorkspaceRepository } from './repository';
@@ -190,9 +192,13 @@ async function callEdenAIWithTools(
   return await response.json();
 }
 
+// Global event emitter for streaming response tokens to client SSE route
+export const streamEmitter = new EventEmitter();
+
 // Memory store for background LLM tasks
 export interface BackgroundTask {
-  status: 'pending' | 'completed' | 'failed' | 'pending_approval';
+  status: 'pending' | 'completed' | 'failed' | 'pending_approval' | 'streaming';
+  currentStep?: { name: string; args: any };
   result?: any;
   error?: string;
   user?: any;
@@ -208,6 +214,48 @@ app.get('/api/ai/task-status/:id', (c) => {
     return c.json({ error: 'Task not found' }, 404);
   }
   return c.json(task);
+});
+
+// Task stream endpoint
+app.get('/api/ai/copilot/stream/:id', (c) => {
+  const taskId = c.req.param('id');
+  const task = backgroundTasks.get(taskId);
+  if (!task) {
+    return c.json({ error: 'Task not found' }, 404);
+  }
+
+  // Set up SSE headers
+  c.header('Content-Type', 'text/event-stream');
+  c.header('Cache-Control', 'no-cache');
+  c.header('Connection', 'keep-alive');
+
+  return stream(c, async (sseStream) => {
+    // Listen to streamEmitter events
+    const onToken = (data: any) => {
+      sseStream.write(`data: ${JSON.stringify(data)}\n\n`);
+    };
+
+    streamEmitter.on(`stream:${taskId}`, onToken);
+
+    // Keep connection alive until done or closed
+    return new Promise<void>((resolve) => {
+      const checkDone = (data: any) => {
+        if (data.done) {
+          streamEmitter.off(`stream:${taskId}`, onToken);
+          streamEmitter.off(`stream:${taskId}`, checkDone);
+          resolve();
+        }
+      };
+      streamEmitter.on(`stream:${taskId}`, checkDone);
+      
+      // Handle client disconnects
+      c.req.raw.signal.addEventListener('abort', () => {
+        streamEmitter.off(`stream:${taskId}`, onToken);
+        streamEmitter.off(`stream:${taskId}`, checkDone);
+        resolve();
+      });
+    });
+  });
 });
 
 // -------------------------------------------------------------
@@ -889,6 +937,12 @@ Only generate ONE action block at the very end of your message. Ensure the JSON 
     const executeTool = async (name: string, args: any): Promise<any> => {
       console.log(`[Copilot Agent] Executing tool '${name}' with args:`, args);
       
+      const currentTask = backgroundTasks.get(taskId);
+      if (currentTask) {
+        currentTask.currentStep = { name, args };
+        backgroundTasks.set(taskId, currentTask);
+      }
+      
       if (name === 'search_candidates') {
         const repo = new WorkspaceRepository('candidates', user);
         let candidates = await repo.getAll();
@@ -1225,9 +1279,20 @@ Only generate ONE action block at the very end of your message. Ensure the JSON 
           throw new Error('Agent execution loop exceeded maximum steps without producing final answer.');
         }
 
+        // Stream the final response token-by-token via SSE
+        backgroundTasks.set(taskId, { status: 'streaming', result: { responseText: cleanedResponse } });
+        
+        const tokens = cleanedResponse.split('');
+        for (const token of tokens) {
+          streamEmitter.emit(`stream:${taskId}`, { text: token, done: false });
+          await new Promise(resolve => setTimeout(resolve, 12));
+        }
+        streamEmitter.emit(`stream:${taskId}`, { text: '', done: true });
+
         backgroundTasks.set(taskId, { status: 'completed', result: { responseText: cleanedResponse } });
       } catch (err: any) {
         console.error('Error in background copilot task:', err.message);
+        streamEmitter.emit(`stream:${taskId}`, { error: err.message, done: true });
         backgroundTasks.set(taskId, { status: 'failed', error: err.message });
       }
     })();
