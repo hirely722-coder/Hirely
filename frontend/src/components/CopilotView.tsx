@@ -106,7 +106,7 @@ How can I speed up your recruiting workflow today?`
   ]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [attachedFiles, setAttachedFiles] = useState<{ name: string; text: string }[]>([]);
+  const [attachedFiles, setAttachedFiles] = useState<{ name: string; text?: string; isLoading: boolean }[]>([]);
   const [isParsingFile, setIsParsingFile] = useState(false);
   const [hasLoadedHistory, setHasLoadedHistory] = useState(false);
   const [autoExecute, setAutoExecute] = useState(false);
@@ -152,6 +152,9 @@ How can I speed up your recruiting workflow today?`
     if (!files || files.length === 0) return;
 
     const file = files[0];
+    
+    // Instantly show the file badge in the UI with a spinner
+    setAttachedFiles(prev => [...prev, { name: file.name, isLoading: true }]);
     setIsParsingFile(true);
 
     try {
@@ -174,10 +177,15 @@ How can I speed up your recruiting workflow today?`
         throw new Error(result.error || 'Failed to parse file.');
       }
 
-      setAttachedFiles(prev => [...prev, { name: result.fileName, text: result.text }]);
+      // Update the badge with the parsed text content once finished
+      setAttachedFiles(prev => 
+        prev.map(f => f.name === file.name ? { name: file.name, text: result.text, isLoading: false } : f)
+      );
     } catch (err: any) {
       console.error(err);
       alert(`Error reading file: ${err.message || 'Unknown error'}`);
+      // Remove file badge on failure
+      setAttachedFiles(prev => prev.filter(f => f.name !== file.name));
     } finally {
       setIsParsingFile(false);
       if (fileInputRef.current) {
@@ -674,7 +682,11 @@ How can I speed up your recruiting workflow today?`
               <div className="flex flex-wrap gap-2 mb-3 shrink-0">
                 {attachedFiles.map((file, idx) => (
                   <div key={idx} className="flex items-center gap-1.5 px-3 py-1 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg text-xs font-semibold border border-slate-200">
-                    <FileText className="h-3.5 w-3.5 text-slate-500" />
+                    {file.isLoading ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin text-blue-600" />
+                    ) : (
+                      <FileText className="h-3.5 w-3.5 text-slate-500" />
+                    )}
                     <span className="max-w-[150px] truncate">{file.name}</span>
                     <button 
                       type="button" 
@@ -685,13 +697,6 @@ How can I speed up your recruiting workflow today?`
                     </button>
                   </div>
                 ))}
-              </div>
-            )}
-
-            {isParsingFile && (
-              <div className="flex items-center gap-2 mb-3 text-xs text-blue-600 font-semibold shrink-0 animate-pulse">
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                <span>Reading and extracting file contents...</span>
               </div>
             )}
 
