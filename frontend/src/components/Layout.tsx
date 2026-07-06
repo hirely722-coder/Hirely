@@ -157,6 +157,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     }
   }, [router.query.import, router.query.type, router.pathname]);
 
+  const { can, isLocked } = usePermission();
+
   // Early Returns placed AFTER all hooks have run
   if (router.pathname === '/login') {
     return <div className="min-h-screen bg-slate-950 text-white font-sans">{children}</div>;
@@ -209,7 +211,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     { name: 'Settings', path: '/settings', icon: Settings },
   ];
 
-  const { can, isLocked } = usePermission();
+
 
   const isLockedRoute = () => {
     const path = router.pathname;
