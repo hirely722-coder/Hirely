@@ -998,6 +998,61 @@ Only generate ONE action block at the very end of your message. Ensure the JSON 
       return { error: `Tool ${name} not found` };
     };
 
+    // Helper to execute database action commands
+    const executeDatabaseAction = async (actionJson: any) => {
+      const { command, id, data } = actionJson;
+      console.log(`[Copilot Agent] Executing action command: ${command}`);
+      
+      if (command === 'create_candidate') {
+        const repo = new WorkspaceRepository('candidates', user);
+        await repo.create(data);
+      } else if (command === 'create_job') {
+        const repo = new WorkspaceRepository('jobs', user);
+        await repo.create(data);
+      } else if (command === 'create_task') {
+        const repo = new WorkspaceRepository('tasks', user);
+        await repo.create(data);
+      } else if (command === 'create_company') {
+        const repo = new WorkspaceRepository('companies', user);
+        await repo.create(data);
+      } else if (command === 'create_template' || command === 'create_email_template') {
+        const repo = new WorkspaceRepository('email_templates', user);
+        await repo.create(data);
+      } else if (command === 'update_candidate') {
+        const repo = new WorkspaceRepository('candidates', user);
+        await repo.update(id, data);
+      } else if (command === 'update_job') {
+        const repo = new WorkspaceRepository('jobs', user);
+        await repo.update(id, data);
+      } else if (command === 'update_task') {
+        const repo = new WorkspaceRepository('tasks', user);
+        await repo.update(id, data);
+      } else if (command === 'update_company') {
+        const repo = new WorkspaceRepository('companies', user);
+        await repo.update(id, data);
+      } else if (command === 'update_template' || command === 'update_email_template') {
+        const repo = new WorkspaceRepository('email_templates', user);
+        await repo.update(id, data);
+      } else if (command === 'delete_candidate') {
+        const repo = new WorkspaceRepository('candidates', user);
+        await repo.delete(id);
+      } else if (command === 'delete_job') {
+        const repo = new WorkspaceRepository('jobs', user);
+        await repo.delete(id);
+      } else if (command === 'delete_task') {
+        const repo = new WorkspaceRepository('tasks', user);
+        await repo.delete(id);
+      } else if (command === 'delete_company') {
+        const repo = new WorkspaceRepository('companies', user);
+        await repo.delete(id);
+      } else if (command === 'delete_template' || command === 'delete_email_template') {
+        const repo = new WorkspaceRepository('email_templates', user);
+        await repo.delete(id);
+      } else {
+        throw new Error(`Unknown action command: ${command}`);
+      }
+    };
+
     // Run AI Agent call in background
     (async () => {
       try {
@@ -1031,6 +1086,7 @@ Only generate ONE action block at the very end of your message. Ensure the JSON 
 
         let loopCount = 0;
         let responseText = '';
+        let cleanedResponse = '';
         let finalChoices = null;
 
         while (loopCount < 3) {
@@ -1074,76 +1130,43 @@ Only generate ONE action block at the very end of your message. Ensure the JSON 
           } else {
             responseText = rawMessage.content || '';
             finalChoices = result;
+            cleanedResponse = responseText;
+
+            // Catch database constraint violations synchronously inside the loop!
+            const actionMatch = responseText.match(/<action>([\s\S]*?)<\/action>/);
+            if (actionMatch) {
+              try {
+                const actionJson = JSON.parse(actionMatch[1].trim());
+                await executeDatabaseAction(actionJson);
+                
+                // Action executed successfully! Clean output and break loop.
+                cleanedResponse = responseText.replace(/<action>[\s\S]*?<\/action>/, '').trim();
+                break;
+              } catch (actionErr: any) {
+                console.error('[Copilot Agent Self-Healing] Database action failed:', actionErr.message);
+
+                // Append the failed assistant message and action block
+                messagesForLLM.push({
+                  role: 'assistant',
+                  content: responseText
+                });
+
+                // Append direct error feedback to prompt history
+                messagesForLLM.push({
+                  role: 'user',
+                  content: `[System Action Error: The database action failed with error: "${actionErr.message}". This usually means a candidate, job, or task ID you provided does not exist, or you violated a database constraint. Please check your IDs, call the appropriate search tools (e.g. 'search_candidates') to get the correct UUID, and generate the corrected <action> block again.]`
+                });
+
+                loopCount++;
+                continue; // Re-run completions API to allow AI to self-correct!
+              }
+            }
             break;
           }
         }
 
         if (loopCount >= 3 && !responseText) {
           throw new Error('Agent execution loop exceeded maximum steps without producing final answer.');
-        }
-
-        let actionJson: any = null;
-        let cleanedResponse = responseText;
-        const actionMatch = responseText.match(/<action>([\s\S]*?)<\/action>/);
-        if (actionMatch) {
-          try {
-            actionJson = JSON.parse(actionMatch[1].trim());
-            cleanedResponse = responseText.replace(/<action>[\s\S]*?<\/action>/, '').trim();
-          } catch (jsonErr: any) {
-            console.error('Failed to parse copilot action JSON:', jsonErr.message);
-          }
-        }
-
-        if (actionJson) {
-          const { command, id, data } = actionJson;
-          console.log(`[Copilot Agent] Executing action command: ${command}`);
-          
-          if (command === 'create_candidate') {
-            const repo = new WorkspaceRepository('candidates', user);
-            await repo.create(data);
-          } else if (command === 'create_job') {
-            const repo = new WorkspaceRepository('jobs', user);
-            await repo.create(data);
-          } else if (command === 'create_task') {
-            const repo = new WorkspaceRepository('tasks', user);
-            await repo.create(data);
-          } else if (command === 'create_company') {
-            const repo = new WorkspaceRepository('companies', user);
-            await repo.create(data);
-          } else if (command === 'create_template' || command === 'create_email_template') {
-            const repo = new WorkspaceRepository('email_templates', user);
-            await repo.create(data);
-          } else if (command === 'update_candidate') {
-            const repo = new WorkspaceRepository('candidates', user);
-            await repo.update(id, data);
-          } else if (command === 'update_job') {
-            const repo = new WorkspaceRepository('jobs', user);
-            await repo.update(id, data);
-          } else if (command === 'update_task') {
-            const repo = new WorkspaceRepository('tasks', user);
-            await repo.update(id, data);
-          } else if (command === 'update_company') {
-            const repo = new WorkspaceRepository('companies', user);
-            await repo.update(id, data);
-          } else if (command === 'update_template' || command === 'update_email_template') {
-            const repo = new WorkspaceRepository('email_templates', user);
-            await repo.update(id, data);
-          } else if (command === 'delete_candidate') {
-            const repo = new WorkspaceRepository('candidates', user);
-            await repo.delete(id);
-          } else if (command === 'delete_job') {
-            const repo = new WorkspaceRepository('jobs', user);
-            await repo.delete(id);
-          } else if (command === 'delete_task') {
-            const repo = new WorkspaceRepository('tasks', user);
-            await repo.delete(id);
-          } else if (command === 'delete_company') {
-            const repo = new WorkspaceRepository('companies', user);
-            await repo.delete(id);
-          } else if (command === 'delete_template' || command === 'delete_email_template') {
-            const repo = new WorkspaceRepository('email_templates', user);
-            await repo.delete(id);
-          }
         }
 
         backgroundTasks.set(taskId, { status: 'completed', result: { responseText: cleanedResponse } });
