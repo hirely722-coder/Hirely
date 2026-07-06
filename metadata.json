@@ -1,0 +1,6 @@
+{
+  "name": "Hirly - Recruitment",
+  "description": "AI-Powered ATS and bulk resume extraction portal.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
