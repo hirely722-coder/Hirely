@@ -1,16 +1,18 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "hirely-frontend",
+  "account_id": "b2594876f55ac7902c4a9fb0999dd754",
   "main": ".open-next/worker.js",
   "compatibility_date": "2024-12-30",
   "compatibility_flags": [
     "nodejs_compat"
   ],
+  "workers_dev": true,
   "assets": {
     "directory": ".open-next/assets",
     "binding": "ASSETS"
   },
   "vars": {
-    "BACKEND_API_URL": "https://hirely-backend.hirely-app.workers.dev"
+    "BACKEND_API_URL": "https://hirely-backend.hirly-app.workers.dev"
   }
 }

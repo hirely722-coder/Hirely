@@ -1,11 +1,13 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "hirely-backend",
+  "account_id": "b2594876f55ac7902c4a9fb0999dd754",
   "main": "src/index.ts",
   "compatibility_date": "2024-12-30",
   "compatibility_flags": [
     "nodejs_compat"
   ],
+  "workers_dev": true,
   "vars": {
     "PORT": "3001",
     "SUPABASE_URL": "https://wnaayghjmewxzwratqas.supabase.co"
