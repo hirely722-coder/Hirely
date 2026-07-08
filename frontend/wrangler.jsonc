@@ -11,6 +11,6 @@
     "binding": "ASSETS"
   },
   "vars": {
-    "BACKEND_API_URL": "https://hirely-backend.hirely.workers.dev"
+    "BACKEND_API_URL": "https://hirely-backend.hirely-app.workers.dev"
   }
 }
