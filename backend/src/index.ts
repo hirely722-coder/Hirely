@@ -21,7 +21,7 @@ const app = new Hono<{
 // Enable CORS for frontend
 app.use('/*', cors({
   origin: '*', // We can restrict this to the frontend URL if needed
-  allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowHeaders: ['Content-Type', 'Authorization'],
   exposeHeaders: ['Content-Length'],
   maxAge: 600,

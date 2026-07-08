@@ -130,6 +130,28 @@ export class WorkspaceRepository {
     }
     snakeBody.updated_at = new Date().toISOString();
 
+    // Clean up any transient/temporary UI keys starting with '_' for all tables
+    Object.keys(snakeBody).forEach(key => {
+      if (key.startsWith('_')) {
+        delete snakeBody[key];
+      }
+    });
+
+    if (this.tableName === 'candidates') {
+      const CANDIDATE_COLUMNS = [
+        'name', 'phone', 'email', 'experience', 'skills', 'current_company',
+        'status', 'ai_match_score', 'resume_text', 'resume_file_name',
+        'education', 'address', 'notes', 'applied_date', 'designation',
+        'gender', 'city', 'expected_salary', 'import_id', 'custom_fields',
+        'notice_period', 'updated_at', 'updated_by'
+      ];
+      Object.keys(snakeBody).forEach(key => {
+        if (!CANDIDATE_COLUMNS.includes(key)) {
+          delete snakeBody[key];
+        }
+      });
+    }
+
     const { data, error } = await supabase
       .from(this.tableName)
       .update(snakeBody)
