@@ -13,6 +13,7 @@
     "binding": "ASSETS"
   },
   "vars": {
+    "NODE_ENV": "production",
     "BACKEND_API_URL": "https://hirely-backend.hirly-app.workers.dev",
     "NEXT_PUBLIC_BACKEND_API_URL": "https://hirely-backend.hirly-app.workers.dev",
     "NEXT_PUBLIC_SUPABASE_URL": "https://wnaayghjmewxzwratqas.supabase.co",
