@@ -29,22 +29,23 @@ export const AdminAppContextProvider: React.FC<{ children: React.ReactNode }> = 
     }
   }, [toast]);
 
-  // Load user session and verify super admin status from database
+  // Load user session and verify super admin status via Hono backend bootstrap
   const checkSession = async () => {
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user) {
+      if (session?.user && session.access_token) {
         setUser(session.user);
         
-        // Fetch profile to verify is_super_admin
-        const { data: profile, error } = await supabase
-          .from('profiles')
-          .select('is_super_admin')
-          .eq('id', session.user.id)
-          .single();
-
-        if (!error && profile?.is_super_admin) {
-          setIsSuperAdmin(true);
+        // Query backend bootstrap to get trusted isSuperAdmin flag
+        const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'https://hirely-backend.hirly-app.workers.dev'}/api/bootstrap`, {
+          headers: {
+            'Authorization': `Bearer ${session.access_token}`
+          }
+        });
+        
+        if (response.ok) {
+          const payload = await response.json();
+          setIsSuperAdmin(!!payload.currentUser?.isSuperAdmin);
         } else {
           setIsSuperAdmin(false);
         }
@@ -54,6 +55,7 @@ export const AdminAppContextProvider: React.FC<{ children: React.ReactNode }> = 
       }
     } catch (err) {
       console.error('Error fetching session:', err);
+      setIsSuperAdmin(false);
     } finally {
       setIsLoading(false);
     }
@@ -63,14 +65,23 @@ export const AdminAppContextProvider: React.FC<{ children: React.ReactNode }> = 
     checkSession();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      if (session?.user) {
+      if (session?.user && session.access_token) {
         setUser(session.user);
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('is_super_admin')
-          .eq('id', session.user.id)
-          .single();
-        setIsSuperAdmin(!!profile?.is_super_admin);
+        try {
+          const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'https://hirely-backend.hirly-app.workers.dev'}/api/bootstrap`, {
+            headers: {
+              'Authorization': `Bearer ${session.access_token}`
+            }
+          });
+          if (response.ok) {
+            const payload = await response.json();
+            setIsSuperAdmin(!!payload.currentUser?.isSuperAdmin);
+          } else {
+            setIsSuperAdmin(false);
+          }
+        } catch {
+          setIsSuperAdmin(false);
+        }
       } else {
         setUser(null);
         setIsSuperAdmin(false);
