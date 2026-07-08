@@ -279,48 +279,54 @@ How can I speed up your recruiting workflow today?`
 
       const { taskId } = result;
 
-      // Poll task status — updating currentStep live — until streaming begins or approval needed
-      const finalResult = await new Promise<any>((resolve, reject) => {
-        const checkStatus = async () => {
-          try {
-            const { data: { session: s } } = await supabase.auth.getSession();
-            const t = s?.access_token;
-            const statusRes = await fetch(`/api/ai/task-status/${taskId}`, {
-              headers: t ? { Authorization: `Bearer ${t}` } : {}
-            });
-            if (!statusRes.ok) {
-              throw new Error('Failed to fetch task status');
-            }
-            const task = await statusRes.json();
-
-            // Surface step indicator
-            if (task.currentStep) {
-              setCurrentStep(task.currentStep);
-              setShowStepDetails(false);
-            }
-
-            if (task.status === 'streaming' || task.status === 'completed') {
-              setCurrentStep(null);
-              resolve(task.result);
-            } else if (task.status === 'pending_approval') {
-              setCurrentStep(null);
-              resolve({
-                responseText: task.result.responseText,
-                action: task.result.action,
-                pendingApproval: true
-              });
-            } else if (task.status === 'failed') {
-              setCurrentStep(null);
-              reject(new Error(task.error || 'Copilot query failed on server'));
-            } else {
-              setTimeout(checkStatus, 800);
-            }
-          } catch (e) {
-            reject(e);
+      // Skip polling if the server responded synchronously with the final result!
+      const finalResult = (result.status === 'completed' || result.status === 'pending_approval')
+        ? {
+            responseText: result.result.responseText,
+            action: result.result.action,
+            pendingApproval: result.status === 'pending_approval'
           }
-        };
-        checkStatus();
-      });
+        : await new Promise<any>((resolve, reject) => {
+            const checkStatus = async () => {
+              try {
+                const { data: { session: s } } = await supabase.auth.getSession();
+                const t = s?.access_token;
+                const statusRes = await fetch(`/api/ai/task-status/${taskId}`, {
+                  headers: t ? { Authorization: `Bearer ${t}` } : {}
+                });
+                if (!statusRes.ok) {
+                  throw new Error('Failed to fetch task status');
+                }
+                const task = await statusRes.json();
+
+                // Surface step indicator
+                if (task.currentStep) {
+                  setCurrentStep(task.currentStep);
+                  setShowStepDetails(false);
+                }
+
+                if (task.status === 'streaming' || task.status === 'completed') {
+                  setCurrentStep(null);
+                  resolve(task.result);
+                } else if (task.status === 'pending_approval') {
+                  setCurrentStep(null);
+                  resolve({
+                    responseText: task.result.responseText,
+                    action: task.result.action,
+                    pendingApproval: true
+                  });
+                } else if (task.status === 'failed') {
+                  setCurrentStep(null);
+                  reject(new Error(task.error || 'Copilot query failed on server'));
+                } else {
+                  setTimeout(checkStatus, 800);
+                }
+              } catch (e) {
+                reject(e);
+              }
+            };
+            checkStatus();
+          });
 
       // For pending approval cases, just append the message immediately
       if (finalResult.pendingApproval) {
@@ -400,13 +406,20 @@ How can I speed up your recruiting workflow today?`
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token;
       
+      const msg = messages[messageIndex];
+      const action = msg?.pendingAction ? {
+        command: msg.pendingAction.command,
+        data: msg.pendingAction.data,
+        id: msg.pendingAction.id
+      } : undefined;
+
       const res = await fetch('/api/ai/copilot/approve', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           ...(token ? { Authorization: `Bearer ${token}` } : {})
         },
-        body: JSON.stringify({ taskId })
+        body: JSON.stringify({ taskId, action })
       });
 
       const data = await res.json();

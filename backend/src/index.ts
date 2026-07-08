@@ -1279,148 +1279,161 @@ Only generate ONE action block at the very end of your message. Ensure the JSON 
     };
 
     // Run AI Agent call in background
-    (async () => {
-      try {
-        const messagesForLLM = [
-          { role: 'system', content: systemInstruction },
-          ...messages
-        ];
-
-        // Helper to transform tool calls & responses into plain text user/assistant messages to bypass Eden AI gateway bug
-        const transformMessagesForLLM = (msgs: any[]) => {
-          return msgs.map(msg => {
-            if (msg.tool_calls && msg.tool_calls.length > 0) {
-              const desc = msg.tool_calls.map((tc: any) => `${tc.function.name}(${tc.function.arguments || ''})`).join(', ');
-              return {
-                role: 'assistant',
-                content: `[System Action: Invoked tools: ${desc}]`
-              };
-            }
-            if (msg.role === 'tool') {
-              return {
-                role: 'user',
-                content: `[System Output for tool '${msg.name}': ${msg.content}]`
-              };
-            }
-            return {
-              role: msg.role,
-              content: msg.content
-            };
-          });
+    // Helper to transform tool calls & responses into plain text user/assistant messages to bypass Eden AI gateway bug
+    const transformMessagesForLLM = (msgs: any[]) => {
+      return msgs.map(msg => {
+        if (msg.tool_calls && msg.tool_calls.length > 0) {
+          const desc = msg.tool_calls.map((tc: any) => `${tc.function.name}(${tc.function.arguments || ''})`).join(', ');
+          return {
+            role: 'assistant',
+            content: `[System Action: Invoked tools: ${desc}]`
+          };
+        }
+        if (msg.role === 'tool') {
+          return {
+            role: 'user',
+            content: `[System Output for tool '${msg.name}': ${msg.content}]`
+          };
+        }
+        return {
+          role: msg.role,
+          content: msg.content
         };
+      });
+    };
 
-        let loopCount = 0;
-        let responseText = '';
-        let cleanedResponse = '';
-        let finalChoices = null;
+    const messagesForLLM = [
+      { role: 'system', content: systemInstruction },
+      ...messages
+    ];
 
-        while (loopCount < 3) {
-          console.log(`[Copilot Agent] Running ReAct iteration ${loopCount + 1}...`);
-          const result = await callEdenAIWithTools(transformMessagesForLLM(messagesForLLM), tools);
-          const rawMessage = result.choices?.[0]?.message;
+    let loopCount = 0;
+    let responseText = '';
+    let cleanedResponse = '';
+    let finalChoices = null;
+    let finalStatus: 'completed' | 'pending_approval' | 'failed' = 'completed';
+    let pendingActionData: any = null;
 
-          if (!rawMessage) {
-            throw new Error('Invalid empty response received from completions API.');
-          }
+    try {
+      while (loopCount < 3) {
+        console.log(`[Copilot Agent] Running ReAct iteration ${loopCount + 1}...`);
+        const result = await callEdenAIWithTools(transformMessagesForLLM(messagesForLLM), tools);
+        const rawMessage = result.choices?.[0]?.message;
 
-          if (rawMessage.tool_calls && rawMessage.tool_calls.length > 0) {
-            console.log(`[Copilot Agent] Model requested ${rawMessage.tool_calls.length} tool call(s)`);
+        if (!rawMessage) {
+          throw new Error('Invalid empty response received from completions API.');
+        }
+
+        if (rawMessage.tool_calls && rawMessage.tool_calls.length > 0) {
+          console.log(`[Copilot Agent] Model requested ${rawMessage.tool_calls.length} tool call(s)`);
+          
+          // Push the assistant message with tool calls
+          messagesForLLM.push(rawMessage);
+
+          // Execute all requested tool calls in parallel
+          await Promise.all(rawMessage.tool_calls.map(async (call: any) => {
+            let parsedArgs = {};
+            try {
+              parsedArgs = typeof call.function.arguments === 'string' 
+                ? JSON.parse(call.function.arguments) 
+                : call.function.arguments || {};
+            } catch (e) {
+              console.error('[Copilot Agent] Failed to parse arguments for tool:', call.function.name);
+            }
+
+            const toolOutput = await executeTool(call.function.name, parsedArgs);
             
-            // Push the assistant message with tool calls
-            messagesForLLM.push(rawMessage);
+            // Push the tool execution result
+            messagesForLLM.push({
+              role: 'tool',
+              tool_call_id: call.id,
+              name: call.function.name,
+              content: JSON.stringify(toolOutput)
+            });
+          }));
 
-            // Execute all requested tool calls in parallel
-            await Promise.all(rawMessage.tool_calls.map(async (call: any) => {
-              let parsedArgs = {};
+          loopCount++;
+        } else {
+          responseText = rawMessage.content || '';
+          finalChoices = result;
+          cleanedResponse = responseText;
+
+          // Catch database constraint violations synchronously inside the loop!
+          const actionMatch = responseText.match(/<action>([\s\S]*?)<\/action>/);
+          if (actionMatch) {
+            if (autoExecute) {
               try {
-                parsedArgs = typeof call.function.arguments === 'string' 
-                  ? JSON.parse(call.function.arguments) 
-                  : call.function.arguments || {};
-              } catch (e) {
-                console.error('[Copilot Agent] Failed to parse arguments for tool:', call.function.name);
+                const actionJson = JSON.parse(actionMatch[1].trim());
+                await executeDatabaseAction(actionJson);
+                
+                // Action executed successfully! Clean output and break loop.
+                cleanedResponse = responseText.replace(/<action>[\s\S]*?<\/action>/, '').trim();
+                break;
+              } catch (actionErr: any) {
+                console.error('[Copilot Agent Self-Healing] Database action failed:', actionErr.message);
+
+                // Append the failed assistant message and action block
+                messagesForLLM.push({
+                  role: 'assistant',
+                  content: responseText
+                });
+
+                // Append direct error feedback to prompt history
+                messagesForLLM.push({
+                  role: 'user',
+                  content: `[System Action Error: The database action failed with error: "${actionErr.message}". This usually means a candidate, job, or task ID you provided does not exist, or you violated a database constraint. Please check your IDs, call the appropriate search tools (e.g. 'search_candidates') to get the correct UUID, and generate the corrected <action> block again.]`
+                });
+
+                loopCount++;
+                continue; // Re-run completions API to allow AI to self-correct!
               }
-
-              const toolOutput = await executeTool(call.function.name, parsedArgs);
-              
-              // Push the tool execution result
-              messagesForLLM.push({
-                role: 'tool',
-                tool_call_id: call.id,
-                name: call.function.name,
-                content: JSON.stringify(toolOutput)
-              });
-            }));
-
-            loopCount++;
-          } else {
-            responseText = rawMessage.content || '';
-            finalChoices = result;
-            cleanedResponse = responseText;
-
-            // Catch database constraint violations synchronously inside the loop!
-            const actionMatch = responseText.match(/<action>([\s\S]*?)<\/action>/);
-            if (actionMatch) {
-              if (autoExecute) {
-                try {
-                  const actionJson = JSON.parse(actionMatch[1].trim());
-                  await executeDatabaseAction(actionJson);
-                  
-                  // Action executed successfully! Clean output and break loop.
-                  cleanedResponse = responseText.replace(/<action>[\s\S]*?<\/action>/, '').trim();
-                  break;
-                } catch (actionErr: any) {
-                  console.error('[Copilot Agent Self-Healing] Database action failed:', actionErr.message);
-
-                  // Append the failed assistant message and action block
-                  messagesForLLM.push({
-                    role: 'assistant',
-                    content: responseText
-                  });
-
-                  // Append direct error feedback to prompt history
-                  messagesForLLM.push({
-                    role: 'user',
-                    content: `[System Action Error: The database action failed with error: "${actionErr.message}". This usually means a candidate, job, or task ID you provided does not exist, or you violated a database constraint. Please check your IDs, call the appropriate search tools (e.g. 'search_candidates') to get the correct UUID, and generate the corrected <action> block again.]`
-                  });
-
-                  loopCount++;
-                  continue; // Re-run completions API to allow AI to self-correct!
-                }
-              } else {
-                // If auto-execute is disabled, we set status to pending_approval and stop loop!
-                try {
-                  const actionJson = JSON.parse(actionMatch[1].trim());
-                  cleanedResponse = responseText.replace(/<action>[\s\S]*?<\/action>/, '').trim();
-                  backgroundTasks.set(taskId, {
-                    status: 'pending_approval',
-                    user,
-                    result: {
-                      responseText: cleanedResponse,
-                      action: actionJson
-                    }
-                  });
-                  return; // Stop the background process right now!
-                } catch (parseErr: any) {
-                  console.error('Failed to parse action JSON during manual approval:', parseErr.message);
-                }
+            } else {
+              // If auto-execute is disabled, we set status to pending_approval and stop loop!
+              try {
+                const actionJson = JSON.parse(actionMatch[1].trim());
+                cleanedResponse = responseText.replace(/<action>[\s\S]*?<\/action>/, '').trim();
+                finalStatus = 'pending_approval';
+                pendingActionData = actionJson;
+                break;
+              } catch (parseErr: any) {
+                console.error('Failed to parse action JSON during manual approval:', parseErr.message);
               }
             }
-            break;
           }
+          break;
         }
-
-        if (loopCount >= 3 && !responseText) {
-          throw new Error('Agent execution loop exceeded maximum steps without producing final answer.');
-        }
-
-        backgroundTasks.set(taskId, { status: 'completed', result: { responseText: cleanedResponse } });
-      } catch (err: any) {
-        console.error('Error in background copilot task:', err.message);
-        backgroundTasks.set(taskId, { status: 'failed', error: err.message });
       }
-    })();
 
-    return c.json({ taskId, status: 'pending' });
+      if (loopCount >= 3 && !responseText) {
+        throw new Error('Agent execution loop exceeded maximum steps without producing final answer.');
+      }
+
+      const taskResult: any = { responseText: cleanedResponse };
+      if (finalStatus === 'pending_approval') {
+        taskResult.action = pendingActionData;
+      }
+
+      backgroundTasks.set(taskId, {
+        status: finalStatus,
+        user,
+        result: taskResult
+      });
+
+      return c.json({
+        taskId,
+        status: finalStatus,
+        result: taskResult
+      });
+
+    } catch (err: any) {
+      console.error('Error in synchronous copilot task:', err.message);
+      backgroundTasks.set(taskId, { status: 'failed', error: err.message });
+      return c.json({
+        taskId,
+        status: 'failed',
+        error: err.message
+      });
+    }
   } catch (err: any) {
     console.error('Error in copilot route:', err.message);
     return c.json({
@@ -1433,26 +1446,32 @@ Only generate ONE action block at the very end of your message. Ensure the JSON 
 // Approve Copilot Action Endpoint
 app.post('/api/ai/copilot/approve', requirePermission('copilot.open'), async (c) => {
   try {
-    const { taskId } = await c.req.json();
+    const { taskId, action } = await c.req.json();
     if (!taskId) {
       return c.json({ error: 'taskId is required' }, 400);
     }
 
+    let actionJson;
+    let user;
+
     const task = backgroundTasks.get(taskId);
-    if (!task) {
-      return c.json({ error: 'Task not found' }, 404);
+    if (task) {
+      actionJson = task.result.action;
+      user = task.user;
     }
 
-    if (task.status !== 'pending_approval') {
-      return c.json({ error: `Task cannot be approved. Current status: ${task.status}` }, 400);
+    // Stateless fallback: use client-provided action and authenticated user context
+    if (!actionJson && action) {
+      actionJson = action;
+      user = c.get('user');
+    }
+
+    if (!actionJson || !user) {
+      return c.json({ error: 'Task not found or state cleared. Direct action payload must be provided.' }, 404);
     }
 
     // Execute database action command stored in task using stored user context
-    const actionJson = task.result.action;
-    
-    // Declare execution logic locally or call same repository structure
     const { command, id, data } = actionJson;
-    const user = task.user;
     console.log(`[Copilot Action Approval] Executing command: ${command} for user: ${user.email}`);
 
     if (command === 'create_candidate') {
