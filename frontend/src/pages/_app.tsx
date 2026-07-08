@@ -8,7 +8,7 @@ if (typeof globalThis !== 'undefined') {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async function (input, init) {
     if (typeof input === 'string' && input.startsWith('/api/')) {
-      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_API_URL || process.env.BACKEND_API_URL || '';
+      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_API_URL || process.env.BACKEND_API_URL || 'https://hirely-backend.hirly-app.workers.dev';
       if (backendUrl) {
         // Strip trailing slash if present on backendUrl and ensure input doesn't double-slash
         const formattedBackendUrl = backendUrl.endsWith('/') ? backendUrl.slice(0, -1) : backendUrl;

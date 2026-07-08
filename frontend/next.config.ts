@@ -1,6 +1,6 @@
 import type { NextConfig } from "next";
 
-const BACKEND_URL = process.env.BACKEND_API_URL || 'http://localhost:3001';
+const BACKEND_URL = process.env.BACKEND_API_URL || 'https://hirely-backend.hirly-app.workers.dev';
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
