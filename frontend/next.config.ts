@@ -1,6 +1,8 @@
 import type { NextConfig } from "next";
 import path from "path";
 
+const BACKEND_URL = process.env.BACKEND_API_URL || 'http://localhost:3001';
+
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   turbopack: {
@@ -10,7 +12,7 @@ const nextConfig: NextConfig = {
     return [
       {
         source: '/api/:path*',
-        destination: 'http://localhost:3001/api/:path*',
+        destination: `${BACKEND_URL}/api/:path*`,
       },
     ];
   },
