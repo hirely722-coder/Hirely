@@ -6,7 +6,7 @@ import { supabase } from './db';
 import { keysToCamel, keysToSnake } from './utils';
 import { WorkspaceRepository } from './repository';
 import dotenv from 'dotenv';
-import { getDocumentProxy, extractText, renderPageAsImage } from 'unpdf';
+import { getDocumentProxy, extractText } from 'unpdf';
 
 
 dotenv.config();
@@ -433,13 +433,13 @@ app.post('/api/ai/parse-resume', requirePermission('candidates.run_ai_parsing'),
     }
 
     const arrayBuffer = await file.arrayBuffer();
-    const arrayBufferCopy = arrayBuffer.slice(0);
     const mimeType = file.type;
     const isPdf = mimeType === 'application/pdf' || file.name.endsWith('.pdf');
     const isTxt = mimeType === 'text/plain' || file.name.endsWith('.txt');
+    const isImage = mimeType?.startsWith('image/') || file.name.endsWith('.png') || file.name.endsWith('.jpg') || file.name.endsWith('.jpeg');
 
-    if (!isPdf && !isTxt) {
-      return c.json({ error: `Unsupported file format: ${mimeType || 'unknown'}. Only PDF and TXT are supported.` }, 400);
+    if (!isPdf && !isTxt && !isImage) {
+      return c.json({ error: `Unsupported file format: ${mimeType || 'unknown'}. Only PDF, TXT, and Images are supported.` }, 400);
     }
 
     const taskId = 'task_parse_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
@@ -485,19 +485,12 @@ Return ONLY a valid JSON object matching the requested schema. Do not include an
 
         let parsedData: any;
 
-        if (isPdf && textContent.trim().length === 0) {
-          console.log("PDF text extraction returned empty. Falling back to rendering page 1 to image for multimodal parsing...");
-          
-          const imageBuffer = await renderPageAsImage(new Uint8Array(arrayBufferCopy), 1, {
-            canvasImport: () => import('@napi-rs/canvas'),
-            scale: 1.5
-          });
-
-          const base64Image = Buffer.from(imageBuffer).toString('base64');
-          const dataUrl = `data:image/png;base64,${base64Image}`;
+        if (isImage) {
+          console.log("[Parse Resume] Received image file. Extracting fields via multimodal prompt...");
+          const base64Image = Buffer.from(arrayBuffer).toString('base64');
+          const dataUrl = `data:${mimeType || 'image/png'};base64,${base64Image}`;
 
           const userPrompt = `Please extract candidate profile fields from this resume image.`;
-
           const multimodalPrompt = [
             { type: 'text', text: userPrompt },
             {
@@ -548,9 +541,9 @@ app.post('/api/ai/parse-file', requirePermission('candidates.run_ai_parsing'), a
     }
 
     const arrayBuffer = await file.arrayBuffer();
-    const arrayBufferCopy = arrayBuffer.slice(0);
     const mimeType = file.type;
     const isPdf = mimeType === 'application/pdf' || file.name.endsWith('.pdf');
+    const isImage = mimeType?.startsWith('image/') || file.name.endsWith('.png') || file.name.endsWith('.jpg') || file.name.endsWith('.jpeg');
     
     let textContent = '';
     
@@ -558,36 +551,24 @@ app.post('/api/ai/parse-file', requirePermission('candidates.run_ai_parsing'), a
       const pdf = await getDocumentProxy(new Uint8Array(arrayBuffer));
       const result = await extractText(pdf);
       textContent = typeof result === 'string' ? result : (result as any).text?.join('\n') || '';
+    } else if (isImage) {
+      console.log('[Copilot File Parser] Received image file. Transcribing via multimodal prompt...');
+      const base64Image = Buffer.from(arrayBuffer).toString('base64');
+      const dataUrl = `data:${mimeType || 'image/png'};base64,${base64Image}`;
 
-      // PDF-to-image OCR fallback for scanned resumes
-      if (textContent.trim().length === 0) {
-        console.log('[Copilot File Parser] PDF text extraction returned empty. Rendering page 1 to image for OCR fallback...');
-        try {
-          const imageBuffer = await renderPageAsImage(new Uint8Array(arrayBufferCopy), 1, {
-            canvasImport: () => import('@napi-rs/canvas'),
-            scale: 1.5
-          });
-
-          const base64Image = Buffer.from(imageBuffer).toString('base64');
-          const dataUrl = `data:image/png;base64,${base64Image}`;
-
-          const systemInstruction = 'You are a high-accuracy document transcription assistant. Transcribe all text content from the provided resume image as cleanly as possible. Return ONLY the transcribed text. Do not add explanations or conversational comments.';
-          const multimodalPrompt = [
-            { type: 'text', text: 'Please transcribe all text from this resume image.' },
-            {
-              type: 'image_url',
-              image_url: {
-                url: dataUrl
-              }
-            }
-          ];
-
-          textContent = await callLLM(systemInstruction, multimodalPrompt, 0.2);
-          console.log(`[Copilot File Parser] Successfully transcribed scanned PDF resume. Length: ${textContent.length} characters.`);
-        } catch (ocrErr: any) {
-          console.error('[Copilot File Parser] OCR fallback failed:', ocrErr.message);
+      const systemInstruction = 'You are a high-accuracy document transcription assistant. Transcribe all text content from the provided resume image as cleanly as possible. Return ONLY the transcribed text. Do not add explanations or conversational comments.';
+      const multimodalPrompt = [
+        { type: 'text', text: 'Please transcribe all text from this resume image.' },
+        {
+          type: 'image_url',
+          image_url: {
+            url: dataUrl
+          }
         }
-      }
+      ];
+
+      textContent = await callLLM(systemInstruction, multimodalPrompt, 0.2);
+      console.log(`[Copilot File Parser] Successfully transcribed uploaded image. Length: ${textContent.length} characters.`);
     } else {
       // Treat as plain text
       textContent = Buffer.from(arrayBuffer).toString('utf-8');

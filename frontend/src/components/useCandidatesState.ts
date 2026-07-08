@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Candidate, CommunicationLog, EmailConfig, Job, Task } from '../types';
 import { supabase } from '../utils/supabase';
+import { processPdfFile } from '../utils/pdfParser';
 
 interface UseCandidatesStateProps {
   candidates: Candidate[];
@@ -318,8 +319,18 @@ export function useCandidatesState({
         const { data: { session } } = await supabase.auth.getSession();
         const token = session?.access_token;
 
+        // Browser-side PDF text extraction and OCR fallback
+        let uploadFile: File | Blob = item.file;
+        let uploadFileName = item.file.name;
+
+        if (item.file.type === 'application/pdf' || item.file.name.endsWith('.pdf')) {
+          const parsedResult = await processPdfFile(item.file);
+          uploadFile = parsedResult.file;
+          uploadFileName = parsedResult.fileName;
+        }
+
         const formData = new FormData();
-        formData.append('file', item.file);
+        formData.append('file', uploadFile, uploadFileName);
 
         const response = await fetch('/api/ai/parse-resume', {
           method: 'POST',

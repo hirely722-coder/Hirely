@@ -6,9 +6,6 @@
   "compatibility_flags": [
     "nodejs_compat"
   ],
-  "alias": {
-    "@napi-rs/canvas": "./src/canvas-mock.ts"
-  },
   "vars": {
     "PORT": "3001"
   }

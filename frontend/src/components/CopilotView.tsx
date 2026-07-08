@@ -5,6 +5,7 @@ import { Sparkles, Send, Loader2, Bot, User, Trash2, Search, ArrowRight, HelpCir
 import { Candidate, Job, Company, Task, EmailTemplate } from '../types';
 import { supabase } from '../utils/supabase';
 import { useApp } from '../context/AppContext';
+import { processPdfFile } from '../utils/pdfParser';
 
 interface CopilotViewProps {
   candidates: Candidate[];
@@ -158,8 +159,18 @@ How can I speed up your recruiting workflow today?`
     setIsParsingFile(true);
 
     try {
+      // Browser-side PDF text extraction and OCR fallback
+      let uploadFile: File | Blob = file;
+      let uploadFileName = file.name;
+
+      if (file.type === 'application/pdf' || file.name.endsWith('.pdf')) {
+        const parsedResult = await processPdfFile(file);
+        uploadFile = parsedResult.file;
+        uploadFileName = parsedResult.fileName;
+      }
+
       const formData = new FormData();
-      formData.append('file', file);
+      formData.append('file', uploadFile, uploadFileName);
 
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token;
