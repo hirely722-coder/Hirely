@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev -p 7474",
-    "build": "next build --webpack",
+    "build": "next build",
     "cf-build": "opennextjs-cloudflare build",
     "cf-deploy": "opennextjs-cloudflare deploy",
     "start": "next start -p 7474",
