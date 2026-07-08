@@ -7,6 +7,7 @@
     "nodejs_compat"
   ],
   "vars": {
-    "PORT": "3001"
+    "PORT": "3001",
+    "SUPABASE_URL": "https://wnaayghjmewxzwratqas.supabase.co"
   }
 }
