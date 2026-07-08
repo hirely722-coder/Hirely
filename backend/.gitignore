@@ -1,0 +1,12 @@
+node_modules/
+bun.lockb
+bun.lock
+package-lock.json
+.wrangler/
+.env
+.dev.vars
+dist/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
