@@ -125,10 +125,6 @@ export default function PipelineView({
   const [jobCandidatesLoading, setJobCandidatesLoading] = useState(false);
 
   useEffect(() => {
-    if (selectedJobId === 'all') {
-      setJobCandidates([]);
-      return;
-    }
     const fetchJobCandidates = async () => {
       setJobCandidatesLoading(true);
       try {
