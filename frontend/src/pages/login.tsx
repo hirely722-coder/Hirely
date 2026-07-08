@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
+import Link from 'next/link';
 import { supabase } from '../utils/supabase';
 import { useApp } from '../context/AppContext';
-import { Mail, Lock, User, Sparkles, AlertCircle } from 'lucide-react';
+import { Mail, Lock, User, Sparkles, AlertCircle, ArrowLeft } from 'lucide-react';
 
 function GoogleLogo({ size = 24 }: { size?: number }) {
   return (
@@ -274,6 +275,17 @@ export default function Login() {
           <GoogleLogo size={18} />
           <span>Continue with Google</span>
         </button>
+
+        {/* Back to Home Button */}
+        <div className="text-center mt-6">
+          <Link
+            href="/"
+            className="inline-flex items-center gap-2 text-xs font-semibold text-slate-400 hover:text-white transition-all group"
+          >
+            <ArrowLeft className="h-3 w-3 transition-transform group-hover:-translate-x-0.5" />
+            <span>Back to Home</span>
+          </Link>
+        </div>
 
         {/* Footer info */}
         <p className="text-center text-[10px] text-slate-500 mt-6 font-medium leading-normal">

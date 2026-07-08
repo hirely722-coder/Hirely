@@ -340,15 +340,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
         {/* Scrollable Navigation Items */}
         <div className="flex-1 overflow-y-auto p-4 space-y-6">
-          {isSuperAdmin && !isAdminPath && (
-            <a
-              href={typeof window !== 'undefined' ? `${window.location.protocol}//${window.location.hostname}:7475` : 'http://localhost:7475'}
-              className="flex items-center gap-3 px-4 py-2.5 rounded-xl text-xs font-bold text-indigo-600 hover:text-indigo-700 bg-indigo-50 hover:bg-indigo-100/70 border border-indigo-100/50 mb-4 shadow-2xs"
-            >
-              <Shield className="h-4 w-4 text-indigo-600 shrink-0" />
-              <span>Super Admin Panel</span>
-            </a>
-          )}
           {isAdminPath && (
             <Link
               href="/dashboard"
