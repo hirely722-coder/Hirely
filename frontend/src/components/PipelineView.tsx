@@ -500,7 +500,7 @@ export default function PipelineView({
                   <span className={`h-1.5 w-1.5 rounded-full ${theme.dot}`} />
                   <span className="text-xs font-bold text-slate-800 font-sans tracking-tight">{stage}</span>
                 </div>
-                {isLoading ? (
+                {isLoading || jobCandidatesLoading ? (
                   <span className="h-4 w-6 bg-slate-100 animate-pulse rounded-full" />
                 ) : (
                   <span className="font-mono text-[10px] font-extrabold px-2 py-0.5 bg-white text-slate-700 rounded-full border border-slate-200/50 shadow-2xs">
@@ -511,7 +511,7 @@ export default function PipelineView({
 
               {/* Scrollable Cards Container */}
               <div className="flex-1 space-y-2.5 overflow-y-auto max-h-[500px] pr-1.5 scrollbar-thin">
-                {isLoading ? (
+                {isLoading || jobCandidatesLoading ? (
                   [...Array(2)].map((_, i) => (
                     <div key={i} className="p-3 bg-white border border-slate-200/80 rounded-lg shadow-2xs animate-pulse space-y-3">
                       <div className="flex justify-between items-center">
