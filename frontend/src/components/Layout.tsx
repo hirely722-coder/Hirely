@@ -91,13 +91,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   // Redirect authenticated users from landing page to recruiter dashboard
   useEffect(() => {
     if (!isLoading && user && router.pathname === '/') {
-      if (isSuperAdmin) {
-        router.replace('/admin');
-      } else {
-        router.replace('/dashboard');
-      }
+      router.replace('/dashboard');
     }
-  }, [user, isLoading, router.pathname, isSuperAdmin]);
+  }, [user, isLoading, router.pathname]);
   // Load and apply themes
   useEffect(() => {
     if (typeof window !== 'undefined') {
