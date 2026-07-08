@@ -62,6 +62,14 @@ export default function JobDetailsPage(props: JobDetailsPageProps) {
   }, [fetchJobCandidates]);
 
   const handleUpdateJobCandidateStage = useCallback(async (candidateId: string, stage: string) => {
+    const jc = jobCandidates.find(item => item.candidateId === candidateId);
+    if (!jc) return;
+    const originalStage = jc.stage;
+
+    // 1. Optimistic Update (instant UI response)
+    setJobCandidates(prev => prev.map(item => item.candidateId === candidateId ? { ...item, stage: stage as any } : item));
+
+    // 2. Network Request in background
     try {
       const { supabase } = await import('../../utils/supabase');
       const { data: { session } } = await supabase.auth.getSession();
@@ -74,13 +82,20 @@ export default function JobDetailsPage(props: JobDetailsPageProps) {
         },
         body: JSON.stringify({ jobId: job.id, candidateId, stage }),
       });
-      if (res.ok) {
-        await fetchJobCandidates();
+      if (!res.ok) {
+        throw new Error('Failed to update stage');
       }
+      const data = await res.json();
+      setJobCandidates(prev => prev.map(item => item.candidateId === candidateId ? { ...item, ...data } : item));
+      
+      // Silent background consistency sync
+      fetchJobCandidates();
     } catch (err) {
-      console.error('Failed to update job candidate stage:', err);
+      console.error('Failed to update job candidate stage, reverting:', err);
+      // Revert state if failed
+      setJobCandidates(prev => prev.map(item => item.candidateId === candidateId ? { ...item, stage: originalStage } : item));
     }
-  }, [job.id, fetchJobCandidates]);
+  }, [job.id, jobCandidates, fetchJobCandidates]);
 
   // Instantiate our custom state hook
   const state = useJobDetailsState({
