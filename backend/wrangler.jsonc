@@ -11,5 +11,8 @@
   "vars": {
     "PORT": "3001",
     "SUPABASE_URL": "https://wnaayghjmewxzwratqas.supabase.co"
+  },
+  "alias": {
+    "@napi-rs/canvas": "./src/canvas-mock.ts"
   }
 }

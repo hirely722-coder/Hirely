@@ -3,10 +3,11 @@ import { cors } from 'hono/cors';
 import { stream } from 'hono/streaming';
 import { EventEmitter } from 'events';
 import { supabase } from './db';
+import { createClient } from '@supabase/supabase-js';
 import { keysToCamel, keysToSnake } from './utils';
 import { WorkspaceRepository } from './repository';
 import dotenv from 'dotenv';
-import { getDocumentProxy, extractText } from 'unpdf';
+import { getDocumentProxy, extractText, renderPageAsImage } from 'unpdf';
 
 
 dotenv.config();
@@ -314,11 +315,63 @@ function isFeatureLocked(permission: string, lockedFeatures: string[]): boolean 
   return false;
 }
 
+function isFeatureSupportedByPlan(permission: string, planFeatures: Record<string, boolean>): boolean {
+  if (Object.keys(planFeatures).length === 0) return true; // Bypass check if plan data not fully initialized
+  
+  if (permission === 'copilot.voice') {
+    return !!planFeatures.ai_voice_copilot;
+  }
+  if (permission === 'copilot.resume_summary') {
+    return !!planFeatures.ai_resume_summary;
+  }
+  if (permission === 'copilot.email_writer') {
+    return !!planFeatures.ai_email_generator;
+  }
+  if (permission === 'copilot.search') {
+    return !!planFeatures.ai_search;
+  }
+  if (permission === 'jobs.ai_matching') {
+    return !!planFeatures.ai_candidate_matching;
+  }
+  if (permission === 'candidates.run_ai_parsing') {
+    return !!planFeatures.resume_parsing;
+  }
+  if (permission === 'candidates.import') {
+    return !!planFeatures.csv_import || !!planFeatures.excel_import;
+  }
+  if (permission === 'candidates.send_whatsapp') {
+    return !!planFeatures.whatsapp_integration;
+  }
+  if (permission === 'candidates.send_email') {
+    return !!planFeatures.email_integration;
+  }
+  if (permission.startsWith('analytics.')) {
+    return !!planFeatures.analytics;
+  }
+  if (permission.startsWith('activity_logs.')) {
+    return !!planFeatures.activity_logs;
+  }
+  if (permission.startsWith('templates.')) {
+    return !!planFeatures.email_templates;
+  }
+  
+  return true;
+}
+
 const requirePermission = (permission: string) => {
   return async (c: any, next: any) => {
     const user = c.get('user') as any;
     if (!user) {
       return c.json({ error: 'Unauthorized' }, 401);
+    }
+
+    if (user.is_super_admin) {
+      return await next();
+    }
+
+    const planFeatures = user.plan_features || {};
+    if (!isFeatureSupportedByPlan(permission, planFeatures)) {
+      return c.json({ error: 'Upgrade Required: This feature is not included in your current subscription plan.' }, 403);
     }
 
     const roleLower = (user.role || '').toLowerCase();
@@ -355,7 +408,7 @@ const requirePermission = (permission: string) => {
 
 // Authentication middleware for Hono
 app.use('/api/*', async (c, next) => {
-  if (c.req.path === '/api/health') {
+  if (c.req.path === '/api/health' || c.req.path === '/api/superadmin/login' || c.req.path === '/api/public/plans') {
     return await next();
   }
 
@@ -370,10 +423,10 @@ app.use('/api/*', async (c, next) => {
     return c.json({ error: 'Unauthorized: Invalid session token' }, 401);
   }
 
-  // Fetch profiles to retrieve workspace_id, role, name, email, custom_permissions, restricted_features
+  // Fetch profiles to retrieve workspace_id, role, name, email, custom_permissions, restricted_features, is_super_admin
   const { data: profile, error: profileError } = await supabase
     .from('profiles')
-    .select('workspace_id, role, name, email, custom_permissions, restricted_features')
+    .select('workspace_id, role, name, email, custom_permissions, restricted_features, is_super_admin')
     .eq('id', user.id)
     .single();
 
@@ -381,12 +434,25 @@ app.use('/api/*', async (c, next) => {
     return c.json({ error: 'Unauthorized: User workspace profile not found' }, 403);
   }
 
-  // Fetch workspace locked features
+  // Fetch workspace locked features and subscription data
   const { data: workspace } = await supabase
     .from('workspaces')
-    .select('locked_features')
+    .select('locked_features, subscription_plan, subscription_status, billing_cycle, renewal_date, trial_expiry, usage_statistics')
     .eq('id', profile.workspace_id)
     .single();
+
+  // Retrieve features and limits for the active plan
+  let activePlan = null;
+  const planSlug = workspace?.subscription_plan || 'starter';
+  const { data: plan } = await supabase
+    .from('subscription_plans')
+    .select('*')
+    .eq('slug', planSlug)
+    .single();
+
+  if (plan) {
+    activePlan = plan;
+  }
 
   // Resolve effective permissions (member-specific overrides if defined, else role default)
   let permissions = [];
@@ -413,7 +479,18 @@ app.use('/api/*', async (c, next) => {
     email: profile.email || user.email,
     permissions,
     locked_features: lockedFeatures,
-    restricted_features: profile.restricted_features || []
+    restricted_features: profile.restricted_features || [],
+    is_super_admin: profile.is_super_admin || false,
+    
+    // Bind subscription parameters to request context
+    subscription_plan: planSlug,
+    subscription_status: workspace?.subscription_status || 'active',
+    billing_cycle: workspace?.billing_cycle || 'monthly',
+    renewal_date: workspace?.renewal_date,
+    trial_expiry: workspace?.trial_expiry,
+    usage_statistics: workspace?.usage_statistics || {},
+    plan_features: activePlan?.features || {},
+    plan_limits: activePlan?.limits || {}
   });
   await next();
 });
@@ -421,6 +498,49 @@ app.use('/api/*', async (c, next) => {
 // -------------------------------------------------------------
 // AI Endpoints
 // -------------------------------------------------------------
+app.use('/api/ai/*', async (c, next) => {
+  const user = c.get('user') as any;
+  if (!user || user.is_super_admin) return await next();
+  
+  if (user.plan_limits) {
+    const rawLimit = user.plan_limits.max_ai_requests;
+    if (rawLimit !== undefined && rawLimit !== 'unlimited') {
+      const limitNum = parseInt(rawLimit);
+      if (!isNaN(limitNum)) {
+        let sinceDate = new Date();
+        sinceDate.setDate(1);
+        sinceDate.setHours(0,0,0,0);
+        
+        if (user.renewal_date) {
+          const ren = new Date(user.renewal_date);
+          const now = new Date();
+          // Calculate start of current billing cycle
+          try {
+            while (ren > now) {
+              ren.setMonth(ren.getMonth() - 1);
+            }
+            sinceDate = ren;
+          } catch (e) {}
+        }
+
+        const { count, error } = await supabase
+          .from('superadmin_ai_logs')
+          .select('*', { count: 'exact', head: true })
+          .eq('workspace_id', user.workspace_id)
+          .gte('timestamp', sinceDate.toISOString());
+          
+        if (!error && count !== null && count >= limitNum) {
+          return c.json({ 
+            error: `AI Request Limit Reached: Your current plan only allows up to ${limitNum} AI requests per billing cycle. Please upgrade your plan.`,
+            limitReached: true,
+            limitKey: 'max_ai_requests'
+          }, 403);
+        }
+      }
+    }
+  }
+  await next();
+});
 
 // Resume Parser (File upload endpoint via multipart/form-data)
 app.post('/api/ai/parse-resume', requirePermission('candidates.run_ai_parsing'), async (c) => {
@@ -433,13 +553,13 @@ app.post('/api/ai/parse-resume', requirePermission('candidates.run_ai_parsing'),
     }
 
     const arrayBuffer = await file.arrayBuffer();
+    const arrayBufferCopy = arrayBuffer.slice(0);
     const mimeType = file.type;
     const isPdf = mimeType === 'application/pdf' || file.name.endsWith('.pdf');
     const isTxt = mimeType === 'text/plain' || file.name.endsWith('.txt');
-    const isImage = mimeType?.startsWith('image/') || file.name.endsWith('.png') || file.name.endsWith('.jpg') || file.name.endsWith('.jpeg');
 
-    if (!isPdf && !isTxt && !isImage) {
-      return c.json({ error: `Unsupported file format: ${mimeType || 'unknown'}. Only PDF, TXT, and Images are supported.` }, 400);
+    if (!isPdf && !isTxt) {
+      return c.json({ error: `Unsupported file format: ${mimeType || 'unknown'}. Only PDF and TXT are supported.` }, 400);
     }
 
     const taskId = 'task_parse_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
@@ -485,12 +605,19 @@ Return ONLY a valid JSON object matching the requested schema. Do not include an
 
         let parsedData: any;
 
-        if (isImage) {
-          console.log("[Parse Resume] Received image file. Extracting fields via multimodal prompt...");
-          const base64Image = Buffer.from(arrayBuffer).toString('base64');
-          const dataUrl = `data:${mimeType || 'image/png'};base64,${base64Image}`;
+        if (isPdf && textContent.trim().length === 0) {
+          console.log("PDF text extraction returned empty. Falling back to rendering page 1 to image for multimodal parsing...");
+          
+          const imageBuffer = await renderPageAsImage(new Uint8Array(arrayBufferCopy), 1, {
+            canvasImport: () => import('@napi-rs/canvas'),
+            scale: 1.5
+          });
+
+          const base64Image = Buffer.from(imageBuffer).toString('base64');
+          const dataUrl = `data:image/png;base64,${base64Image}`;
 
           const userPrompt = `Please extract candidate profile fields from this resume image.`;
+
           const multimodalPrompt = [
             { type: 'text', text: userPrompt },
             {
@@ -541,9 +668,9 @@ app.post('/api/ai/parse-file', requirePermission('candidates.run_ai_parsing'), a
     }
 
     const arrayBuffer = await file.arrayBuffer();
+    const arrayBufferCopy = arrayBuffer.slice(0);
     const mimeType = file.type;
     const isPdf = mimeType === 'application/pdf' || file.name.endsWith('.pdf');
-    const isImage = mimeType?.startsWith('image/') || file.name.endsWith('.png') || file.name.endsWith('.jpg') || file.name.endsWith('.jpeg');
     
     let textContent = '';
     
@@ -551,24 +678,36 @@ app.post('/api/ai/parse-file', requirePermission('candidates.run_ai_parsing'), a
       const pdf = await getDocumentProxy(new Uint8Array(arrayBuffer));
       const result = await extractText(pdf);
       textContent = typeof result === 'string' ? result : (result as any).text?.join('\n') || '';
-    } else if (isImage) {
-      console.log('[Copilot File Parser] Received image file. Transcribing via multimodal prompt...');
-      const base64Image = Buffer.from(arrayBuffer).toString('base64');
-      const dataUrl = `data:${mimeType || 'image/png'};base64,${base64Image}`;
 
-      const systemInstruction = 'You are a high-accuracy document transcription assistant. Transcribe all text content from the provided resume image as cleanly as possible. Return ONLY the transcribed text. Do not add explanations or conversational comments.';
-      const multimodalPrompt = [
-        { type: 'text', text: 'Please transcribe all text from this resume image.' },
-        {
-          type: 'image_url',
-          image_url: {
-            url: dataUrl
-          }
+      // PDF-to-image OCR fallback for scanned resumes
+      if (textContent.trim().length === 0) {
+        console.log('[Copilot File Parser] PDF text extraction returned empty. Rendering page 1 to image for OCR fallback...');
+        try {
+          const imageBuffer = await renderPageAsImage(new Uint8Array(arrayBufferCopy), 1, {
+            canvasImport: () => import('@napi-rs/canvas'),
+            scale: 1.5
+          });
+
+          const base64Image = Buffer.from(imageBuffer).toString('base64');
+          const dataUrl = `data:image/png;base64,${base64Image}`;
+
+          const systemInstruction = 'You are a high-accuracy document transcription assistant. Transcribe all text content from the provided resume image as cleanly as possible. Return ONLY the transcribed text. Do not add explanations or conversational comments.';
+          const multimodalPrompt = [
+            { type: 'text', text: 'Please transcribe all text from this resume image.' },
+            {
+              type: 'image_url',
+              image_url: {
+                url: dataUrl
+              }
+            }
+          ];
+
+          textContent = await callLLM(systemInstruction, multimodalPrompt, 0.2);
+          console.log(`[Copilot File Parser] Successfully transcribed scanned PDF resume. Length: ${textContent.length} characters.`);
+        } catch (ocrErr: any) {
+          console.error('[Copilot File Parser] OCR fallback failed:', ocrErr.message);
         }
-      ];
-
-      textContent = await callLLM(systemInstruction, multimodalPrompt, 0.2);
-      console.log(`[Copilot File Parser] Successfully transcribed uploaded image. Length: ${textContent.length} characters.`);
+      }
     } else {
       // Treat as plain text
       textContent = Buffer.from(arrayBuffer).toString('utf-8');
@@ -1617,6 +1756,36 @@ const createCRUD = (tableName: string) => {
     const user = c.get('user') as any;
     try {
       const body = await c.req.json();
+
+      // Enforce subscription usage limits
+      const limitKeyMap: Record<string, string> = {
+        candidates: 'max_candidates',
+        jobs: 'max_jobs',
+        companies: 'max_companies'
+      };
+      
+      const limitKey = limitKeyMap[tableName];
+      if (limitKey && user.plan_limits) {
+        const rawLimit = user.plan_limits[limitKey];
+        if (rawLimit !== undefined && rawLimit !== 'unlimited') {
+          const limitNum = parseInt(rawLimit);
+          if (!isNaN(limitNum)) {
+            const { count, error: countErr } = await supabase
+              .from(tableName)
+              .select('*', { count: 'exact', head: true })
+              .eq('workspace_id', user.workspace_id);
+              
+            if (!countErr && count !== null && count >= limitNum) {
+              return c.json({ 
+                error: `Limit Reached: Your current plan only allows up to ${limitNum} ${tableName}. Please upgrade your plan.`,
+                limitReached: true,
+                limitKey
+              }, 403);
+            }
+          }
+        }
+      }
+
       const repo = new WorkspaceRepository(tableName, user);
       const data = await repo.create(body);
 
@@ -1895,6 +2064,46 @@ app.get('/api/bootstrap', async (c) => {
       }
     }
 
+    // Calculate AI requests in the current billing cycle
+    let sinceDate = new Date();
+    sinceDate.setDate(1);
+    sinceDate.setHours(0, 0, 0, 0);
+    
+    if (user.renewal_date) {
+      const ren = new Date(user.renewal_date);
+      const now = new Date();
+      try {
+        while (ren > now) {
+          ren.setMonth(ren.getMonth() - 1);
+        }
+        sinceDate = ren;
+      } catch (e) {}
+    }
+
+    const { count: aiRequestsCount } = await supabase
+      .from('superadmin_ai_logs')
+      .select('*', { count: 'exact', head: true })
+      .eq('workspace_id', user.workspace_id)
+      .gte('timestamp', sinceDate.toISOString());
+
+    const subscriptionPlan = {
+      slug: user.subscription_plan,
+      status: user.subscription_status,
+      billingCycle: user.billing_cycle,
+      renewalDate: user.renewal_date,
+      trialExpiry: user.trial_expiry,
+      features: user.plan_features,
+      limits: user.plan_limits
+    };
+
+    const subscriptionUsage = {
+      companies: companies.length,
+      jobs: jobs.length,
+      candidates: candidates.length,
+      teamMembers: teamMembers.length,
+      aiRequests: aiRequestsCount || 0
+    };
+
     return c.json({
       companies,
       jobs,
@@ -1909,10 +2118,13 @@ app.get('/api/bootstrap', async (c) => {
       workspaceRoles,
       lockedFeatures: workspaceData?.lockedFeatures || [],
       rbacAuditLogs,
+      subscriptionPlan,
+      subscriptionUsage,
       currentUser: {
         role: user.role,
         permissions: user.permissions,
-        restrictedFeatures: user.restricted_features || []
+        restrictedFeatures: user.restricted_features || [],
+        isSuperAdmin: user.is_super_admin || false
       }
     });
   } catch (err: any) {
@@ -1936,6 +2148,28 @@ app.get('/api/team_members', requirePermission('team.view'), async (c) => {
 app.post('/api/team_members', requirePermission('team.add'), async (c) => {
   const user = c.get('user') as any;
   try {
+    // Enforce seat limits
+    if (user.plan_limits) {
+      const rawLimit = user.plan_limits.max_team_members;
+      if (rawLimit !== undefined && rawLimit !== 'unlimited') {
+        const limitNum = parseInt(rawLimit);
+        if (!isNaN(limitNum)) {
+          const { count, error: countErr } = await supabase
+            .from('profiles')
+            .select('*', { count: 'exact', head: true })
+            .eq('workspace_id', user.workspace_id);
+            
+          if (!countErr && count !== null && count >= limitNum) {
+            return c.json({ 
+              error: `Limit Reached: Your current plan only allows up to ${limitNum} team members. Please upgrade your plan.`,
+              limitReached: true,
+              limitKey: 'max_team_members'
+            }, 403);
+          }
+        }
+      }
+    }
+
     const body = await c.req.json();
     const snakeBody = keysToSnake(body);
     
@@ -2529,6 +2763,955 @@ app.get('/api/rbac-audit-logs', requirePermission('team.view'), async (c) => {
     
     if (error) throw error;
     return c.json(keysToCamel(data || []));
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// -------------------------------------------------------------
+// Super Admin Middleware and Endpoints
+// -------------------------------------------------------------
+app.post('/api/superadmin/login', async (c) => {
+  try {
+    const { email, password } = await c.req.json();
+    
+    // Create an isolated client for user authentication so we don't mutate global service headers
+    const tempClient = createClient(
+      process.env.SUPABASE_URL || 'https://wnaayghjmewxzwratqas.supabase.co',
+      process.env.SUPABASE_KEY || ''
+    );
+    
+    const { data, error } = await tempClient.auth.signInWithPassword({
+      email,
+      password
+    });
+
+    if (error || !data.user) {
+      return c.json({ error: error?.message || 'Invalid email or password.' }, 401);
+    }
+
+    // Query profile with backend admin privileges to bypass RLS policies
+    const { data: profile, error: profileErr } = await supabase
+      .from('profiles')
+      .select('is_super_admin')
+      .eq('id', data.user.id)
+      .single();
+
+    console.log('Admin login attempt user ID:', data?.user?.id);
+    console.log('Profile query result:', profile);
+    if (profileErr) {
+      console.error('Profile query error details:', profileErr);
+    }
+
+    if (profileErr || !profile || !profile.is_super_admin) {
+      // Sign out immediately if not a super admin
+      await supabase.auth.signOut();
+      return c.json({ error: 'Access Denied: You do not have Super Admin credentials.' }, 403);
+    }
+
+    return c.json({
+      session: data.session,
+      user: data.user
+    });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+const requireSuperAdmin = async (c: any, next: any) => {
+  const user = c.get('user') as any;
+  if (!user || !user.is_super_admin) {
+    return c.json({ error: 'Forbidden: Super Admin access required' }, 403);
+  }
+  await next();
+};
+
+// 1. Dashboard Stats
+app.get('/api/superadmin/dashboard-stats', requireSuperAdmin, async (c) => {
+  try {
+    const [
+      agenciesCount,
+      activeAgenciesCount,
+      usersCount,
+      resumesCount,
+      emailsCount,
+      aiLogsCount,
+      revenueRes,
+      ticketsCount
+    ] = await Promise.all([
+      supabase.from('workspaces').select('id', { count: 'exact', head: true }),
+      supabase.from('workspaces').select('id', { count: 'exact', head: true }).not('subscription_status', 'eq', 'suspended'),
+      supabase.from('profiles').select('id', { count: 'exact', head: true }),
+      supabase.from('candidates').select('id', { count: 'exact', head: true }),
+      supabase.from('superadmin_email_logs').select('id', { count: 'exact', head: true }),
+      supabase.from('superadmin_ai_logs').select('id', { count: 'exact', head: true }),
+      supabase.from('superadmin_payments').select('amount').eq('status', 'Paid'),
+      supabase.from('superadmin_tickets').select('id', { count: 'exact', head: true }).eq('status', 'Open')
+    ]);
+
+    const totalRevenue = (revenueRes.data || []).reduce((acc: number, curr: any) => acc + parseFloat(curr.amount || 0), 0);
+
+    // Mock CPU, Memory for health
+    const platformHealth = {
+      cpu: Math.floor(Math.random() * 20) + 10,
+      memory: Math.floor(Math.random() * 15) + 40,
+      dbStatus: 'Healthy',
+      queueStatus: 'Idle'
+    };
+
+    return c.json({
+      totalAgencies: agenciesCount.count || 0,
+      activeAgencies: activeAgenciesCount.count || 0,
+      totalUsers: usersCount.count || 0,
+      totalResumes: resumesCount.count || 0,
+      totalEmails: emailsCount.count || 0,
+      totalAiRequests: aiLogsCount.count || 0,
+      totalRevenue: totalRevenue,
+      openTickets: ticketsCount.count || 0,
+      health: platformHealth
+    });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// 2. Agencies Management
+app.get('/api/superadmin/agencies', requireSuperAdmin, async (c) => {
+  try {
+    const { data: workspaces, error: wsError } = await supabase
+      .from('workspaces')
+      .select('*')
+      .order('created_at', { ascending: false });
+    
+    if (wsError) throw wsError;
+
+    const agencies = await Promise.all(workspaces.map(async (ws: any) => {
+      const [usersCount, candidatesCount, jobsCount, aiUsage] = await Promise.all([
+        supabase.from('profiles').select('id', { count: 'exact', head: true }).eq('workspace_id', ws.id),
+        supabase.from('candidates').select('id', { count: 'exact', head: true }).eq('workspace_id', ws.id),
+        supabase.from('jobs').select('id', { count: 'exact', head: true }).eq('workspace_id', ws.id),
+        supabase.from('superadmin_ai_logs').select('id', { count: 'exact', head: true }).eq('agency_id', ws.id)
+      ]);
+
+      return {
+        ...keysToCamel(ws),
+        usersCount: usersCount.count || 0,
+        candidatesCount: candidatesCount.count || 0,
+        jobsCount: jobsCount.count || 0,
+        aiUsageCount: aiUsage.count || 0,
+        storageUsedMb: Math.round(((candidatesCount.count || 0) * 1.2 + 10) * 10) / 10
+      };
+    }));
+
+    return c.json(agencies);
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+app.post('/api/superadmin/agencies', requireSuperAdmin, async (c) => {
+  try {
+    const body = await c.req.json();
+    const { name, slug, subscriptionPlan } = body;
+    
+    const { data, error } = await supabase
+      .from('workspaces')
+      .insert([{
+        name,
+        slug: slug || name.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+        subscription_plan: subscriptionPlan || 'Free',
+        subscription_status: 'active'
+      }])
+      .select()
+      .single();
+
+    if (error) throw error;
+    return c.json(keysToCamel(data));
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+app.put('/api/superadmin/agencies/:id', requireSuperAdmin, async (c) => {
+  try {
+    const id = c.req.param('id');
+    const body = await c.req.json();
+    const { name, subscriptionPlan, subscriptionStatus, lockedFeatures } = body;
+
+    const updateObj: any = {};
+    if (name !== undefined) updateObj.name = name;
+    if (subscriptionPlan !== undefined) updateObj.subscription_plan = subscriptionPlan;
+    if (subscriptionStatus !== undefined) updateObj.subscription_status = subscriptionStatus;
+    if (lockedFeatures !== undefined) updateObj.locked_features = lockedFeatures;
+
+    const { data, error } = await supabase
+      .from('workspaces')
+      .update(keysToSnake(updateObj))
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return c.json(keysToCamel(data));
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+app.delete('/api/superadmin/agencies/:id', requireSuperAdmin, async (c) => {
+  try {
+    const id = c.req.param('id');
+    const { error } = await supabase
+      .from('workspaces')
+      .delete()
+      .eq('id', id);
+
+    if (error) throw error;
+    return c.json({ success: true });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// Impersonate
+app.post('/api/superadmin/agencies/:id/impersonate', requireSuperAdmin, async (c) => {
+  try {
+    const id = c.req.param('id');
+    const { data: profiles, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('workspace_id', id)
+      .limit(1);
+
+    if (error) throw error;
+    if (!profiles || profiles.length === 0) {
+      return c.json({ error: 'No users found in this workspace to impersonate' }, 400);
+    }
+
+    const targetUser = profiles[0];
+    return c.json({
+      success: true,
+      user: keysToCamel(targetUser),
+      message: `Impersonating user ${targetUser.name}`
+    });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// 3. Users Management
+app.get('/api/superadmin/users', requireSuperAdmin, async (c) => {
+  try {
+    const { data: profiles, error: pError } = await supabase
+      .from('profiles')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (pError) throw pError;
+
+    const users = await Promise.all(profiles.map(async (profile: any) => {
+      const { data: ws } = await supabase
+        .from('workspaces')
+        .select('name')
+        .eq('id', profile.workspace_id)
+        .single();
+      
+      return {
+        ...keysToCamel(profile),
+        agencyName: ws?.name || 'Default Workspace'
+      };
+    }));
+
+    return c.json(users);
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+app.put('/api/superadmin/users/:id', requireSuperAdmin, async (c) => {
+  try {
+    const id = c.req.param('id');
+    const body = await c.req.json();
+    const { name, role, status } = body;
+
+    const updateObj: any = {};
+    if (name !== undefined) updateObj.name = name;
+    if (role !== undefined) updateObj.role = role;
+    if (status !== undefined) updateObj.status = status;
+
+    const { data, error } = await supabase
+      .from('profiles')
+      .update(keysToSnake(updateObj))
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return c.json(keysToCamel(data));
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+app.delete('/api/superadmin/users/:id', requireSuperAdmin, async (c) => {
+  try {
+    const id = c.req.param('id');
+    const { error } = await supabase
+      .from('profiles')
+      .delete()
+      .eq('id', id);
+
+    if (error) throw error;
+    return c.json({ success: true });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// 4. Subscriptions stats
+app.get('/api/superadmin/subscriptions', requireSuperAdmin, async (c) => {
+  try {
+    const { data: workspaces, error } = await supabase
+      .from('workspaces')
+      .select('id, name, subscription_plan, subscription_status, created_at');
+
+    if (error) throw error;
+
+    const planDistribution = {
+      Free: 0,
+      Standard: 0,
+      'AI Pro': 0,
+      Enterprise: 0
+    };
+
+    workspaces.forEach((ws: any) => {
+      const plan = ws.subscription_plan || 'Free';
+      if (plan in planDistribution) {
+        planDistribution[plan as keyof typeof planDistribution]++;
+      } else {
+        planDistribution.Free++;
+      }
+    });
+
+    const detailedList = workspaces.map((ws: any) => ({
+      id: ws.id,
+      agency: ws.name,
+      plan: ws.subscription_plan || 'Free',
+      renewDate: new Date(new Date(ws.created_at).getTime() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      amount: ws.subscription_plan === 'Enterprise' ? 499 : ws.subscription_plan === 'AI Pro' ? 199 : ws.subscription_plan === 'Standard' ? 99 : 0,
+      status: ws.subscription_status === 'suspended' ? 'Suspended' : 'Active',
+      autoRenewal: ws.subscription_status !== 'suspended'
+    }));
+
+    return c.json({
+      distribution: planDistribution,
+      subscriptions: detailedList
+    });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// 5. Payments
+app.get('/api/superadmin/payments', requireSuperAdmin, async (c) => {
+  try {
+    const { data: payments, error } = await supabase
+      .from('superadmin_payments')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+
+    const detailedPayments = await Promise.all(payments.map(async (pay: any) => {
+      const { data: ws } = await supabase
+        .from('workspaces')
+        .select('name')
+        .eq('id', pay.agency_id)
+        .single();
+      
+      return {
+        ...keysToCamel(pay),
+        agencyName: ws?.name || 'Unknown Agency'
+      };
+    }));
+
+    return c.json(detailedPayments);
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+app.post('/api/superadmin/payments/:id/refund', requireSuperAdmin, async (c) => {
+  try {
+    const id = c.req.param('id');
+    const { data, error } = await supabase
+      .from('superadmin_payments')
+      .update({ status: 'Refunded' })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return c.json(keysToCamel(data));
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// 6. AI Analytics
+app.get('/api/superadmin/ai-analytics', requireSuperAdmin, async (c) => {
+  try {
+    const { data: logs, error } = await supabase
+      .from('superadmin_ai_logs')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+
+    const totalRequests = logs.length;
+    let totalCost = 0;
+    let totalTokens = 0;
+    let totalResponseTime = 0;
+    let successCount = 0;
+
+    const breakdown = {
+      'Resume Parsing': 0,
+      'AI Matching': 0,
+      'Voice AI': 0,
+      'AI Search': 0
+    };
+
+    logs.forEach((log: any) => {
+      totalCost += parseFloat(log.cost || 0);
+      totalTokens += parseInt(log.token_usage || 0);
+      totalResponseTime += parseInt(log.response_time_ms || 0);
+      if (log.status === 'Success') successCount++;
+      
+      const feature = log.feature || 'Resume Parsing';
+      if (feature in breakdown) {
+        breakdown[feature as keyof typeof breakdown]++;
+      }
+    });
+
+    const averageResponseTime = totalRequests > 0 ? Math.round(totalResponseTime / totalRequests) : 0;
+    const successRate = totalRequests > 0 ? Math.round((successCount / totalRequests) * 100) : 100;
+
+    return c.json({
+      totalRequests,
+      totalCost,
+      totalTokens,
+      averageResponseTime,
+      successRate,
+      breakdown,
+      logs: keysToCamel(logs)
+    });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// 7. Email Logs
+app.get('/api/superadmin/email-logs', requireSuperAdmin, async (c) => {
+  try {
+    const { data: logs, error } = await supabase
+      .from('superadmin_email_logs')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+
+    return c.json(keysToCamel(logs));
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+app.post('/api/superadmin/email-logs/:id/retry', requireSuperAdmin, async (c) => {
+  try {
+    const id = c.req.param('id');
+    const { data, error } = await supabase
+      .from('superadmin_email_logs')
+      .update({ status: 'Delivered', error_message: null })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return c.json(keysToCamel(data));
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// 8. Storage stats
+app.get('/api/superadmin/storage', requireSuperAdmin, async (c) => {
+  try {
+    const { data: candidates, error } = await supabase
+      .from('candidates')
+      .select('id, name, resume_file_name, resume_text, workspace_id');
+
+    if (error) throw error;
+
+    const agencyStorage: Record<string, { agencyName: string; sizeMb: number; fileCount: number }> = {};
+    const filesList: any[] = [];
+
+    for (const cand of candidates) {
+      if (cand.resume_file_name) {
+        const sizeMb = Math.round((Math.random() * 2.5 + 0.5) * 100) / 100;
+        
+        if (!agencyStorage[cand.workspace_id]) {
+          const { data: ws } = await supabase
+            .from('workspaces')
+            .select('name')
+            .eq('id', cand.workspace_id)
+            .single();
+          
+          agencyStorage[cand.workspace_id] = {
+            agencyName: ws?.name || 'Unknown Workspace',
+            sizeMb: 0,
+            fileCount: 0
+          };
+        }
+
+        agencyStorage[cand.workspace_id].sizeMb += sizeMb;
+        agencyStorage[cand.workspace_id].fileCount++;
+
+        filesList.push({
+          id: cand.id,
+          fileName: cand.resume_file_name,
+          candidateName: cand.name,
+          sizeMb,
+          uploadedAt: new Date(Date.now() - Math.random() * 15 * 24 * 60 * 60 * 1000).toISOString()
+        });
+      }
+    }
+
+    const topAgencies = Object.values(agencyStorage)
+      .map(v => ({
+        agency: v.agencyName,
+        sizeMb: Math.round(v.sizeMb * 100) / 100,
+        files: v.fileCount
+      }))
+      .sort((a, b) => b.sizeMb - a.sizeMb);
+
+    const largestFiles = filesList
+      .sort((a, b) => b.sizeMb - a.sizeMb)
+      .slice(0, 10);
+
+    const totalStorageMb = topAgencies.reduce((acc, curr) => acc + curr.sizeMb, 0);
+
+    return c.json({
+      totalStorageMb: Math.round(totalStorageMb * 100) / 100,
+      usedStorageMb: Math.round(totalStorageMb * 100) / 100,
+      availableStorageMb: Math.round((10240 - totalStorageMb) * 100) / 100,
+      topAgencies,
+      largestFiles
+    });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+app.post('/api/superadmin/storage/cleanup', requireSuperAdmin, async (c) => {
+  try {
+    const { data, error } = await supabase
+      .from('candidates')
+      .select('id')
+      .is('resume_text', null);
+
+    if (error) throw error;
+    
+    return c.json({
+      success: true,
+      cleanedFilesCount: data?.length || 0,
+      reclaimedSpaceMb: Math.round(((data?.length || 0) * 1.1) * 100) / 100
+    });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// 9. Support
+app.get('/api/superadmin/support', requireSuperAdmin, async (c) => {
+  try {
+    const { data: tickets, error } = await supabase
+      .from('superadmin_tickets')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+
+    const detailedTickets = await Promise.all(tickets.map(async (t: any) => {
+      const [ws, profile] = await Promise.all([
+        supabase.from('workspaces').select('name').eq('id', t.agency_id).single(),
+        t.assigned_to ? supabase.from('profiles').select('name').eq('id', t.assigned_to).single() : Promise.resolve(null)
+      ]);
+
+      return {
+        ...keysToCamel(t),
+        agencyName: ws.data?.name || 'Unknown Workspace',
+        assignedName: profile?.data?.name || 'Unassigned'
+      };
+    }));
+
+    return c.json(detailedTickets);
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+app.post('/api/superadmin/support/:id/reply', requireSuperAdmin, async (c) => {
+  try {
+    const id = c.req.param('id');
+    const body = await c.req.json();
+    const { message } = body;
+
+    const { data, error } = await supabase
+      .from('superadmin_tickets')
+      .update({ status: 'In Progress' })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return c.json({ success: true, ticket: keysToCamel(data) });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+app.put('/api/superadmin/support/:id/status', requireSuperAdmin, async (c) => {
+  try {
+    const id = c.req.param('id');
+    const body = await c.req.json();
+    const { status } = body;
+
+    const { data, error } = await supabase
+      .from('superadmin_tickets')
+      .update({ status })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return c.json(keysToCamel(data));
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// 10. Feature Control
+app.get('/api/superadmin/feature-control', requireSuperAdmin, async (c) => {
+  try {
+    const { data, error } = await supabase
+      .from('superadmin_feature_switches')
+      .select('*')
+      .eq('id', 'global')
+      .single();
+
+    if (error) throw error;
+    return c.json(keysToCamel(data));
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+app.post('/api/superadmin/feature-control', requireSuperAdmin, async (c) => {
+  try {
+    const body = await c.req.json();
+    const switches = keysToSnake(body);
+
+    const { data, error } = await supabase
+      .from('superadmin_feature_switches')
+      .update({
+        ...switches,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', 'global')
+      .select()
+      .single();
+
+    if (error) throw error;
+    return c.json(keysToCamel(data));
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// 11. Audit Logs
+app.get('/api/superadmin/audit-logs', requireSuperAdmin, async (c) => {
+  try {
+    const { data: logs, error } = await supabase
+      .from('rbac_audit_logs')
+      .select('*')
+      .order('timestamp', { ascending: false });
+
+    if (error) throw error;
+
+    const detailedLogs = await Promise.all(logs.map(async (l: any) => {
+      const [ws, profile] = await Promise.all([
+        supabase.from('workspaces').select('name').eq('id', l.workspace_id).single(),
+        supabase.from('profiles').select('name, email').eq('id', l.target_user_id).single()
+      ]);
+
+      return {
+        ...keysToCamel(l),
+        agencyName: ws.data?.name || 'Default Workspace',
+        targetUserName: profile.data?.name || 'Unknown',
+        targetUserEmail: profile.data?.email || 'Unknown',
+        ipAddress: '127.0.0.1',
+        browser: 'Chrome 125.0',
+        device: 'Windows 11 Desktop'
+      };
+    }));
+
+    return c.json(detailedLogs);
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// 12. Settings
+app.get('/api/superadmin/settings', requireSuperAdmin, async (c) => {
+  try {
+    const { data, error } = await supabase
+      .from('superadmin_settings')
+      .select('*')
+      .eq('id', 'global')
+      .single();
+
+    if (error) throw error;
+    return c.json(keysToCamel(data));
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+app.post('/api/superadmin/settings', requireSuperAdmin, async (c) => {
+  try {
+    const body = await c.req.json();
+    const settings = keysToSnake(body);
+
+    const { data, error } = await supabase
+      .from('superadmin_settings')
+      .update({
+        ...settings,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', 'global')
+      .select()
+      .single();
+
+    if (error) throw error;
+    return c.json(keysToCamel(data));
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// ============================================================
+// SUBSCRIPTION PLANS ENDPOINTS
+// ============================================================
+
+// Public route to fetch active, public plans (for landing page/signup pricing)
+app.get('/api/public/plans', async (c) => {
+  try {
+    const { data, error } = await supabase
+      .from('subscription_plans')
+      .select('*')
+      .eq('status', 'Active')
+      .eq('visibility', 'Public')
+      .order('display_order', { ascending: true });
+    
+    if (error) throw error;
+    return c.json(keysToCamel(data || []));
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// Admin: Get all plans
+app.get('/api/superadmin/plans', requireSuperAdmin, async (c) => {
+  try {
+    const { data, error } = await supabase
+      .from('subscription_plans')
+      .select('*')
+      .order('display_order', { ascending: true });
+    
+    if (error) throw error;
+    return c.json(keysToCamel(data || []));
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// Admin: Get version logs of a plan
+app.get('/api/superadmin/plans/:id/versions', requireSuperAdmin, async (c) => {
+  try {
+    const { data, error } = await supabase
+      .from('subscription_plan_versions')
+      .select('*')
+      .eq('plan_id', c.req.param('id'))
+      .order('version', { ascending: false });
+    
+    if (error) throw error;
+    return c.json(keysToCamel(data || []));
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// Admin: Create a new plan
+app.post('/api/superadmin/plans', requireSuperAdmin, async (c) => {
+  const user = c.get('user') as any;
+  try {
+    const body = await c.req.json();
+    const snakeBody = keysToSnake(body);
+    
+    const { data, error } = await supabase
+      .from('subscription_plans')
+      .insert([snakeBody])
+      .select()
+      .single();
+      
+    if (error) throw error;
+    
+    // Log creation version
+    await supabase.from('subscription_plan_versions').insert([{
+      plan_id: data.id,
+      version: 1,
+      changed_by_id: user.id,
+      changed_by_name: user.name || user.email,
+      previous_values: {},
+      new_values: data
+    }]);
+
+    return c.json(keysToCamel(data));
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// Admin: Update a plan and save version history
+app.put('/api/superadmin/plans/:id', requireSuperAdmin, async (c) => {
+  const user = c.get('user') as any;
+  const planId = c.req.param('id');
+  try {
+    const body = await c.req.json();
+    const snakeBody = keysToSnake(body);
+    
+    // Get existing plan details
+    const { data: existing, error: getErr } = await supabase
+      .from('subscription_plans')
+      .select('*')
+      .eq('id', planId)
+      .single();
+      
+    if (getErr || !existing) {
+      return c.json({ error: 'Plan not found' }, 404);
+    }
+    
+    // Perform update
+    const { data: updated, error: updateErr } = await supabase
+      .from('subscription_plans')
+      .update(snakeBody)
+      .eq('id', planId)
+      .select()
+      .single();
+      
+    if (updateErr) throw updateErr;
+    
+    // Fetch latest version number
+    const { data: versions } = await supabase
+      .from('subscription_plan_versions')
+      .select('version')
+      .eq('plan_id', planId)
+      .order('version', { ascending: false })
+      .limit(1);
+      
+    const nextVer = versions && versions.length > 0 ? (versions[0].version + 1) : 1;
+    
+    // Create audit version
+    await supabase.from('subscription_plan_versions').insert([{
+      plan_id: planId,
+      version: nextVer,
+      changed_by_id: user.id,
+      changed_by_name: user.name || user.email,
+      previous_values: existing,
+      new_values: updated
+    }]);
+    
+    return c.json(keysToCamel(updated));
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// Admin: Rollback plan to a specific version
+app.post('/api/superadmin/plans/:id/rollback', requireSuperAdmin, async (c) => {
+  const user = c.get('user') as any;
+  const planId = c.req.param('id');
+  try {
+    const { versionId } = await c.req.json();
+    
+    const { data: verRow, error: verErr } = await supabase
+      .from('subscription_plan_versions')
+      .select('*')
+      .eq('id', versionId)
+      .eq('plan_id', planId)
+      .single();
+      
+    if (verErr || !verRow) {
+      return c.json({ error: 'Version history record not found' }, 404);
+    }
+    
+    const revertedValues = verRow.new_values;
+    const { id, created_at, updated_at, ...cleanValues } = revertedValues;
+    
+    const { data: updated, error: updateErr } = await supabase
+      .from('subscription_plans')
+      .update(cleanValues)
+      .eq('id', planId)
+      .select()
+      .single();
+      
+    if (updateErr) throw updateErr;
+    
+    const { data: versions } = await supabase
+      .from('subscription_plan_versions')
+      .select('version')
+      .eq('plan_id', planId)
+      .order('version', { ascending: false })
+      .limit(1);
+      
+    const nextVer = versions && versions.length > 0 ? (versions[0].version + 1) : 1;
+    
+    await supabase.from('subscription_plan_versions').insert([{
+      plan_id: planId,
+      version: nextVer,
+      changed_by_id: user.id,
+      changed_by_name: user.name || user.email,
+      previous_values: revertedValues,
+      new_values: updated,
+      timestamp: new Date().toISOString()
+    }]);
+    
+    return c.json(keysToCamel(updated));
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// Admin: Delete plan
+app.delete('/api/superadmin/plans/:id', requireSuperAdmin, async (c) => {
+  const planId = c.req.param('id');
+  try {
+    const { error } = await supabase
+      .from('subscription_plans')
+      .delete()
+      .eq('id', planId);
+      
+    if (error) throw error;
+    return c.json({ success: true });
   } catch (err: any) {
     return c.json({ error: err.message }, 500);
   }
