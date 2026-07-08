@@ -343,34 +343,8 @@ export function useCandidatesState({
           throw new Error(result.error || 'Failed to call parsing route.');
         }
 
-        const { taskId } = await response.json();
-
-        // Poll task status until complete or failed
-        const extracted = await new Promise<any>((resolve, reject) => {
-          const checkStatus = async () => {
-            try {
-              const { data: { session: s } } = await supabase.auth.getSession();
-              const t = s?.access_token;
-              const statusRes = await fetch(`/api/ai/task-status/${taskId}`, {
-                headers: t ? { Authorization: `Bearer ${t}` } : {}
-              });
-              if (!statusRes.ok) {
-                throw new Error('Failed to fetch task status');
-              }
-              const task = await statusRes.json();
-              if (task.status === 'completed') {
-                resolve(task.result.data);
-              } else if (task.status === 'failed') {
-                reject(new Error(task.error || 'Task parsing failed on server'));
-              } else {
-                setTimeout(checkStatus, 1500);
-              }
-            } catch (e) {
-              reject(e);
-            }
-          };
-          checkStatus();
-        });
+        const result = await response.json();
+        const extracted = result.data;
 
         // Update item status to 'success' with extractedData
         setBulkItems(prev => prev.map(p => p.id === item.id ? { 

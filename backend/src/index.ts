@@ -562,94 +562,82 @@ app.post('/api/ai/parse-resume', requirePermission('candidates.run_ai_parsing'),
       return c.json({ error: `Unsupported file format: ${mimeType || 'unknown'}. Only PDF and TXT are supported.` }, 400);
     }
 
-    const taskId = 'task_parse_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-    backgroundTasks.set(taskId, { status: 'pending' });
+    console.log("--- START PARSE RESUME (SYNCHRONOUS) ---");
+    console.log("File Name:", file.name);
+    console.log("File Type / MIME:", mimeType);
 
-    // Run parsing in background
-    (async () => {
-      try {
-        console.log("--- START PARSE RESUME ---");
-        console.log("File Name:", file.name);
-        console.log("File Type / MIME:", mimeType);
+    let textContent = '';
+    
+    if (isTxt) {
+      textContent = Buffer.from(arrayBuffer).toString('utf-8');
+    } else if (isPdf) {
+      const pdf = await getDocumentProxy(new Uint8Array(arrayBuffer));
+      const result = await extractText(pdf);
+      textContent = typeof result === 'string' ? result : (result as any).text?.join('\n') || '';
+    }
 
-        let textContent = '';
-        
-        if (isTxt) {
-          textContent = Buffer.from(arrayBuffer).toString('utf-8');
-        } else if (isPdf) {
-          const pdf = await getDocumentProxy(new Uint8Array(arrayBuffer));
-          const result = await extractText(pdf);
-          textContent = typeof result === 'string' ? result : (result as any).text?.join('\n') || '';
-        }
+    console.log("Extracted text length:", textContent.length);
 
-        console.log("Extracted text length:", textContent.length);
-
-        const systemInstruction = `You are an expert AI resume parser. Extract the relevant fields from the provided resume as accurately as possible.
+    const systemInstruction = `You are an expert AI resume parser. Extract the relevant fields from the provided resume as accurately as possible.
 Return ONLY a valid JSON object matching the requested schema. Do not include any explanation, markdown code blocks, or extra text. Output ONLY the JSON.`;
 
-        const resumeSchema = {
-          type: 'object',
-          properties: {
-            name: { type: 'string', description: 'Candidate full name' },
-            email: { type: 'string', description: 'Candidate email address' },
-            phone: { type: 'string', description: 'Candidate phone number' },
-            skills: { type: 'array', items: { type: 'string' }, description: 'List of technical skills, frameworks, and programming languages' },
-            experience: { type: 'string', description: 'Years or level of experience, e.g. "5 Years" or "Senior"' },
-            education: { type: 'string', description: 'Highest degree and school name' },
-            currentCompany: { type: 'string', description: 'Most recent company name' },
-            address: { type: 'string', description: 'Location, city and state' },
-            resumeTextSummary: { type: 'string', description: 'Comprehensive plain-text reconstruction or summary of the resume' }
-          },
-          required: ['name', 'email', 'phone', 'skills', 'experience', 'education', 'currentCompany', 'address', 'resumeTextSummary']
-        };
+    const resumeSchema = {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Candidate full name' },
+        email: { type: 'string', description: 'Candidate email address' },
+        phone: { type: 'string', description: 'Candidate phone number' },
+        skills: { type: 'array', items: { type: 'string' }, description: 'List of technical skills, frameworks, and programming languages' },
+        experience: { type: 'string', description: 'Years or level of experience, e.g. "5 Years" or "Senior"' },
+        education: { type: 'string', description: 'Highest degree and school name' },
+        currentCompany: { type: 'string', description: 'Most recent company name' },
+        address: { type: 'string', description: 'Location, city and state' },
+        resumeTextSummary: { type: 'string', description: 'Comprehensive plain-text reconstruction or summary of the resume' }
+      },
+      required: ['name', 'email', 'phone', 'skills', 'experience', 'education', 'currentCompany', 'address', 'resumeTextSummary']
+    };
 
-        let parsedData: any;
+    let parsedData: any;
 
-        if (isPdf && textContent.trim().length === 0) {
-          console.log("PDF text extraction returned empty. Falling back to rendering page 1 to image for multimodal parsing...");
-          
-          const imageBuffer = await renderPageAsImage(new Uint8Array(arrayBufferCopy), 1, {
-            canvasImport: () => import('@napi-rs/canvas'),
-            scale: 1.5
-          });
+    if (isPdf && textContent.trim().length === 0) {
+      console.log("PDF text extraction returned empty. Falling back to rendering page 1 to image for multimodal parsing...");
+      
+      const imageBuffer = await renderPageAsImage(new Uint8Array(arrayBufferCopy), 1, {
+        canvasImport: () => import('@napi-rs/canvas'),
+        scale: 1.5
+      });
 
-          const base64Image = Buffer.from(imageBuffer).toString('base64');
-          const dataUrl = `data:image/png;base64,${base64Image}`;
+      const base64Image = Buffer.from(imageBuffer).toString('base64');
+      const dataUrl = `data:image/png;base64,${base64Image}`;
 
-          const userPrompt = `Please extract candidate profile fields from this resume image.`;
+      const userPrompt = `Please extract candidate profile fields from this resume image.`;
 
-          const multimodalPrompt = [
-            { type: 'text', text: userPrompt },
-            {
-              type: 'image_url',
-              image_url: {
-                url: dataUrl
-              }
-            }
-          ];
-
-          const parsedText = await callLLM(systemInstruction, multimodalPrompt, 0.2, resumeSchema);
-          parsedData = cleanJsonResponse(parsedText);
-        } else {
-          const userContent = `Please extract candidate profile fields from this resume text:\n\n${textContent}`;
-          const parsedText = await callLLM(systemInstruction, userContent, 0.2, resumeSchema);
-          parsedData = cleanJsonResponse(parsedText);
+      const multimodalPrompt = [
+        { type: 'text', text: userPrompt },
+        {
+          type: 'image_url',
+          image_url: {
+            url: dataUrl
+          }
         }
+      ];
 
-        console.log("Final parsed data:", JSON.stringify(parsedData, null, 2));
-        console.log("--- END PARSE RESUME ---");
-        backgroundTasks.set(taskId, { status: 'completed', result: { data: parsedData } });
-      } catch (err: any) {
-        console.error('Error in background parse-resume task:', err.message);
-        backgroundTasks.set(taskId, { status: 'failed', error: err.message });
-      }
-    })();
+      const parsedText = await callLLM(systemInstruction, multimodalPrompt, 0.2, resumeSchema);
+      parsedData = cleanJsonResponse(parsedText);
+    } else {
+      const userContent = `Please extract candidate profile fields from this resume text:\n\n${textContent}`;
+      const parsedText = await callLLM(systemInstruction, userContent, 0.2, resumeSchema);
+      parsedData = cleanJsonResponse(parsedText);
+    }
 
-    return c.json({ taskId, status: 'pending' });
+    console.log("Final parsed data:", JSON.stringify(parsedData, null, 2));
+    console.log("--- END PARSE RESUME (SYNCHRONOUS) ---");
+
+    return c.json({ success: true, data: parsedData });
   } catch (err: any) {
     console.error('Error in parse-resume:', err.message);
     return c.json({
-      error: 'Failed to initiate resume parsing.',
+      error: 'Failed to parse resume.',
       details: err.message
     }, 500);
   }
