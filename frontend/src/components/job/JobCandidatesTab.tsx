@@ -150,10 +150,36 @@ export function JobCandidatesTab({
       {/* Candidates Table */}
       <div className="overflow-x-auto">
         {isLoading ? (
-          <div className="flex items-center justify-center py-12 text-slate-400 gap-2">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            <span className="text-xs">Loading pipeline...</span>
-          </div>
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="bg-slate-50 text-[10px] font-mono uppercase tracking-wider text-slate-400 border-b">
+                <th className="p-3">Candidate</th>
+                <th className="p-3">Pipeline Stage</th>
+                <th className="p-3">Experience</th>
+                <th className="p-3">Added</th>
+                <th className="p-3 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 text-xs animate-pulse">
+              {[...Array(3)].map((_, i) => (
+                <tr key={i}>
+                  <td className="p-3">
+                    <div className="flex items-center gap-3">
+                      <div className="h-8 w-8 rounded bg-slate-100 shrink-0" />
+                      <div className="space-y-1.5 flex-1">
+                        <div className="h-3.5 w-24 bg-slate-200 rounded" />
+                        <div className="h-2.5 w-16 bg-slate-100 rounded" />
+                      </div>
+                    </div>
+                  </td>
+                  <td className="p-3"><div className="h-5 w-20 bg-slate-100 rounded-full" /></td>
+                  <td className="p-3"><div className="h-4 w-12 bg-slate-100 rounded" /></td>
+                  <td className="p-3"><div className="h-4 w-16 bg-slate-100 rounded" /></td>
+                  <td className="p-3 text-right"><div className="inline-block h-6 w-12 bg-slate-100 rounded" /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         ) : jobCandidates.length === 0 ? (
           <div className="text-center py-12 bg-slate-50 border border-dashed border-slate-200 rounded-xl">
             <p className="text-sm font-semibold text-slate-500">No candidates assigned to this pipeline yet.</p>

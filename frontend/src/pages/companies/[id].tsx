@@ -27,8 +27,23 @@ export default function CompanyDetailsPageWrapper() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+      <div className="space-y-6 animate-pulse p-6">
+        <div className="flex justify-between items-center pb-4">
+          <div className="space-y-2">
+            <div className="h-6 w-36 bg-slate-200 rounded" />
+            <div className="h-3.5 w-64 bg-slate-100 rounded" />
+          </div>
+          <div className="h-9 w-24 bg-slate-200 rounded-lg" />
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="space-y-4">
+            <div className="h-64 bg-slate-100 rounded-2xl" />
+          </div>
+          <div className="md:col-span-2 space-y-4">
+            <div className="h-48 bg-slate-100 rounded-2xl" />
+            <div className="h-48 bg-slate-100 rounded-2xl" />
+          </div>
+        </div>
       </div>
     );
   }
