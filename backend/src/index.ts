@@ -557,9 +557,10 @@ app.post('/api/ai/parse-resume', requirePermission('candidates.run_ai_parsing'),
     const mimeType = file.type;
     const isPdf = mimeType === 'application/pdf' || file.name.endsWith('.pdf');
     const isTxt = mimeType === 'text/plain' || file.name.endsWith('.txt');
+    const isImage = mimeType.startsWith('image/') || file.name.endsWith('.png') || file.name.endsWith('.jpg') || file.name.endsWith('.jpeg');
 
-    if (!isPdf && !isTxt) {
-      return c.json({ error: `Unsupported file format: ${mimeType || 'unknown'}. Only PDF and TXT are supported.` }, 400);
+    if (!isPdf && !isTxt && !isImage) {
+      return c.json({ error: `Unsupported file format: ${mimeType || 'unknown'}. Only PDF, TXT, and PNG/JPG images are supported.` }, 400);
     }
 
     console.log("--- START PARSE RESUME (SYNCHRONOUS) ---");
@@ -599,7 +600,26 @@ Return ONLY a valid JSON object matching the requested schema. Do not include an
 
     let parsedData: any;
 
-    if (isPdf && textContent.trim().length === 0) {
+    if (isImage) {
+      console.log("Uploaded file is an image. Calling multimodal parsing directly...");
+      const base64Image = Buffer.from(arrayBufferCopy).toString('base64');
+      const dataUrl = `data:${mimeType || 'image/png'};base64,${base64Image}`;
+
+      const userPrompt = `Please extract candidate profile fields from this resume image.`;
+
+      const multimodalPrompt = [
+        { type: 'text', text: userPrompt },
+        {
+          type: 'image_url',
+          image_url: {
+            url: dataUrl
+          }
+        }
+      ];
+
+      const parsedText = await callLLM(systemInstruction, multimodalPrompt, 0.2, resumeSchema);
+      parsedData = cleanJsonResponse(parsedText);
+    } else if (isPdf && textContent.trim().length === 0) {
       console.log("PDF text extraction returned empty. Falling back to rendering page 1 to image for multimodal parsing...");
       
       const imageBuffer = await renderPageAsImage(new Uint8Array(arrayBufferCopy), 1, {
