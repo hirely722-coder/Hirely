@@ -732,7 +732,30 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const handleUpdateCandidateStage = async (id: string, stage: Candidate['status']) => {
     const candidate = candidates.find(c => c.id === id);
     if (!candidate) return;
-    await handleUpdateCandidate({ ...candidate, status: stage });
+    const originalStage = candidate.status;
+
+    // 1. Optimistic Update (instant UI response)
+    setCandidates(prev => prev.map(c => c.id === id ? { ...c, status: stage } : c));
+
+    // 2. Network Request in background
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/candidates/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...candidate, status: stage })
+      });
+      const data = await res.json();
+      if (!res.ok || (data && data.error)) {
+        throw new Error(data?.error || 'Failed to update candidate stage on server');
+      }
+      // Sync with final database state
+      setCandidates(prev => prev.map(c => c.id === id ? data : c));
+    } catch (err: any) {
+      console.error('Failed to update stage, reverting:', err);
+      // Revert state if failed
+      setCandidates(prev => prev.map(c => c.id === id ? { ...c, status: originalStage } : c));
+      showToast(err.message || 'Failed to update candidate stage', 'error');
+    }
   };
 
   const handleAddTask = async (task: Task) => {

@@ -246,22 +246,33 @@ export default function PipelineView({
     if (id) {
       const cand = activeCandidates.find(c => c.id === id);
       if (cand && (cand as any).jobCandidateId) {
-        try {
-          const { supabase } = await import('../utils/supabase');
-          const { data: { session } } = await supabase.auth.getSession();
-          const token = session?.access_token;
-          await fetch(`/api/job-candidates/${(cand as any).jobCandidateId}`, {
-            method: 'PATCH',
-            headers: {
-              'Content-Type': 'application/json',
-              ...(token ? { Authorization: `Bearer ${token}` } : {}),
-            },
-            body: JSON.stringify({ stage: targetStage }),
-          });
-          setJobCandidates(prev => prev.map(jc => jc.id === (cand as any).jobCandidateId ? { ...jc, stage: targetStage } : jc));
-        } catch (err) {
-          console.error('Failed to update stage on drop:', err);
-        }
+        const jcId = (cand as any).jobCandidateId;
+        const originalStage = cand.status as Exclude<Candidate['status'], 'Pool'>;
+
+        // 1. Optimistic Update (instant UI response)
+        setJobCandidates(prev => prev.map(jc => jc.id === jcId ? { ...jc, stage: targetStage } : jc));
+
+        // 2. Network Request in background
+        (async () => {
+          try {
+            const { supabase } = await import('../utils/supabase');
+            const { data: { session } } = await supabase.auth.getSession();
+            const token = session?.access_token;
+            const res = await fetch(`/api/job-candidates/${jcId}`, {
+              method: 'PATCH',
+              headers: {
+                'Content-Type': 'application/json',
+                ...(token ? { Authorization: `Bearer ${token}` } : {}),
+              },
+              body: JSON.stringify({ stage: targetStage }),
+            });
+            if (!res.ok) throw new Error('Failed to update job candidate stage on server');
+          } catch (err) {
+            console.error('Failed to update stage on drop, reverting:', err);
+            // Revert state if failed
+            setJobCandidates(prev => prev.map(jc => jc.id === jcId ? { ...jc, stage: originalStage } : jc));
+          }
+        })();
       } else {
         onUpdateCandidateStage(id, targetStage);
       }
@@ -277,22 +288,33 @@ export default function PipelineView({
       const targetStage = STAGES[targetIndex];
       const cand = activeCandidates.find(c => c.id === id);
       if (cand && (cand as any).jobCandidateId) {
-        try {
-          const { supabase } = await import('../utils/supabase');
-          const { data: { session } } = await supabase.auth.getSession();
-          const token = session?.access_token;
-          await fetch(`/api/job-candidates/${(cand as any).jobCandidateId}`, {
-            method: 'PATCH',
-            headers: {
-              'Content-Type': 'application/json',
-              ...(token ? { Authorization: `Bearer ${token}` } : {}),
-            },
-            body: JSON.stringify({ stage: targetStage }),
-          });
-          setJobCandidates(prev => prev.map(jc => jc.id === (cand as any).jobCandidateId ? { ...jc, stage: targetStage } : jc));
-        } catch (err) {
-          console.error('Failed to update stage via click:', err);
-        }
+        const jcId = (cand as any).jobCandidateId;
+        const originalStage = cand.status as Exclude<Candidate['status'], 'Pool'>;
+
+        // 1. Optimistic Update (instant UI response)
+        setJobCandidates(prev => prev.map(jc => jc.id === jcId ? { ...jc, stage: targetStage } : jc));
+
+        // 2. Network Request in background
+        (async () => {
+          try {
+            const { supabase } = await import('../utils/supabase');
+            const { data: { session } } = await supabase.auth.getSession();
+            const token = session?.access_token;
+            const res = await fetch(`/api/job-candidates/${jcId}`, {
+              method: 'PATCH',
+              headers: {
+                'Content-Type': 'application/json',
+                ...(token ? { Authorization: `Bearer ${token}` } : {}),
+              },
+              body: JSON.stringify({ stage: targetStage }),
+            });
+            if (!res.ok) throw new Error('Failed to update job candidate stage on server');
+          } catch (err) {
+            console.error('Failed to update stage via click, reverting:', err);
+            // Revert state if failed
+            setJobCandidates(prev => prev.map(jc => jc.id === jcId ? { ...jc, stage: originalStage } : jc));
+          }
+        })();
       } else {
         onUpdateCandidateStage(id, targetStage);
       }
