@@ -3,7 +3,7 @@
   "name": "hirely-frontend",
   "account_id": "b2594876f55ac7902c4a9fb0999dd754",
   "main": ".open-next/worker.js",
-  "compatibility_date": "2024-12-30",
+  "compatibility_date": "2026-07-06",
   "compatibility_flags": [
     "nodejs_compat"
   ],
