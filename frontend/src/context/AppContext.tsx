@@ -268,16 +268,20 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     setToast({ text, type });
   };
 
+  const [authInitialized, setAuthInitialized] = useState(false);
+
   useEffect(() => {
     // Check initial session
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
       setToken(session?.access_token ?? null);
+      setAuthInitialized(true);
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
       setToken(session?.access_token ?? null);
+      setAuthInitialized(true);
     });
 
     return () => subscription.unsubscribe();
@@ -555,9 +559,11 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       setIsSuperAdmin(false);
       setSubscriptionPlan(null);
       setSubscriptionUsage(null);
-      setIsLoading(false);
+      if (authInitialized) {
+        setIsLoading(false);
+      }
     }
-  }, [token]);
+  }, [token, authInitialized]);
 
   const hasAccess = (featureKey: string): boolean => {
     if (isSuperAdmin) return true;

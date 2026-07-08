@@ -181,6 +181,26 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     return <>{children}</>;
   }
 
+  // Render premium animated brand loader while session data is loading on protected routes
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center font-sans">
+        <div className="flex flex-col items-center gap-4 animate-fade-in">
+          {/* Pulsing Brand Logo Icon */}
+          <div className="h-14 w-14 rounded-2xl bg-blue-600 flex items-center justify-center font-black text-white text-xl shadow-lg shadow-blue-100 animate-pulse">
+            H
+          </div>
+          {/* Subtle Loader State Text */}
+          <div className="flex items-center gap-2">
+            <span className="h-1.5 w-1.5 bg-blue-600 rounded-full animate-bounce" style={{ animationDelay: '100ms' }} />
+            <span className="h-1.5 w-1.5 bg-blue-600 rounded-full animate-bounce" style={{ animationDelay: '200ms' }} />
+            <span className="h-1.5 w-1.5 bg-blue-600 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (!user) {
     return null; // Silent redirect/protection
   }
