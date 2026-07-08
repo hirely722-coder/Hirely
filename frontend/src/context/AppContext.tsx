@@ -98,6 +98,12 @@ interface AppContextType {
   currentUserRole: string;
   currentUserPermissions: string[];
   currentUserRestrictedFeatures: string[];
+  isSuperAdmin: boolean;
+  
+  subscriptionPlan: any;
+  subscriptionUsage: any;
+  hasAccess: (featureKey: string) => boolean;
+  hasReachedLimit: (limitKey: string) => boolean;
 
   handleSaveRolePermissions: (roleId: string, permissions: string[]) => Promise<void>;
   handleCreateCustomRole: (name: string, permissions: string[]) => Promise<void>;
@@ -136,6 +142,9 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [currentUserRole, setCurrentUserRole] = useState<string>('');
   const [currentUserPermissions, setCurrentUserPermissions] = useState<string[]>([]);
   const [currentUserRestrictedFeatures, setCurrentUserRestrictedFeatures] = useState<string[]>([]);
+  const [isSuperAdmin, setIsSuperAdmin] = useState<boolean>(false);
+  const [subscriptionPlan, setSubscriptionPlan] = useState<any | null>(null);
+  const [subscriptionUsage, setSubscriptionUsage] = useState<any | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [toast, setToast] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
@@ -303,6 +312,10 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       localStorage.removeItem('hirely_cache_rbac_audit_logs');
       localStorage.removeItem('hirely_cache_current_user_role');
       localStorage.removeItem('hirely_cache_current_user_permissions');
+      localStorage.removeItem('hirely_cache_current_user_restricted_features');
+      localStorage.removeItem('hirely_cache_is_super_admin');
+      localStorage.removeItem('hirely_cache_subscription_plan');
+      localStorage.removeItem('hirely_cache_subscription_usage');
       localStorage.removeItem('hirely_cache_user_id');
 
       showToast('Successfully logged out');
@@ -344,6 +357,8 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         localStorage.removeItem('hirely_cache_current_user_role');
         localStorage.removeItem('hirely_cache_current_user_permissions');
         localStorage.removeItem('hirely_cache_current_user_restricted_features');
+        localStorage.removeItem('hirely_cache_subscription_plan');
+        localStorage.removeItem('hirely_cache_subscription_usage');
         localStorage.removeItem('hirely_cache_user_id');
         
         // Reset states
@@ -388,6 +403,9 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       const cachedRoleName = localStorage.getItem('hirely_cache_current_user_role');
       const cachedPermissions = localStorage.getItem('hirely_cache_current_user_permissions');
       const cachedRestricted = localStorage.getItem('hirely_cache_current_user_restricted_features');
+      const cachedIsSuperAdmin = localStorage.getItem('hirely_cache_is_super_admin');
+      const cachedSubPlan = localStorage.getItem('hirely_cache_subscription_plan');
+      const cachedSubUsage = localStorage.getItem('hirely_cache_subscription_usage');
 
       if (cachedCompanies || cachedJobs || cachedCandidates) {
         if (cachedCompanies) setCompanies(JSON.parse(cachedCompanies));
@@ -406,6 +424,9 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         if (cachedRoleName) setCurrentUserRole(cachedRoleName);
         if (cachedPermissions) setCurrentUserPermissions(JSON.parse(cachedPermissions));
         if (cachedRestricted) setCurrentUserRestrictedFeatures(JSON.parse(cachedRestricted));
+        if (cachedIsSuperAdmin) setIsSuperAdmin(JSON.parse(cachedIsSuperAdmin));
+        if (cachedSubPlan) setSubscriptionPlan(JSON.parse(cachedSubPlan));
+        if (cachedSubUsage) setSubscriptionUsage(JSON.parse(cachedSubUsage));
         
         setIsLoading(false); // SWR: Disable loading state immediately as we have cached data
         console.log('Ingested database records from SWR cache.');
@@ -431,6 +452,11 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       console.log('Fetching unified bootstrap payload from backend...');
       const response = await fetchWithAuth(`${API_URL}/api/bootstrap`);
       if (!response.ok) {
+        if (response.status === 401) {
+          console.warn('Stale session token detected. Signing out...');
+          logout();
+          return;
+        }
         throw new Error(`Bootstrap failed with status ${response.status}`);
       }
       
@@ -452,6 +478,7 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       const roleNameData = payload.currentUser?.role || 'Viewer';
       const permissionsData = Array.isArray(payload.currentUser?.permissions) ? payload.currentUser.permissions : [];
       const restrictedFeaturesData = Array.isArray(payload.currentUser?.restrictedFeatures) ? payload.currentUser.restrictedFeatures : [];
+      const isSuperAdminData = payload.currentUser?.isSuperAdmin || false;
 
       setCompanies(companiesData);
       setJobs(jobsData);
@@ -469,6 +496,7 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       setCurrentUserRole(roleNameData);
       setCurrentUserPermissions(permissionsData);
       setCurrentUserRestrictedFeatures(restrictedFeaturesData);
+      setIsSuperAdmin(isSuperAdminData);
 
       // Save to localStorage cache
       localStorage.setItem('hirely_cache_companies', JSON.stringify(companiesData));
@@ -487,6 +515,14 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       localStorage.setItem('hirely_cache_current_user_role', roleNameData);
       localStorage.setItem('hirely_cache_current_user_permissions', JSON.stringify(permissionsData));
       localStorage.setItem('hirely_cache_current_user_restricted_features', JSON.stringify(restrictedFeaturesData));
+      localStorage.setItem('hirely_cache_is_super_admin', JSON.stringify(isSuperAdminData));
+
+      const subPlanData = payload.subscriptionPlan || null;
+      const subUsageData = payload.subscriptionUsage || null;
+      setSubscriptionPlan(subPlanData);
+      setSubscriptionUsage(subUsageData);
+      localStorage.setItem('hirely_cache_subscription_plan', JSON.stringify(subPlanData));
+      localStorage.setItem('hirely_cache_subscription_usage', JSON.stringify(subUsageData));
 
     } catch (err: any) {
       console.error('Failed to fetch bootstrapping data from Hono backend:', err);
@@ -516,9 +552,43 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       setCurrentUserRole('');
       setCurrentUserPermissions([]);
       setCurrentUserRestrictedFeatures([]);
+      setIsSuperAdmin(false);
+      setSubscriptionPlan(null);
+      setSubscriptionUsage(null);
       setIsLoading(false);
     }
   }, [token]);
+
+  const hasAccess = (featureKey: string): boolean => {
+    if (isSuperAdmin) return true;
+    if (!subscriptionPlan || !subscriptionPlan.features) return true;
+    return !!subscriptionPlan.features[featureKey];
+  };
+
+  const hasReachedLimit = (limitKey: string): boolean => {
+    if (isSuperAdmin) return false;
+    if (!subscriptionPlan || !subscriptionPlan.limits || !subscriptionUsage) return false;
+    
+    const limit = subscriptionPlan.limits[limitKey];
+    if (limit === undefined || limit === 'unlimited') return false;
+    
+    const limitNum = parseInt(limit);
+    if (isNaN(limitNum)) return false;
+    
+    const usageKeyMap: Record<string, string> = {
+      max_team_members: 'teamMembers',
+      max_candidates: 'candidates',
+      max_jobs: 'jobs',
+      max_companies: 'companies',
+      max_ai_requests: 'aiRequests'
+    };
+    
+    const usageKey = usageKeyMap[limitKey];
+    if (!usageKey) return false;
+    
+    const currentUsage = subscriptionUsage[usageKey] || 0;
+    return currentUsage >= limitNum;
+  };
 
   // API Handlers (CRUD operations synced to backend)
   const handleAddCompany = async (company: Company) => {
@@ -1487,6 +1557,11 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       currentUserRole,
       currentUserPermissions,
       currentUserRestrictedFeatures,
+      isSuperAdmin,
+      subscriptionPlan,
+      subscriptionUsage,
+      hasAccess,
+      hasReachedLimit,
       handleSaveRolePermissions,
       handleCreateCustomRole,
       handleDeleteCustomRole,

@@ -2,9 +2,9 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { 
-  LayoutDashboard, Building2, Briefcase, Users, GitMerge, CheckSquare, 
-  Mail, Sparkles, Settings, User, Bell, Search, ChevronRight, Check, X,
-  Palette, Menu, LogOut, Shield
+  LayoutDashboard, Building2, Briefcase, Users, GitMerge, Mail, Sparkles, Settings, 
+  LogOut, Shield, ChevronDown, Bell, Menu, X, CheckSquare, Plus, CreditCard, Activity, Database, MessageSquare, Lock,
+  Search, Palette, Check, User, ChevronRight
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { usePermission } from '../hooks/usePermission';
@@ -21,6 +21,10 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     user,
     logout,
     isLoading,
+    isSuperAdmin,
+    subscriptionPlan,
+    hasAccess,
+    hasReachedLimit,
     companies,
     jobs,
     candidates,
@@ -79,7 +83,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
   // Redirect to login if user session is absent and we aren't on the login page or landing page
   useEffect(() => {
-    if (!isLoading && !user && router.pathname !== '/login' && router.pathname !== '/') {
+    if (!isLoading && !user && router.pathname !== '/login' && router.pathname !== '/admin/login' && router.pathname !== '/') {
       router.replace('/login');
     }
   }, [user, isLoading, router.pathname]);
@@ -87,9 +91,13 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   // Redirect authenticated users from landing page to recruiter dashboard
   useEffect(() => {
     if (!isLoading && user && router.pathname === '/') {
-      router.replace('/dashboard');
+      if (isSuperAdmin) {
+        router.replace('/admin');
+      } else {
+        router.replace('/dashboard');
+      }
     }
-  }, [user, isLoading, router.pathname]);
+  }, [user, isLoading, router.pathname, isSuperAdmin]);
   // Load and apply themes
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -159,8 +167,17 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
   const { can, isLocked } = usePermission();
 
+  // Protect /admin routes
+  useEffect(() => {
+    if (router.pathname === '/admin/login') return;
+    if (!isLoading && user && router.pathname.startsWith('/admin') && !isSuperAdmin) {
+      showToast('Access Denied: Super Admin role required', 'error');
+      router.replace('/dashboard');
+    }
+  }, [user, isLoading, router.pathname, isSuperAdmin]);
+
   // Early Returns placed AFTER all hooks have run
-  if (router.pathname === '/login') {
+  if (router.pathname === '/login' || router.pathname === '/admin/login') {
     return <div className="min-h-screen bg-slate-950 text-white font-sans">{children}</div>;
   }
 
@@ -210,11 +227,43 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     { name: 'Copilot', path: '/copilot', icon: Sparkles },
     { name: 'Settings', path: '/settings', icon: Settings },
   ];
+  
+  const isAdminPath = router.pathname.startsWith('/admin');
+
+  const adminNavItems = [
+    { name: 'Dashboard', path: '/admin', icon: LayoutDashboard },
+    { name: 'Agencies', path: '/admin/agencies', icon: Building2 },
+    { name: 'Users', path: '/admin/users', icon: Users },
+    { name: 'Subscriptions', path: '/admin/subscriptions', icon: Briefcase },
+    { name: 'Payments', path: '/admin/payments', icon: CreditCard },
+    { name: 'AI Analytics', path: '/admin/ai-analytics', icon: Sparkles },
+    { name: 'Email Logs', path: '/admin/email-logs', icon: Mail },
+    { name: 'Storage', path: '/admin/storage', icon: Database },
+    { name: 'Support', path: '/admin/support', icon: MessageSquare },
+    { name: 'Feature Control', path: '/admin/feature-control', icon: Activity },
+    { name: 'Audit Logs', path: '/admin/audit-logs', icon: Shield },
+    { name: 'Settings', path: '/admin/settings', icon: Settings },
+  ];
 
 
 
   const isLockedRoute = () => {
     const path = router.pathname;
+    
+    // Check subscription plan access
+    if (path === '/copilot' && !hasAccess('ai_voice_copilot') && !hasAccess('ai_search')) {
+      return true;
+    }
+    if (path === '/pipeline' && !hasAccess('pipeline')) {
+      return true;
+    }
+    if (path === '/templates' && !hasAccess('email_templates')) {
+      return true;
+    }
+    if (path === '/dashboard' && !hasAccess('dashboard')) {
+      return true;
+    }
+
     if (path === '/dashboard') return isLocked('disable_dashboard');
     if (path === '/pipeline') return isLocked('disable_pipeline');
     if (path === '/templates') return isLocked('disable_templates');
@@ -224,6 +273,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
   const isPermittedRoute = () => {
     const path = router.pathname;
+    if (path.startsWith('/admin')) return isSuperAdmin;
     if (path === '/dashboard') return can('dashboard.view');
     if (path === '/companies') return can('companies.view');
     if (path === '/jobs') return can('jobs.view');
@@ -249,6 +299,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     return true;
   });
 
+  const currentNavItems = isAdminPath ? adminNavItems : filteredNavItems;
+
   return (
     <div className={`flex h-screen bg-slate-50 font-sans overflow-hidden theme-${theme}`}>
       
@@ -273,7 +325,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             </div>
             <div>
               <h1 className="text-sm font-bold text-slate-900 font-display tracking-tight leading-none">Hirely</h1>
-              <p className="text-[10px] text-slate-400 font-medium mt-0.5 tracking-wider font-mono">ATS PORTAL</p>
+              <p className="text-[10px] text-slate-400 font-medium mt-0.5 tracking-wider font-mono">
+                {isAdminPath ? 'SUPER ADMIN' : 'ATS PORTAL'}
+              </p>
             </div>
           </div>
           <button 
@@ -286,28 +340,66 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
         {/* Scrollable Navigation Items */}
         <div className="flex-1 overflow-y-auto p-4 space-y-6">
+          {isSuperAdmin && !isAdminPath && (
+            <a
+              href={typeof window !== 'undefined' ? `${window.location.protocol}//${window.location.hostname}:7475` : 'http://localhost:7475'}
+              className="flex items-center gap-3 px-4 py-2.5 rounded-xl text-xs font-bold text-indigo-600 hover:text-indigo-700 bg-indigo-50 hover:bg-indigo-100/70 border border-indigo-100/50 mb-4 shadow-2xs"
+            >
+              <Shield className="h-4 w-4 text-indigo-600 shrink-0" />
+              <span>Super Admin Panel</span>
+            </a>
+          )}
+          {isAdminPath && (
+            <Link
+              href="/dashboard"
+              className="flex items-center gap-3 px-4 py-2.5 rounded-xl text-xs font-bold text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100/70 border border-blue-100/50 mb-4 shadow-2xs"
+            >
+              <LayoutDashboard className="h-4 w-4 text-blue-600 shrink-0" />
+              <span>Recruiter Portal</span>
+            </Link>
+          )}
           <nav className="space-y-1">
-            {filteredNavItems.map((item) => {
+            {currentNavItems.map((item) => {
               const Icon = item.icon;
               const isActive = router.pathname === item.path;
+              
+              // Determine if navigation link is locked under current subscription plan
+              const featureKeyMap: Record<string, string> = {
+                'Pipeline': 'pipeline',
+                'Templates': 'email_templates',
+                'Copilot': 'ai_search',
+                'Dashboard': 'dashboard'
+              };
+              const fKey = featureKeyMap[item.name];
+              const isItemLocked = !isAdminPath && fKey ? !hasAccess(fKey) : false;
+
               return (
                 <Link
                   key={item.name}
-                  href={item.path}
+                  href={isItemLocked ? '#' : item.path}
+                  onClick={(e) => {
+                    if (isItemLocked) {
+                      e.preventDefault();
+                      showToast('Upgrade Required: This feature is not included in your current subscription plan.', 'error');
+                    }
+                  }}
                   className={`w-full flex items-center justify-between px-4 py-2.5 rounded-xl text-xs font-semibold transition-all ${
                     isActive 
                       ? 'bg-blue-50 text-blue-700 border border-blue-100/50 shadow-2xs' 
                       : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50/70 border border-transparent'
-                  }`}
+                  } ${isItemLocked ? 'opacity-60 cursor-not-allowed' : ''}`}
                 >
                   <div className="flex items-center gap-3">
                     <Icon className={`h-4 w-4 shrink-0 ${isActive ? 'text-blue-600' : 'text-slate-400'}`} />
-                    <span className="font-sans">{item.name}</span>
+                    <span className="font-sans flex items-center gap-2">
+                      {item.name}
+                      {isItemLocked && <Lock className="h-3 w-3 text-slate-400 shrink-0 inline" />}
+                    </span>
                   </div>
                   
-                  {item.badge !== undefined && item.badge > 0 && (
+                  {!isItemLocked && (item as any).badge !== undefined && (item as any).badge > 0 && (
                     <span className="font-mono text-[9px] font-bold px-1.5 py-0.25 rounded bg-blue-100 text-blue-800 border border-blue-200/40">
-                      {item.badge}
+                      {(item as any).badge}
                     </span>
                   )}
                 </Link>
@@ -359,13 +451,13 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
               <input
                 type="text"
-                placeholder="Search candidates..."
+                placeholder={isAdminPath ? "Search admin panel..." : "Search candidates..."}
                 value={globalSearch}
                 onChange={(e) => setGlobalSearch(e.target.value)}
                 className="w-full pl-9 pr-4 py-2 text-xs border border-slate-100 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 bg-slate-50/50"
               />
             
-              {globalSearch.trim() !== '' && (
+              {!isAdminPath && globalSearch.trim() !== '' && (
                 <div className="absolute top-11 left-0 w-full bg-white border border-slate-200 rounded-xl shadow-lg z-50 overflow-hidden divide-y divide-slate-100 text-xs">
                   {candidates
                     .filter(c => c.name.toLowerCase().includes(globalSearch.toLowerCase()))
