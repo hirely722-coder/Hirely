@@ -19,7 +19,7 @@ export function Pricing() {
   const [billingCycle, setBillingCycle] = useState<"monthly" | "yearly">("monthly");
 
   useEffect(() => {
-    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:3001";
+    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_API_URL || process.env.NEXT_PUBLIC_BACKEND_URL || "https://hirely-backend.hirly-app.workers.dev";
     fetch(`${backendUrl}/api/public/plans`)
       .then((res) => res.json())
       .then((data) => {
