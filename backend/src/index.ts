@@ -2408,7 +2408,7 @@ app.get('/api/job-candidates', requirePermission('pipeline.view'), async (c) => 
   const user = c.get('user') as any;
   try {
     const repo = new WorkspaceRepository('job_candidates', user);
-    const data = await repo.getAll();
+    const data = await repo.getCustom('*, candidate:candidates(*)');
     return c.json(data);
   } catch (err: any) {
     return c.json({ error: err.message }, 500);

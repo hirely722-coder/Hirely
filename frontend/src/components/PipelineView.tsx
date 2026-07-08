@@ -135,7 +135,8 @@ export default function PipelineView({
         const { supabase } = await import('../utils/supabase');
         const { data: { session } } = await supabase.auth.getSession();
         const token = session?.access_token;
-        const res = await fetch(`/api/job-candidates/${selectedJobId}`, {
+        const url = selectedJobId === 'all' ? '/api/job-candidates' : `/api/job-candidates/${selectedJobId}`;
+        const res = await fetch(url, {
           headers: token ? { Authorization: `Bearer ${token}` } : {},
         });
         if (res.ok) {
@@ -158,10 +159,6 @@ export default function PipelineView({
 
   // Map candidates based on whether we are looking at all candidates or a specific job
   const activeCandidates = useMemo(() => {
-    if (selectedJobId === 'all') {
-      // Show candidates who are NOT in the 'Pool' status
-      return candidates.filter(c => c.status !== 'Pool');
-    }
     return jobCandidates.map(jc => {
       if (!jc.candidate) return null;
       return {
@@ -170,7 +167,7 @@ export default function PipelineView({
         jobCandidateId: jc.id // attach junction id
       };
     }).filter(Boolean) as (Candidate & { jobCandidateId?: string })[];
-  }, [selectedJobId, candidates, jobCandidates]);
+  }, [jobCandidates]);
 
   // Calculate customized match score for candidate against the currently filtered job
   const getDynamicMatchScore = (candidate: Candidate) => {
