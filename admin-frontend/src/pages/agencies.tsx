@@ -18,16 +18,21 @@ export default function AdminAgencies() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [currentAgency, setCurrentAgency] = useState<any>(null);
   const [agencyName, setAgencyName] = useState('');
-  const [subscriptionPlan, setSubscriptionPlan] = useState('Free');
+  const [subscriptionPlan, setSubscriptionPlan] = useState('starter');
   const [subscriptionStatus, setSubscriptionStatus] = useState('active');
+  const [plans, setPlans] = useState<any[]>([]);
 
   const loadAgencies = async () => {
     setLoading(true);
     try {
-      const data = await fetchAdminApi('/api/superadmin/agencies');
-      setAgencies(data);
+      const [agenciesData, plansData] = await Promise.all([
+        fetchAdminApi('/api/superadmin/agencies'),
+        fetchAdminApi('/api/superadmin/plans')
+      ]);
+      setAgencies(agenciesData);
+      setPlans(plansData);
     } catch (err: any) {
-      showToast(err.message || 'Failed to load agencies', 'error');
+      showToast(err.message || 'Failed to load data', 'error');
     } finally {
       setLoading(false);
     }
@@ -136,7 +141,7 @@ export default function AdminAgencies() {
   const openCreateModal = () => {
     setCurrentAgency(null);
     setAgencyName('');
-    setSubscriptionPlan('Free');
+    setSubscriptionPlan(plans[0]?.slug || 'starter');
     setSubscriptionStatus('active');
     setIsModalOpen(true);
   };
@@ -194,10 +199,9 @@ export default function AdminAgencies() {
               className="pl-3 pr-8 py-2 border border-slate-200 rounded-xl text-xs bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 text-slate-700 font-medium"
             >
               <option value="All">All Plans</option>
-              <option value="Free">Free</option>
-              <option value="Standard">Standard</option>
-              <option value="AI Pro">AI Pro</option>
-              <option value="Enterprise">Enterprise</option>
+              {plans.map(p => (
+                <option key={p.slug} value={p.slug}>{p.name}</option>
+              ))}
             </select>
           </div>
 
@@ -257,17 +261,20 @@ export default function AdminAgencies() {
                       </div>
                     </td>
                     <td className="px-6 py-4">
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold ${
-                        agency.subscriptionPlan === 'Enterprise' 
-                          ? 'bg-purple-50 text-purple-700 border border-purple-100'
-                          : agency.subscriptionPlan === 'AI Pro'
-                            ? 'bg-blue-50 text-blue-700 border border-blue-100'
-                            : agency.subscriptionPlan === 'Standard'
-                              ? 'bg-teal-50 text-teal-700 border border-teal-100'
-                              : 'bg-slate-50 text-slate-700 border border-slate-100'
-                      }`}>
-                        {agency.subscriptionPlan}
-                      </span>
+                      {(() => {
+                        const matchingPlan = plans.find(p => p.slug === agency.subscriptionPlan);
+                        const displayName = matchingPlan ? matchingPlan.name : agency.subscriptionPlan;
+                        const planColor = matchingPlan?.planColor || '#64748B';
+                        return (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold border" style={{
+                            backgroundColor: planColor + '10',
+                            borderColor: planColor + '25',
+                            color: planColor
+                          }}>
+                            {displayName}
+                          </span>
+                        );
+                      })()}
                     </td>
                     <td className="px-6 py-4 font-mono font-semibold">{agency.usersCount}</td>
                     <td className="px-6 py-4 font-mono font-semibold">{agency.candidatesCount}</td>
@@ -371,10 +378,9 @@ export default function AdminAgencies() {
                   onChange={(e) => setSubscriptionPlan(e.target.value)}
                   className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-2.5 text-xs text-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:bg-white"
                 >
-                  <option value="Free">Free Plan</option>
-                  <option value="Standard">Standard ($99/mo)</option>
-                  <option value="AI Pro">AI Pro ($199/mo)</option>
-                  <option value="Enterprise">Enterprise ($499/mo)</option>
+                  {plans.map(p => (
+                    <option key={p.slug} value={p.slug}>{p.name} {p.monthlyPrice > 0 ? `(₹${p.monthlyPrice}/mo)` : '(Free)'}</option>
+                  ))}
                 </select>
               </div>
 

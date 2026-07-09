@@ -408,7 +408,12 @@ const requirePermission = (permission: string) => {
 
 // Authentication middleware for Hono
 app.use('/api/*', async (c, next) => {
-  if (c.req.path === '/api/health' || c.req.path === '/api/superadmin/login' || c.req.path === '/api/public/plans') {
+  if (
+    c.req.path === '/api/health' || 
+    c.req.path === '/api/superadmin/login' || 
+    c.req.path === '/api/public/plans' ||
+    c.req.path.startsWith('/api/public/invitations/')
+  ) {
     return await next();
   }
 
@@ -430,7 +435,20 @@ app.use('/api/*', async (c, next) => {
     .eq('id', user.id)
     .single();
 
+  const isOnboardingRoute = 
+    (c.req.path === '/api/workspaces' && c.req.method === 'POST') ||
+    c.req.path === '/api/invitations/accept';
+
   if (profileError || !profile || !profile.workspace_id) {
+    if (isOnboardingRoute) {
+      c.set('user', {
+        ...user,
+        name: profile?.name || user.email?.split('@')[0],
+        email: profile?.email || user.email,
+        is_super_admin: profile?.is_super_admin || false
+      });
+      return await next();
+    }
     return c.json({ error: 'Unauthorized: User workspace profile not found' }, 403);
   }
 
@@ -2165,8 +2183,30 @@ app.get('/api/team_members', requirePermission('team.view'), async (c) => {
   const user = c.get('user') as any;
   try {
     const repo = new WorkspaceRepository('profiles', user);
-    const data = await repo.getAll();
-    return c.json(data);
+    const profiles = await repo.getAll();
+
+    // Fetch pending invitations
+    const { data: invitations, error: inviteError } = await supabase
+      .from('invitations')
+      .select('*')
+      .eq('workspace_id', user.workspace_id)
+      .eq('status', 'pending');
+
+    if (inviteError) throw inviteError;
+
+    // Map invitations to profiles format
+    const mappedInvitations = (invitations || []).map((invite: any) => ({
+      id: `invite_${invite.id}`,
+      name: invite.email.split('@')[0] || 'Pending Invite',
+      email: invite.email,
+      role: invite.role,
+      status: 'Pending',
+      lastLogin: 'Never',
+      department: invite.department || 'HR Recruitment',
+      message: `Invitation Token: ${invite.token}`
+    }));
+
+    return c.json([...profiles, ...mappedInvitations]);
   } catch (err: any) {
     return c.json({ error: err.message }, 500);
   }
@@ -2181,12 +2221,14 @@ app.post('/api/team_members', requirePermission('team.add'), async (c) => {
       if (rawLimit !== undefined && rawLimit !== 'unlimited') {
         const limitNum = parseInt(rawLimit);
         if (!isNaN(limitNum)) {
-          const { count, error: countErr } = await supabase
-            .from('profiles')
-            .select('*', { count: 'exact', head: true })
-            .eq('workspace_id', user.workspace_id);
+          // Count active profiles + pending invites
+          const [profilesCount, invitesCount] = await Promise.all([
+            supabase.from('profiles').select('id', { count: 'exact', head: true }).eq('workspace_id', user.workspace_id),
+            supabase.from('invitations').select('id', { count: 'exact', head: true }).eq('workspace_id', user.workspace_id).eq('status', 'pending')
+          ]);
             
-          if (!countErr && count !== null && count >= limitNum) {
+          const totalMembers = (profilesCount.count || 0) + (invitesCount.count || 0);
+          if (totalMembers >= limitNum) {
             return c.json({ 
               error: `Limit Reached: Your current plan only allows up to ${limitNum} team members. Please upgrade your plan.`,
               limitReached: true,
@@ -2200,38 +2242,52 @@ app.post('/api/team_members', requirePermission('team.add'), async (c) => {
     const body = await c.req.json();
     const snakeBody = keysToSnake(body);
     
-    const { data, error } = await supabase.rpc('create_invited_user', {
-      p_email: snakeBody.email,
-      p_name: snakeBody.name,
-      p_role: snakeBody.role || 'Recruiter',
-      p_workspace_id: user.workspace_id,
-      p_department: snakeBody.department,
-      p_password: snakeBody.password || 'password123'
-    });
-    
-    if (error) throw error;
-    
-    const { data: newProfile, error: fetchError } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', data)
+    // Generate secure token
+    const token = crypto.randomUUID();
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + 7); // 7 days expiration
+
+    const { data: invitation, error } = await supabase
+      .from('invitations')
+      .insert([{
+        email: snakeBody.email,
+        workspace_id: user.workspace_id,
+        role: snakeBody.role || 'Recruiter',
+        department: snakeBody.department || 'HR Recruitment',
+        invited_by: user.id,
+        token: token,
+        expires_at: expiresAt.toISOString(),
+        status: 'pending'
+      }])
+      .select()
       .single();
       
-    if (fetchError) throw fetchError;
+    if (error) throw error;
 
     // Log audit log
     await supabase.from('rbac_audit_logs').insert({
       workspace_id: user.workspace_id,
-      target_user_id: newProfile.id,
-      target_user_name: newProfile.name,
-      action: 'Member Invited',
+      target_user_id: null,
+      target_user_name: snakeBody.email,
+      action: 'Member Invited (Token)',
       previous_role: null,
-      new_role: newProfile.role,
+      new_role: snakeBody.role,
       changed_by_id: user.id,
       changed_by_name: user.name || user.email
     });
 
-    return c.json(keysToCamel(newProfile));
+    const mappedInvite = {
+      id: `invite_${invitation.id}`,
+      name: invitation.email.split('@')[0],
+      email: invitation.email,
+      role: invitation.role,
+      status: 'Pending',
+      lastLogin: 'Never',
+      department: invitation.department,
+      message: `Invitation Token: ${invitation.token}`
+    };
+
+    return c.json(mappedInvite);
   } catch (err: any) {
     return c.json({ error: err.message }, 500);
   }
@@ -2350,6 +2406,29 @@ app.delete('/api/team_members/:id', requirePermission('team.remove'), async (c) 
   const user = c.get('user') as any;
   const id = c.req.param('id');
   try {
+    if (id.startsWith('invite_')) {
+      const inviteId = id.replace('invite_', '');
+      const { data: targetInvite, error: inviteGetError } = await supabase
+        .from('invitations')
+        .select('*')
+        .eq('id', inviteId)
+        .eq('workspace_id', user.workspace_id)
+        .single();
+
+      if (inviteGetError || !targetInvite) {
+        return c.json({ error: 'Invitation not found or access denied.' }, 404);
+      }
+
+      const { error: inviteDeleteError } = await supabase
+        .from('invitations')
+        .delete()
+        .eq('id', inviteId);
+
+      if (inviteDeleteError) throw inviteDeleteError;
+
+      return c.json({ success: true });
+    }
+
     const repo = new WorkspaceRepository('profiles', user);
     
     // Verify target profile is in user's workspace and check its role
@@ -2895,6 +2974,161 @@ app.get('/api/superadmin/dashboard-stats', requireSuperAdmin, async (c) => {
       totalRevenue: totalRevenue,
       openTickets: ticketsCount.count || 0,
       health: platformHealth
+    });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// -------------------------------------------------------------
+// Onboarding & Tenancy Setup Endpoints
+// -------------------------------------------------------------
+
+// Create new workspace
+app.post('/api/workspaces', async (c) => {
+  const user = c.get('user') as any;
+  try {
+    const body = await c.req.json();
+    const { name, slug } = body;
+
+    const workspaceSlug = slug || name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+    const renewalDate = new Date();
+    renewalDate.setMonth(renewalDate.getMonth() + 1);
+
+    // Insert workspace
+    const { data: workspace, error: wsError } = await supabase
+      .from('workspaces')
+      .insert([{
+        name,
+        slug: workspaceSlug,
+        owner_id: user.id,
+        subscription_plan: 'starter',
+        billing_cycle: 'monthly',
+        renewal_date: renewalDate.toISOString(),
+        subscription_status: 'active'
+      }])
+      .select()
+      .single();
+
+    if (wsError) throw wsError;
+
+    // Update profile
+    const { error: profileError } = await supabase
+      .from('profiles')
+      .update({
+        workspace_id: workspace.id,
+        role: 'Owner',
+        status: 'Active'
+      })
+      .eq('id', user.id);
+
+    if (profileError) throw profileError;
+
+    return c.json({
+      success: true,
+      workspace: keysToCamel(workspace)
+    });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// Verify invitation token
+app.get('/api/public/invitations/:token', async (c) => {
+  const token = c.req.param('token');
+  try {
+    const { data: invitation, error } = await supabase
+      .from('invitations')
+      .select('*')
+      .eq('token', token)
+      .single();
+
+    if (error || !invitation) {
+      return c.json({ error: 'Invalid invitation link' }, 400);
+    }
+
+    if (invitation.status !== 'pending') {
+      return c.json({ error: 'Invitation has already been accepted' }, 400);
+    }
+
+    if (new Date(invitation.expires_at) < new Date()) {
+      return c.json({ error: 'Invitation link has expired' }, 400);
+    }
+
+    const { data: workspace, error: wsError } = await supabase
+      .from('workspaces')
+      .select('name')
+      .eq('id', invitation.workspace_id)
+      .single();
+
+    if (wsError) throw wsError;
+
+    return c.json({
+      isValid: true,
+      invitation: {
+        email: invitation.email,
+        role: invitation.role,
+        department: invitation.department,
+        workspaceName: workspace.name
+      }
+    });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// Accept invitation
+app.post('/api/invitations/accept', async (c) => {
+  const user = c.get('user') as any;
+  try {
+    const body = await c.req.json();
+    const { token } = body;
+
+    const { data: invitation, error } = await supabase
+      .from('invitations')
+      .select('*')
+      .eq('token', token)
+      .single();
+
+    if (error || !invitation) {
+      return c.json({ error: 'Invalid invitation link' }, 400);
+    }
+
+    if (invitation.status !== 'pending') {
+      return c.json({ error: 'Invitation has already been accepted' }, 400);
+    }
+
+    if (new Date(invitation.expires_at) < new Date()) {
+      return c.json({ error: 'Invitation link has expired' }, 400);
+    }
+
+    // Enforce email match
+    if (invitation.email.toLowerCase() !== user.email.toLowerCase()) {
+      return c.json({ error: `This invitation is for ${invitation.email}, but you are logged in as ${user.email}.` }, 400);
+    }
+
+    // Update profile
+    const { error: profileError } = await supabase
+      .from('profiles')
+      .update({
+        workspace_id: invitation.workspace_id,
+        role: invitation.role,
+        department: invitation.department,
+        status: 'Active'
+      })
+      .eq('id', user.id);
+
+    if (profileError) throw profileError;
+
+    // Update invitation status
+    await supabase
+      .from('invitations')
+      .update({ status: 'accepted' })
+      .eq('id', invitation.id);
+
+    return c.json({
+      success: true,
+      workspaceId: invitation.workspace_id
     });
   } catch (err: any) {
     return c.json({ error: err.message }, 500);

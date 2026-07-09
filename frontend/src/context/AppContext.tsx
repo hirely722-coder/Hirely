@@ -117,6 +117,8 @@ interface AppContextType {
 
   user: any | null;
   logout: () => Promise<void>;
+  needsOnboarding: boolean;
+  setNeedsOnboarding: React.Dispatch<React.SetStateAction<boolean>>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -269,6 +271,7 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   const [authInitialized, setAuthInitialized] = useState(false);
+  const [needsOnboarding, setNeedsOnboarding] = useState(false);
 
   useEffect(() => {
     // Check initial session
@@ -461,8 +464,16 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           logout();
           return;
         }
+        if (response.status === 403) {
+          console.warn('User has no workspace profile (403). Requiring onboarding...');
+          setNeedsOnboarding(true);
+          setIsLoading(false);
+          return;
+        }
         throw new Error(`Bootstrap failed with status ${response.status}`);
       }
+      
+      setNeedsOnboarding(false);
       
       const payload = await response.json();
 
@@ -1603,7 +1614,9 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       logout,
       notifications,
       setNotifications,
-      addNotification
+      addNotification,
+      needsOnboarding,
+      setNeedsOnboarding
     }}>
       {children}
     </AppContext.Provider>

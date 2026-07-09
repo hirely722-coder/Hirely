@@ -58,13 +58,18 @@ export default function Login() {
         return;
       }
 
+      const { plan, cycle } = router.query;
+      const signUpMetadata: Record<string, any> = {
+        full_name: fullName
+      };
+      if (plan) signUpMetadata.plan = plan;
+      if (cycle) signUpMetadata.cycle = cycle;
+
       const { error: signUpErr } = await supabase.auth.signUp({
         email,
         password,
         options: {
-          data: {
-            full_name: fullName
-          }
+          data: signUpMetadata
         }
       });
 
@@ -72,7 +77,8 @@ export default function Login() {
         setError(signUpErr.message);
       } else {
         showToast('Account created successfully! Welcome to Hirely.');
-        router.replace('/');
+        const { inviteToken } = router.query;
+        router.replace(inviteToken ? `/accept-invite?token=${inviteToken}` : '/');
       }
     } else {
       const { error: signInErr } = await supabase.auth.signInWithPassword({
@@ -84,7 +90,8 @@ export default function Login() {
         setError(signInErr.message);
       } else {
         showToast('Signed in successfully! Welcome back.');
-        router.replace('/');
+        const { inviteToken } = router.query;
+        router.replace(inviteToken ? `/accept-invite?token=${inviteToken}` : '/');
       }
     }
 
@@ -94,10 +101,15 @@ export default function Login() {
   const handleGoogleLogin = async () => {
     setError(null);
     try {
+      const { inviteToken } = router.query;
+      const redirectUrl = inviteToken 
+        ? `${window.location.origin}/accept-invite?token=${inviteToken}`
+        : window.location.origin;
+
       const { error: googleErr } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: window.location.origin
+          redirectTo: redirectUrl
         }
       });
       if (googleErr) setError(googleErr.message);
