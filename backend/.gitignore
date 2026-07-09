@@ -12,4 +12,4 @@ yarn-error.log*
 .pnpm-debug.log*
 
 # local developer guide
-/CLAUDE.md
+/hirly.md
