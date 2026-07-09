@@ -43,3 +43,6 @@ next-env.d.ts
 # opennext
 /.open-next/
 /.wrangler/
+
+# local developer guide
+/CLAUDE.md
