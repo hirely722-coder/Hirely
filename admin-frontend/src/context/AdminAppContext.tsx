@@ -37,7 +37,11 @@ export const AdminAppContextProvider: React.FC<{ children: React.ReactNode }> = 
         setUser(session.user);
         
         // Query backend bootstrap to get trusted isSuperAdmin flag
-        const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'https://hirely-backend.hirly-app.workers.dev'}/api/bootstrap`, {
+        const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL;
+        if (!backendUrl) {
+          throw new Error('Missing NEXT_PUBLIC_BACKEND_URL environment variable.');
+        }
+        const response = await fetch(`${backendUrl}/api/bootstrap`, {
           headers: {
             'Authorization': `Bearer ${session.access_token}`
           }
@@ -68,7 +72,11 @@ export const AdminAppContextProvider: React.FC<{ children: React.ReactNode }> = 
       if (session?.user && session.access_token) {
         setUser(session.user);
         try {
-          const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'https://hirely-backend.hirly-app.workers.dev'}/api/bootstrap`, {
+          const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL;
+          if (!backendUrl) {
+            throw new Error('Missing NEXT_PUBLIC_BACKEND_URL environment variable.');
+          }
+          const response = await fetch(`${backendUrl}/api/bootstrap`, {
             headers: {
               'Authorization': `Bearer ${session.access_token}`
             }

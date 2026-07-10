@@ -457,6 +457,20 @@ How can I speed up your recruiting workflow today?`
 
   return (
     <div className="flex flex-col h-[calc(100vh-104px)] md:h-[calc(100vh-136px)] space-y-3 md:space-y-4 animate-fade-in" id="copilot-view">
+      <style dangerouslySetInnerHTML={{ __html: `
+        @keyframes textShimmer {
+          0% { background-position: 200% 0; }
+          100% { background-position: -200% 0; }
+        }
+        .shimmer-text {
+          background: linear-gradient(90deg, #64748b 0%, #3161f5 50%, #64748b 100%);
+          background-size: 200% 100%;
+          -webkit-background-clip: text;
+          -webkit-text-fill-color: transparent;
+          animation: textShimmer 2.2s linear infinite;
+          display: inline-block;
+        }
+      ` }} />
       
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 shrink-0">
@@ -720,9 +734,8 @@ How can I speed up your recruiting workflow today?`
                   <Bot className="h-4 w-4" />
                 </div>
                 <div className="p-3.5 md:p-4 rounded-xl text-xs border bg-white text-slate-800 border-slate-100 shadow-xs space-y-2 min-w-[200px]">
-                  <div className="flex items-center gap-2 text-slate-500 font-medium">
-                    <Loader2 className="h-3.5 w-3.5 animate-spin text-blue-600 shrink-0" />
-                    <span>Thinking...</span>
+                  <div className="flex items-center text-slate-500 font-medium">
+                    <span className="shimmer-text font-bold text-xs tracking-wider">Thinking...</span>
                   </div>
 
                   {currentStep && (

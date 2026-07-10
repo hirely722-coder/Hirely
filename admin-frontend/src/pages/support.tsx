@@ -245,8 +245,11 @@ export default function AdminSupport() {
                     rows={4}
                     placeholder="Type your reply message here..."
                     value={replyMessage}
-                    onChange={(e) => setReplyMessage(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:bg-white resize-none leading-relaxed"
+                    onChange={(e) => {
+                      console.log('TYPING:', e.target.value);
+                      setReplyMessage(e.target.value);
+                    }}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:bg-white resize-none leading-relaxed relative z-10"
                   />
                 </div>
 

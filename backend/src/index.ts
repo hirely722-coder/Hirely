@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
-import { stream } from 'hono/streaming';
+import { stream, streamText } from 'hono/streaming';
 import { EventEmitter } from 'events';
 import { supabase } from './db';
 import { createClient } from '@supabase/supabase-js';
@@ -8,7 +8,8 @@ import { keysToCamel, keysToSnake } from './utils';
 import { WorkspaceRepository } from './repository';
 import dotenv from 'dotenv';
 import { getDocumentProxy, extractText, renderPageAsImage } from 'unpdf';
-
+import crypto from 'crypto';
+const Razorpay = (require as any)('razorpay');
 
 dotenv.config();
 
@@ -57,6 +58,46 @@ function cleanJsonResponse(rawText: string): any {
     }
     throw err;
   }
+}
+
+async function sanitizeJobData(data: any, user: any) {
+  if (!data) return data;
+  
+  // Only sanitize if companyName or companyId are explicitly passed
+  if ('companyId' in data || 'companyName' in data) {
+    let matchedCompanyId = data.companyId || null;
+    let matchedCompanyName = 'None';
+
+    if (matchedCompanyId) {
+      const { data: comp } = await supabase
+        .from('companies')
+        .select('id, name')
+        .eq('id', matchedCompanyId)
+        .eq('workspace_id', user.workspace_id)
+        .maybeSingle();
+      if (comp) {
+        matchedCompanyName = comp.name;
+      } else {
+        matchedCompanyId = null;
+      }
+    } else if (data.companyName && data.companyName !== 'None') {
+      const { data: comps } = await supabase
+        .from('companies')
+        .select('id, name')
+        .eq('workspace_id', user.workspace_id);
+      
+      const comp = comps?.find(c => c.name.toLowerCase() === data.companyName.toLowerCase());
+      if (comp) {
+        matchedCompanyId = comp.id;
+        matchedCompanyName = comp.name;
+      }
+    }
+
+    data.companyId = matchedCompanyId;
+    data.companyName = matchedCompanyName;
+  }
+
+  return data;
 }
 
 // Unified call to Eden AI
@@ -160,6 +201,137 @@ async function callLLM(
 
   console.log('Successfully received response from Eden AI API.');
   return rawContent;
+}
+
+async function* callLLMStream(
+  systemInstruction: string,
+  promptContent: any,
+  temperature: number = 0.7,
+  responseSchema?: any
+): AsyncGenerator<string, void, unknown> {
+  const edenKey = process.env.EDENAI_API_KEY;
+  if (!edenKey) {
+    throw new Error('EDENAI_API_KEY is missing or invalid.');
+  }
+
+  let finalPrompt = promptContent;
+  if (responseSchema) {
+    const jsonInstruction = `\n\nIMPORTANT: You must return your response as a raw JSON string matching the following JSON schema:\n${JSON.stringify(responseSchema)}\nDo NOT wrap the output in markdown code blocks (e.g. \`\`\`json). The output must be pure raw JSON starting with '{' and ending with '}'.`;
+    
+    if (typeof promptContent === 'string') {
+      finalPrompt = promptContent + jsonInstruction;
+    } else if (Array.isArray(promptContent)) {
+      const parts = promptContent.map(part => {
+        if (part && typeof part === 'object') {
+          return { ...part };
+        }
+        return part;
+      });
+      const textPart = parts.find(p => p.type === 'text' || (p && typeof p === 'object' && 'text' in p));
+      if (textPart) {
+        textPart.text = (textPart.text || '') + jsonInstruction;
+      } else {
+        parts.unshift({ type: 'text', text: jsonInstruction });
+      }
+      finalPrompt = parts;
+    } else if (promptContent && typeof promptContent === 'object') {
+      finalPrompt = JSON.stringify(promptContent) + jsonInstruction;
+    }
+  }
+
+  let formattedMessages: any[] = [];
+  if (typeof finalPrompt === 'string') {
+    formattedMessages = [
+      { role: 'system', content: systemInstruction },
+      { role: 'user', content: finalPrompt }
+    ];
+  } else if (Array.isArray(finalPrompt)) {
+    const isMultimodalParts = finalPrompt.every(part => part && !part.role && (part.type === 'text' || part.type === 'image_url'));
+    if (isMultimodalParts) {
+      formattedMessages = [
+        { role: 'system', content: systemInstruction },
+        { role: 'user', content: finalPrompt }
+      ];
+    } else {
+      formattedMessages = [
+        { role: 'system', content: systemInstruction },
+        ...finalPrompt.map(msg => {
+          if (msg.role) {
+            return { role: msg.role === 'assistant' ? 'assistant' : 'user', content: msg.content };
+          }
+          if (msg.type === 'text') {
+            return { role: 'user', content: msg.text };
+          }
+          return { role: 'user', content: JSON.stringify(msg) };
+        })
+      ];
+    }
+  } else {
+    formattedMessages = [
+      { role: 'system', content: systemInstruction },
+      { role: 'user', content: JSON.stringify(finalPrompt) }
+    ];
+  }
+
+  const response = await fetch('https://api.edenai.run/v3/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${edenKey}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      model: 'google/gemma-4-31b-it',
+      messages: formattedMessages,
+      temperature,
+      stream: true
+    })
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Eden AI API returned status ${response.status}: ${errorText}`);
+  }
+
+  const reader = response.body?.getReader();
+  if (!reader) return;
+
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) {
+        break;
+      }
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+
+        if (trimmed.startsWith('data:')) {
+          const dataStr = trimmed.slice(5).trim();
+          if (dataStr === '[DONE]') continue;
+
+          try {
+            const parsed = JSON.parse(dataStr);
+            const content = parsed.choices?.[0]?.delta?.content;
+            if (content) {
+              yield content;
+            }
+          } catch (e) {
+            // Ignore incomplete chunks
+          }
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
 }
 
 async function callEdenAIWithTools(
@@ -369,9 +541,18 @@ const requirePermission = (permission: string) => {
       return await next();
     }
 
-    const planFeatures = user.plan_features || {};
-    if (!isFeatureSupportedByPlan(permission, planFeatures)) {
-      return c.json({ error: 'Upgrade Required: This feature is not included in your current subscription plan.' }, 403);
+    const isTrialActive = user.is_trial && user.subscription_status === 'active' && user.trial_end_date && new Date(user.trial_end_date) >= new Date();
+    const isSubscriptionActive = !user.is_trial && user.subscription_status === 'active';
+
+    if (!isTrialActive && !isSubscriptionActive) {
+      return c.json({ error: 'Upgrade Required: Your trial or subscription has expired.', expired: true }, 403);
+    }
+
+    if (!isTrialActive) {
+      const planFeatures = user.plan_features || {};
+      if (!isFeatureSupportedByPlan(permission, planFeatures)) {
+        return c.json({ error: 'Upgrade Required: This feature is not included in your current subscription plan.' }, 403);
+      }
     }
 
     const roleLower = (user.role || '').toLowerCase();
@@ -382,12 +563,10 @@ const requirePermission = (permission: string) => {
       return c.json({ error: 'Feature Disabled by Administrator' }, 403);
     }
 
-    // 2. Check global workspace locks
+    // 2. Check global workspace locks (Applies to all users)
     const lockedFeatures = user.locked_features || [];
-    if (roleLower !== 'owner' && roleLower !== 'admin') {
-      if (isFeatureLocked(permission, lockedFeatures)) {
-        return c.json({ error: 'Feature Disabled by Administrator' }, 403);
-      }
+    if (isFeatureLocked(permission, lockedFeatures)) {
+      return c.json({ error: 'Feature Disabled by Administrator' }, 403);
     }
 
     // 3. Check effective permissions
@@ -412,6 +591,7 @@ app.use('/api/*', async (c, next) => {
     c.req.path === '/api/health' || 
     c.req.path === '/api/superadmin/login' || 
     c.req.path === '/api/public/plans' ||
+    c.req.path === '/api/payments/webhook' ||
     c.req.path.startsWith('/api/public/invitations/')
   ) {
     return await next();
@@ -455,9 +635,22 @@ app.use('/api/*', async (c, next) => {
   // Fetch workspace locked features and subscription data
   const { data: workspace } = await supabase
     .from('workspaces')
-    .select('locked_features, subscription_plan, subscription_status, billing_cycle, renewal_date, trial_expiry, usage_statistics')
+    .select('locked_features, subscription_plan, subscription_status, billing_cycle, renewal_date, trial_expiry, usage_statistics, subscription_type, trial_start_date, trial_end_date, subscription_start_date, subscription_end_date, plan_id, is_trial')
     .eq('id', profile.workspace_id)
     .single();
+
+  let wsStatus = workspace?.subscription_status || 'active';
+  const isTrial = workspace?.is_trial || false;
+  const trialEndDate = workspace?.trial_end_date;
+
+  // Lazy Trial Expiry check
+  if (isTrial && wsStatus === 'active' && trialEndDate && new Date(trialEndDate) < new Date()) {
+    wsStatus = 'expired';
+    await supabase
+      .from('workspaces')
+      .update({ subscription_status: 'expired' })
+      .eq('id', profile.workspace_id);
+  }
 
   // Retrieve features and limits for the active plan
   let activePlan = null;
@@ -502,13 +695,22 @@ app.use('/api/*', async (c, next) => {
     
     // Bind subscription parameters to request context
     subscription_plan: planSlug,
-    subscription_status: workspace?.subscription_status || 'active',
+    subscription_status: wsStatus,
     billing_cycle: workspace?.billing_cycle || 'monthly',
     renewal_date: workspace?.renewal_date,
     trial_expiry: workspace?.trial_expiry,
     usage_statistics: workspace?.usage_statistics || {},
     plan_features: activePlan?.features || {},
-    plan_limits: activePlan?.limits || {}
+    plan_limits: activePlan?.limits || {},
+    
+    // New Trial and Subscription properties
+    subscription_type: workspace?.subscription_type || 'paid',
+    trial_start_date: workspace?.trial_start_date,
+    trial_end_date: trialEndDate,
+    subscription_start_date: workspace?.subscription_start_date,
+    subscription_end_date: workspace?.subscription_end_date,
+    plan_id: workspace?.plan_id,
+    is_trial: isTrial
   });
   await next();
 });
@@ -519,6 +721,9 @@ app.use('/api/*', async (c, next) => {
 app.use('/api/ai/*', async (c, next) => {
   const user = c.get('user') as any;
   if (!user || user.is_super_admin) return await next();
+
+  const isTrialActive = user.is_trial && user.subscription_status === 'active' && user.trial_end_date && new Date(user.trial_end_date) >= new Date();
+  if (isTrialActive) return await next();
   
   if (user.plan_limits) {
     const rawLimit = user.plan_limits.max_ai_requests;
@@ -872,6 +1077,8 @@ Always perform candidate search or lookup first before answering! Only request c
 DATABASE WRITE ACTIONS:
 If the user asks you to write, add, create, delete, or update any information (e.g., adding, modifying, or deleting a candidate, job, company, task, or email template), you MUST append a JSON action block at the very end of your response, wrapped in <action>...</action> tags.
 Do NOT output this action block to the user in conversational text—the system will intercept and execute it. 
+
+- IMPORTANT: When creating or updating a job, if the user does not specify a partner company, or if the company name they specify does not exist in the active companies list (retrieved from 'list_companies'), you MUST set "companyId" to null and "companyName" to "None". NEVER invent or make up a fake company name.
 Here are the supported commands and their payload schemas:
 
 1. Company Commands:
@@ -922,8 +1129,8 @@ Here are the supported commands and their payload schemas:
   "command": "create_job",
   "data": {
     "title": "Job Title",
-    "companyId": "Optional Company ID",
-    "companyName": "Company Name",
+    "companyId": "Optional Company ID (omit or set to null if not associated with a specific partner company in list_companies)",
+    "companyName": "Company Name (set to \"None\" if not associated with a specific partner company)",
     "experience": "Experience Range (e.g. 3-5 Years)",
     "location": "Job Location",
     "status": "Open | Closed",
@@ -1250,8 +1457,9 @@ Only generate ONE action block at the very end of your message. Ensure the JSON 
         const repo = new WorkspaceRepository('candidates', user);
         await repo.create(data);
       } else if (command === 'create_job') {
+        const sanitizedData = await sanitizeJobData(data, user);
         const repo = new WorkspaceRepository('jobs', user);
-        await repo.create(data);
+        await repo.create(sanitizedData);
       } else if (command === 'create_task') {
         const repo = new WorkspaceRepository('tasks', user);
         await repo.create(data);
@@ -1265,8 +1473,9 @@ Only generate ONE action block at the very end of your message. Ensure the JSON 
         const repo = new WorkspaceRepository('candidates', user);
         await repo.update(id, data);
       } else if (command === 'update_job') {
+        const sanitizedData = await sanitizeJobData(data, user);
         const repo = new WorkspaceRepository('jobs', user);
-        await repo.update(id, data);
+        await repo.update(id, sanitizedData);
       } else if (command === 'update_task') {
         const repo = new WorkspaceRepository('tasks', user);
         await repo.update(id, data);
@@ -1513,8 +1722,9 @@ app.post('/api/ai/copilot/approve', requirePermission('copilot.open'), async (c)
 
       if (error) throw error;
     } else if (command === 'create_job') {
+      const sanitizedData = await sanitizeJobData(data, user);
       const repo = new WorkspaceRepository('jobs', user);
-      await repo.create(data);
+      await repo.create(sanitizedData);
     } else if (command === 'create_task') {
       const repo = new WorkspaceRepository('tasks', user);
       await repo.create(data);
@@ -1528,8 +1738,9 @@ app.post('/api/ai/copilot/approve', requirePermission('copilot.open'), async (c)
       const repo = new WorkspaceRepository('candidates', user);
       await repo.update(id, data);
     } else if (command === 'update_job') {
+      const sanitizedData = await sanitizeJobData(data, user);
       const repo = new WorkspaceRepository('jobs', user);
-      await repo.update(id, data);
+      await repo.update(id, sanitizedData);
     } else if (command === 'update_task') {
       const repo = new WorkspaceRepository('tasks', user);
       await repo.update(id, data);
@@ -1578,6 +1789,7 @@ app.post('/api/ai/job-tool', requirePermission('jobs.ai_matching'), async (c) =>
     }
 
     const user = c.get('user') as any;
+    const recruiterName = user.name || (user.email ? user.email.split('@')[0] : 'Sarah');
 
     // Verify job belongs to user's workspace
     const { data: dbJob, error: jobError } = await supabase
@@ -1649,13 +1861,30 @@ Please recommend the top matching candidates. For each match, provide a Match Pe
         break;
       case 'questions':
         title = `AI Generated Interview Questions: ${job.title}`;
-        systemInstruction = "You are a lead technical interviewer. Generate tailored, highly practical interview questions.";
+        systemInstruction = "You are a lead technical interviewer. Generate tailored, highly practical interview questions. You must wrap the final structured JSON object containing the interview questions inside a single `<artifact type=\"questions\">...</artifact>` block.";
         prompt = `Generate 3 specialized, highly practical technical and behavioral interview questions for a candidate applying to the following position:
 Job Title: ${job.title}
 Company: ${job.companyName || 'None'}
 Description: ${job.description}
 Required Skills: ${JSON.stringify(job.requiredSkills || [])}.
-Focus on realistic engineering problems they might face at this company. Present in clean markdown.`;
+
+Focus on realistic engineering problems they might face at this company. 
+You must wrap your final output JSON string matching the expected questions schema inside a single '<artifact type="questions">' start tag and '</artifact>' end tag.
+Example output format:
+Here are the tailored interview questions:
+<artifact type="questions">
+{
+  "intro": "Brief introduction...",
+  "questions": [
+    {
+      "question": "Question text...",
+      "category": "Technical",
+      "targetSkill": "React",
+      "idealAnswer": "Key points..."
+    }
+  ]
+}
+</artifact>`;
         break;
       case 'summarize':
         title = 'AI Job Posting Summary';
@@ -1679,22 +1908,22 @@ Suggest 4 high-value supplementary skills, libraries, or tools (not explicitly l
         break;
       case 'difficulty':
         title = 'Hiring Market Difficulty Predictor';
-        systemInstruction = "You are a talent acquisition strategist. Predict hiring market difficulty.";
+        systemInstruction = "You are a talent acquisition strategist. Predict hiring market difficulty in India. Ensure any references to compensation or salaries are in Indian Rupees (INR, ₹) or LPA (Lakhs Per Annum).";
         prompt = `Predict the hiring difficulty (Easy, Medium, High) for the following job in the current tech market:
 Job Title: ${job.title}
 Required Skills: ${JSON.stringify(job.requiredSkills || [])}
 Salary: ${job.salary}
-Location: ${job.location}.
-Provide a clear difficulty rating and 2-3 sentences explaining the market factors and recommendation strategies.`;
+Location: ${job.location || 'India'}.
+Provide a clear difficulty rating and 2-3 sentences explaining the market factors and recommendation strategies tailored for the Indian hiring ecosystem.`;
         break;
       case 'salary_recomm':
         title = 'AI Salary Benchmark Advice';
-        systemInstruction = "You are a compensation analyst. Provide salary recommendations.";
+        systemInstruction = "You are an Indian compensation analyst. You must provide all salary benchmarks, percentiles, and recommendations in Indian Rupees (INR, ₹) and LPA (Lakhs Per Annum), tailored for the Indian tech market. Do not use US Dollars ($) or US salary standards.";
         prompt = `Provide market salary benchmarking advice for the following role:
 Job Title: ${job.title}
-Location: ${job.location}
+Location: ${job.location || 'India'}
 Salary: ${job.salary}.
-List the estimated 25th, 50th (median), and 90th percentile market rates, and give a recommendation on whether the current salary is competitive.`;
+List the estimated 25th, 50th (median), and 90th percentile market rates in INR (LPA), and give a recommendation on whether the current salary is competitive in the Indian tech market.`;
         break;
       case 'alt_skills':
         title = 'Alternative / Equivalent Skills Suggested';
@@ -1703,8 +1932,8 @@ List the estimated 25th, 50th (median), and 90th percentile market rates, and gi
         break;
       case 'candidate_email':
         title = 'AI Candidate Outreach Email Generator';
-        systemInstruction = "You are an outreach copywriter. Draft a compelling cold email.";
-        prompt = `Write a professional, compelling candidate outreach email sequence template from a recruiter (Sarah Jenkins) inviting a candidate to apply for this job:
+        systemInstruction = "You are an outreach copywriter. Draft a compelling cold email. Ensure any salary/compensation figures are in Indian Rupees (INR, ₹) or LPA.";
+        prompt = `Write a professional, compelling candidate outreach email sequence template from a recruiter (${recruiterName}) inviting a candidate to apply for this job:
 Job Title: ${job.title}
 Company: ${job.companyName || 'None'}
 Required Skills: ${JSON.stringify(job.requiredSkills || [])}
@@ -1713,8 +1942,8 @@ Use [Candidate Name] as placeholder. Include subject line and body in markdown.`
         break;
       case 'whatsapp_msg':
         title = 'AI WhatsApp Ping Generator';
-        systemInstruction = "You are a conversational recruiter. Write a short SMS/WhatsApp outreach message.";
-        prompt = `Write a short, engaging, and casual WhatsApp/SMS outreach message (max 150 words) from a recruiter (Sarah) to a candidate about this role:
+        systemInstruction = "You are a conversational recruiter. Write a short SMS/WhatsApp outreach message. Ensure any salary references are in Indian Rupees (INR, ₹) or LPA.";
+        prompt = `Write a short, engaging, and casual WhatsApp/SMS outreach message (max 150 words) from a recruiter (${recruiterName}) to a candidate about this role:
 Job Title: ${job.title}
 Company: ${job.companyName || 'None'}
 Salary: ${job.salary}.
@@ -1724,38 +1953,26 @@ Keep it concise and friendly, using [Candidate Name] as a placeholder.`;
         return c.json({ error: 'Invalid toolKey' }, 400);
     }
 
-    const taskId = 'task_jobtool_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-    backgroundTasks.set(taskId, { status: 'pending' });
+    c.header('Content-Type', 'text/event-stream');
+    c.header('Cache-Control', 'no-cache');
+    c.header('Connection', 'keep-alive');
 
-    // Run AI call in background
-    (async () => {
+    return streamText(c, async (stream) => {
       try {
-        const isStructured = toolKey === 'questions';
-        const responseText = await callLLM(
-          systemInstruction, 
-          prompt, 
-          0.7, 
-          isStructured ? questionsSchema : undefined
+        const aiStream = callLLMStream(
+          systemInstruction,
+          prompt,
+          0.7
         );
-        if (isStructured) {
-          const parsedData = cleanJsonResponse(responseText);
-          backgroundTasks.set(taskId, { 
-            status: 'completed', 
-            result: { title, structured: true, data: parsedData } 
-          });
-        } else {
-          backgroundTasks.set(taskId, { 
-            status: 'completed', 
-            result: { title, text: responseText } 
-          });
+
+        for await (const chunk of aiStream) {
+          await stream.write(chunk);
         }
       } catch (err: any) {
-        console.error('Error in background job-tool task:', err.message);
-        backgroundTasks.set(taskId, { status: 'failed', error: err.message });
+        console.error('Error in streaming job-tool:', err.message);
+        await stream.write(`\n[Error: ${err.message}]`);
       }
-    })();
-
-    return c.json({ taskId, status: 'pending' });
+    });
   } catch (err: any) {
     console.error('Error in job-tool route:', err.message);
     return c.json({ error: 'Failed to initiate AI tool.', details: err.message }, 500);
@@ -1809,8 +2026,9 @@ const createCRUD = (tableName: string) => {
         companies: 'max_companies'
       };
       
+      const isTrialActive = user.is_trial && user.subscription_status === 'active' && user.trial_end_date && new Date(user.trial_end_date) >= new Date();
       const limitKey = limitKeyMap[tableName];
-      if (limitKey && user.plan_limits) {
+      if (!isTrialActive && limitKey && user.plan_limits) {
         const rawLimit = user.plan_limits[limitKey];
         if (rawLimit !== undefined && rawLimit !== 'unlimited') {
           const limitNum = parseInt(rawLimit);
@@ -2131,6 +2349,36 @@ app.get('/api/bootstrap', async (c) => {
       .eq('workspace_id', user.workspace_id)
       .gte('timestamp', sinceDate.toISOString());
 
+    // Trigger trial reminder email if trial is active and close to expiration
+    if (user.is_trial && user.subscription_status === 'active' && user.trial_end_date) {
+      const trialEnd = new Date(user.trial_end_date);
+      const diffMs = trialEnd.getTime() - Date.now();
+      const daysRemaining = Math.max(0, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
+      
+      if (daysRemaining <= 3) {
+        const triggerLabel = daysRemaining === 0 ? 'expires today' : `${daysRemaining} days remaining`;
+        const subject = `Hirely Free Trial - ${triggerLabel}`;
+        
+        const { data: existingLog } = await supabase
+          .from('superadmin_email_logs')
+          .select('id')
+          .eq('agency_id', user.workspace_id)
+          .eq('subject', subject)
+          .limit(1);
+
+        if (!existingLog || existingLog.length === 0) {
+          await supabase.from('superadmin_email_logs').insert([{
+            agency_id: user.workspace_id,
+            sender: 'billing@hirely.ai',
+            recipient: user.email,
+            subject: subject,
+            body: `Hi ${user.name || 'there'},\n\nYour 7-day free trial of Hirely ${triggerLabel}. Upgrade to a paid plan today to ensure continuous access to all your candidate database, pipelines, and AI copilot.\n\nBest,\nThe Hirely Team`,
+            status: 'Delivered'
+          }]);
+        }
+      }
+    }
+
     const subscriptionPlan = {
       slug: user.subscription_plan,
       status: user.subscription_status,
@@ -2138,7 +2386,16 @@ app.get('/api/bootstrap', async (c) => {
       renewalDate: user.renewal_date,
       trialExpiry: user.trial_expiry,
       features: user.plan_features,
-      limits: user.plan_limits
+      limits: user.plan_limits,
+      
+      // New trial tracking fields
+      isTrial: user.is_trial,
+      subscriptionType: user.subscription_type,
+      trialStartDate: user.trial_start_date,
+      trialEndDate: user.trial_end_date,
+      subscriptionStartDate: user.subscription_start_date,
+      subscriptionEndDate: user.subscription_end_date,
+      planId: user.plan_id
     };
 
     const subscriptionUsage = {
@@ -2216,7 +2473,8 @@ app.post('/api/team_members', requirePermission('team.add'), async (c) => {
   const user = c.get('user') as any;
   try {
     // Enforce seat limits
-    if (user.plan_limits) {
+    const isTrialActive = user.is_trial && user.subscription_status === 'active' && user.trial_end_date && new Date(user.trial_end_date) >= new Date();
+    if (!isTrialActive && user.plan_limits) {
       const rawLimit = user.plan_limits.max_team_members;
       if (rawLimit !== undefined && rawLimit !== 'unlimited') {
         const limitNum = parseInt(rawLimit);
@@ -2874,6 +3132,305 @@ app.get('/api/rbac-audit-logs', requirePermission('team.view'), async (c) => {
   }
 });
 
+// 7. Upgrade workspace subscription plan
+app.post('/api/workspace/upgrade', async (c) => {
+  const user = c.get('user') as any;
+  try {
+    const body = await c.req.json();
+    const { planSlug } = body;
+
+    const { data: plan, error: planError } = await supabase
+      .from('subscription_plans')
+      .select('*')
+      .eq('slug', planSlug)
+      .single();
+
+    if (planError || !plan) {
+      return c.json({ error: 'Invalid subscription plan selected.' }, 400);
+    }
+
+    const renewalDate = new Date();
+    renewalDate.setMonth(renewalDate.getMonth() + 1);
+
+    const { data, error } = await supabase
+      .from('workspaces')
+      .update({
+        subscription_plan: planSlug,
+        subscription_type: 'paid',
+        is_trial: false,
+        subscription_status: 'active',
+        subscription_start_date: new Date().toISOString(),
+        renewal_date: renewalDate.toISOString(),
+        plan_id: plan.id,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', user.workspace_id)
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    return c.json({ success: true, workspace: keysToCamel(data) });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// Razorpay Payments integration
+app.post('/api/payments/create-order', async (c) => {
+  const user = c.get('user') as any;
+  try {
+    const body = await c.req.json();
+    const { planSlug } = body;
+
+    const keyId = process.env.RAZORPAY_KEY_ID;
+    const keySecret = process.env.RAZORPAY_KEY_SECRET;
+
+    if (!keyId || !keySecret) {
+      return c.json({ error: 'Razorpay keys are not configured.' }, 500);
+    }
+
+    const { data: plan, error: planError } = await supabase
+      .from('subscription_plans')
+      .select('*')
+      .eq('slug', planSlug)
+      .single();
+
+    if (planError || !plan) {
+      return c.json({ error: 'Invalid subscription plan selected.' }, 400);
+    }
+
+    // Resolve price from the subscription plan
+    // Since plans are in INR, we convert Rupees to Paise (multiply by 100)
+    // The price in the table might be e.g. 2000 or 5000
+    const amountInRupees = parseFloat(plan.monthly_price || '0');
+    const amountInPaise = Math.round(amountInRupees * 100);
+
+    if (amountInPaise < 100) {
+      return c.json({ error: 'Minimum amount must be at least ₹1 (100 paise).' }, 400);
+    }
+
+    const razorpay = new Razorpay({
+      key_id: keyId,
+      key_secret: keySecret,
+    });
+
+    const orderOptions = {
+      amount: amountInPaise,
+      currency: 'INR',
+      receipt: `rcpt_${user.workspace_id.slice(0, 8)}_${Date.now().toString().slice(-8)}`,
+      notes: {
+        workspace_id: user.workspace_id,
+        plan_slug: planSlug
+      }
+    };
+
+    const order = await razorpay.orders.create(orderOptions);
+
+    return c.json({
+      orderId: order.id,
+      amount: order.amount,
+      currency: order.currency
+    });
+  } catch (err: any) {
+    return c.json({ error: err.message || 'Failed to create order' }, 500);
+  }
+});
+
+app.post('/api/payments/verify-payment', async (c) => {
+  const user = c.get('user') as any;
+  try {
+    const body = await c.req.json();
+    const { razorpayPaymentId, razorpayOrderId, razorpaySignature, planSlug } = body;
+
+    if (!razorpayPaymentId || !razorpayOrderId || !razorpaySignature || !planSlug) {
+      return c.json({ error: 'Missing required payment verification fields.' }, 400);
+    }
+
+    const keySecret = process.env.RAZORPAY_KEY_SECRET;
+    if (!keySecret) {
+      return c.json({ error: 'Razorpay configuration error.' }, 500);
+    }
+
+    // Verify signature using crypto
+    const hmac = crypto.createHmac('sha256', keySecret);
+    hmac.update(razorpayOrderId + '|' + razorpayPaymentId);
+    const generatedSignature = hmac.digest('hex');
+
+    if (generatedSignature !== razorpaySignature) {
+      return c.json({ error: 'Payment signature mismatch. Transaction not verified.' }, 400);
+    }
+
+    // Update workspace plan in Database
+    const { data: plan, error: planError } = await supabase
+      .from('subscription_plans')
+      .select('*')
+      .eq('slug', planSlug)
+      .single();
+
+    if (planError || !plan) {
+      return c.json({ error: 'Invalid subscription plan selected.' }, 400);
+    }
+
+    const renewalDate = new Date();
+    renewalDate.setMonth(renewalDate.getMonth() + 1);
+
+    const { data: updatedWorkspace, error: updateError } = await supabase
+      .from('workspaces')
+      .update({
+        subscription_plan: planSlug,
+        subscription_type: 'paid',
+        is_trial: false,
+        subscription_status: 'active',
+        subscription_start_date: new Date().toISOString(),
+        renewal_date: renewalDate.toISOString(),
+        plan_id: plan.id,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', user.workspace_id)
+      .select()
+      .single();
+
+    if (updateError) throw updateError;
+
+    return c.json({ success: true, workspace: keysToCamel(updatedWorkspace) });
+  } catch (err: any) {
+    return c.json({ error: err.message || 'Payment verification failed' }, 500);
+  }
+});
+
+app.post('/api/payments/webhook', async (c) => {
+  try {
+    const signature = c.req.header('x-razorpay-signature');
+    const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET;
+
+    if (!webhookSecret) {
+      console.error('Webhook Secret is not configured in environment variables');
+      return c.json({ error: 'Webhook configuration error' }, 500);
+    }
+
+    if (!signature) {
+      return c.json({ error: 'Missing signature header' }, 400);
+    }
+
+    const rawBody = await c.req.text();
+
+    const expectedSignature = crypto
+      .createHmac('sha256', webhookSecret)
+      .update(rawBody)
+      .digest('hex');
+
+    const isSignatureValid = crypto.timingSafeEqual(
+      Buffer.from(signature, 'utf8'),
+      Buffer.from(expectedSignature, 'utf8')
+    );
+
+    if (!isSignatureValid) {
+      console.warn('Webhook signature verification failed');
+      return c.json({ error: 'Signature mismatch' }, 400);
+    }
+
+    const body = JSON.parse(rawBody);
+    const event = body.event;
+    
+    console.log(`Received Razorpay webhook event: ${event}`);
+
+    if (event === 'order.paid' || event === 'payment.captured') {
+      const entity = event === 'order.paid' ? body.payload.order.entity : body.payload.payment.entity;
+      const notes = entity.notes || {};
+      const workspaceId = notes.workspace_id;
+      const planSlug = notes.plan_slug;
+
+      if (!workspaceId || !planSlug) {
+        console.warn('Missing workspace_id or plan_slug in order/payment notes');
+        return c.json({ status: 'ok', warning: 'No action taken due to missing metadata notes' }, 200);
+      }
+
+      const { data: plan, error: planError } = await supabase
+        .from('subscription_plans')
+        .select('*')
+        .eq('slug', planSlug)
+        .single();
+
+      if (planError || !plan) {
+        console.error(`Invalid plan slug received in webhook notes: ${planSlug}`);
+        return c.json({ status: 'ok', error: 'Invalid plan' }, 200);
+      }
+
+      const renewalDate = new Date();
+      renewalDate.setMonth(renewalDate.getMonth() + 1);
+
+      const { error: updateError } = await supabase
+        .from('workspaces')
+        .update({
+          subscription_plan: planSlug,
+          subscription_type: 'paid',
+          is_trial: false,
+          subscription_status: 'active',
+          subscription_start_date: new Date().toISOString(),
+          renewal_date: renewalDate.toISOString(),
+          plan_id: plan.id,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', workspaceId);
+
+      if (updateError) {
+        console.error(`Database error updating workspace ${workspaceId} via webhook:`, updateError);
+        throw updateError;
+      }
+
+      console.log(`Workspace ${workspaceId} successfully upgraded via Webhook to ${planSlug}`);
+    }
+
+    return c.json({ status: 'ok' }, 200);
+  } catch (err: any) {
+    console.error('Error handling webhook:', err);
+    return c.json({ error: err.message || 'Webhook internal error' }, 500);
+  }
+});
+
+// 8. Support tickets for recruiter portal users
+app.get('/api/support', async (c) => {
+  const user = c.get('user') as any;
+  try {
+    const { data, error } = await supabase
+      .from('superadmin_tickets')
+      .select('*')
+      .eq('agency_id', user.workspace_id)
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+    return c.json(keysToCamel(data || []));
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+app.post('/api/support', async (c) => {
+  const user = c.get('user') as any;
+  try {
+    const body = await c.req.json();
+    const { subject, description, priority } = body;
+
+    const { data, error } = await supabase
+      .from('superadmin_tickets')
+      .insert([{
+        agency_id: user.workspace_id,
+        subject,
+        description,
+        priority: priority || 'Medium',
+        status: 'Open'
+      }])
+      .select()
+      .single();
+
+    if (error) throw error;
+    return c.json(keysToCamel(data));
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
 // -------------------------------------------------------------
 // Super Admin Middleware and Endpoints
 // -------------------------------------------------------------
@@ -2992,8 +3549,22 @@ app.post('/api/workspaces', async (c) => {
     const { name, slug } = body;
 
     const workspaceSlug = slug || name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+    const { data: settings } = await supabase
+      .from('superadmin_settings')
+      .select('trial_enabled, trial_duration_days')
+      .eq('id', 'global')
+      .single();
+
+    const trialEnabled = settings?.trial_enabled !== false;
+    const trialDays = settings?.trial_duration_days || 7;
+    const startTrial = body.isTrial && trialEnabled;
+
     const renewalDate = new Date();
-    renewalDate.setMonth(renewalDate.getMonth() + 1);
+    if (startTrial) {
+      renewalDate.setDate(renewalDate.getDate() + trialDays);
+    } else {
+      renewalDate.setMonth(renewalDate.getMonth() + 1);
+    }
 
     // Insert workspace
     const { data: workspace, error: wsError } = await supabase
@@ -3002,10 +3573,16 @@ app.post('/api/workspaces', async (c) => {
         name,
         slug: workspaceSlug,
         owner_id: user.id,
-        subscription_plan: 'starter',
+        subscription_plan: startTrial ? 'growth' : 'starter',
         billing_cycle: 'monthly',
         renewal_date: renewalDate.toISOString(),
-        subscription_status: 'active'
+        subscription_status: 'active',
+        is_trial: startTrial,
+        subscription_type: startTrial ? 'trial' : 'paid',
+        trial_start_date: startTrial ? new Date().toISOString() : null,
+        trial_end_date: startTrial ? renewalDate.toISOString() : null,
+        plan_id: startTrial ? 'fa26210e-a9a9-40c2-a4d5-d4eaf4c246fa' : null,
+        subscription_start_date: startTrial ? null : new Date().toISOString()
       }])
       .select()
       .single();
@@ -3172,16 +3749,23 @@ app.get('/api/superadmin/agencies', requireSuperAdmin, async (c) => {
 app.post('/api/superadmin/agencies', requireSuperAdmin, async (c) => {
   try {
     const body = await c.req.json();
-    const { name, slug, subscriptionPlan } = body;
+    const insertObj = keysToSnake({
+      name: body.name,
+      slug: body.slug || body.name.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+      subscriptionPlan: body.subscriptionPlan || 'Free',
+      subscriptionStatus: body.subscriptionStatus || 'active',
+      isTrial: body.isTrial || false,
+      subscriptionType: body.subscriptionType || 'paid',
+      trialStartDate: body.trialStartDate || null,
+      trialEndDate: body.trialEndDate || null,
+      subscriptionStartDate: body.subscriptionStartDate || null,
+      subscriptionEndDate: body.subscriptionEndDate || null,
+      planId: body.planId || null
+    });
     
     const { data, error } = await supabase
       .from('workspaces')
-      .insert([{
-        name,
-        slug: slug || name.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
-        subscription_plan: subscriptionPlan || 'Free',
-        subscription_status: 'active'
-      }])
+      .insert([insertObj])
       .select()
       .single();
 
@@ -3196,13 +3780,19 @@ app.put('/api/superadmin/agencies/:id', requireSuperAdmin, async (c) => {
   try {
     const id = c.req.param('id');
     const body = await c.req.json();
-    const { name, subscriptionPlan, subscriptionStatus, lockedFeatures } = body;
-
+    
+    const allowedKeys = [
+      'name', 'subscriptionPlan', 'subscriptionStatus', 'lockedFeatures',
+      'isTrial', 'subscriptionType', 'trialStartDate', 'trialEndDate',
+      'subscriptionStartDate', 'subscriptionEndDate', 'planId'
+    ];
+    
     const updateObj: any = {};
-    if (name !== undefined) updateObj.name = name;
-    if (subscriptionPlan !== undefined) updateObj.subscription_plan = subscriptionPlan;
-    if (subscriptionStatus !== undefined) updateObj.subscription_status = subscriptionStatus;
-    if (lockedFeatures !== undefined) updateObj.locked_features = lockedFeatures;
+    allowedKeys.forEach(k => {
+      if (body[k] !== undefined) {
+        updateObj[k] = body[k];
+      }
+    });
 
     const { data, error } = await supabase
       .from('workspaces')
@@ -3249,9 +3839,24 @@ app.post('/api/superadmin/agencies/:id/impersonate', requireSuperAdmin, async (c
     }
 
     const targetUser = profiles[0];
+
+    // Generate magic link using supabase admin auth to redirect to the recruiter dashboard
+    const { data: linkData, error: linkError } = await supabase.auth.admin.generateLink({
+      type: 'magiclink',
+      email: targetUser.email,
+      options: {
+        redirectTo: 'http://localhost:7474/dashboard'
+      }
+    });
+
+    if (linkError || !linkData?.properties?.action_link) {
+      throw linkError || new Error('Failed to generate impersonation magic link');
+    }
+
     return c.json({
       success: true,
       user: keysToCamel(targetUser),
+      redirectUrl: linkData.properties.action_link,
       message: `Impersonating user ${targetUser.name}`
     });
   } catch (err: any) {
@@ -3470,6 +4075,74 @@ app.get('/api/superadmin/ai-analytics', requireSuperAdmin, async (c) => {
   }
 });
 
+// 6.5. Free Trial Analytics
+app.get('/api/superadmin/trial-analytics', requireSuperAdmin, async (c) => {
+  try {
+    const { data: workspaces, error } = await supabase
+      .from('workspaces')
+      .select('*');
+
+    if (error) throw error;
+
+    const trials = (workspaces || []).filter((ws: any) => ws.trial_start_date !== null || ws.is_trial);
+    const totalTrials = trials.length;
+    const activeTrials = trials.filter((ws: any) => ws.is_trial && ws.subscription_status === 'active' && ws.trial_end_date && new Date(ws.trial_end_date) >= new Date()).length;
+    const expiredTrials = trials.filter((ws: any) => ws.is_trial && ws.subscription_status === 'expired').length;
+    const convertedTrials = trials.filter((ws: any) => !ws.is_trial && ws.subscription_type === 'paid');
+
+    const conversionCount = convertedTrials.length;
+    const conversionRate = totalTrials > 0 ? Math.round((conversionCount / totalTrials) * 100) : 0;
+    const expiryRate = totalTrials > 0 ? Math.round((expiredTrials / totalTrials) * 100) : 0;
+
+    let totalConversionTimeMs = 0;
+    convertedTrials.forEach((ws: any) => {
+      if (ws.trial_start_date && (ws.subscription_start_date || ws.updated_at)) {
+        const start = new Date(ws.trial_start_date);
+        const end = new Date(ws.subscription_start_date || ws.updated_at);
+        totalConversionTimeMs += (end.getTime() - start.getTime());
+      }
+    });
+    const avgConversionTimeDays = conversionCount > 0 ? Math.round((totalConversionTimeMs / (1000 * 60 * 60 * 24)) / conversionCount * 10) / 10 : 0;
+
+    const trialWorkspaceIds = trials.map((ws: any) => ws.id);
+    const topFeaturesBreakdown = {
+      'Resume Parsing': 0,
+      'AI Matching': 0,
+      'Voice AI': 0,
+      'AI Search': 0
+    };
+
+    if (trialWorkspaceIds.length > 0) {
+      const { data: aiLogs } = await supabase
+        .from('superadmin_ai_logs')
+        .select('feature, agency_id')
+        .in('agency_id', trialWorkspaceIds);
+      
+      if (aiLogs) {
+        aiLogs.forEach((log: any) => {
+          const feature = log.feature || 'Resume Parsing';
+          if (feature in topFeaturesBreakdown) {
+            topFeaturesBreakdown[feature as keyof typeof topFeaturesBreakdown]++;
+          }
+        });
+      }
+    }
+
+    return c.json({
+      totalTrials,
+      activeTrials,
+      expiredTrials,
+      convertedTrials: conversionCount,
+      conversionRate,
+      expiryRate,
+      avgConversionTimeDays,
+      topFeaturesBreakdown
+    });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
 // 7. Email Logs
 app.get('/api/superadmin/email-logs', requireSuperAdmin, async (c) => {
   try {
@@ -3626,9 +4299,23 @@ app.post('/api/superadmin/support/:id/reply', requireSuperAdmin, async (c) => {
     const body = await c.req.json();
     const { message } = body;
 
+    const { data: ticket } = await supabase
+      .from('superadmin_tickets')
+      .select('description')
+      .eq('id', id)
+      .single();
+
+    const currentDescription = ticket?.description || '';
+    const replyBlock = `\n\n---\nSupport Response (${new Date().toLocaleString()}):\n${message}`;
+    const updatedDescription = currentDescription + replyBlock;
+
     const { data, error } = await supabase
       .from('superadmin_tickets')
-      .update({ status: 'In Progress' })
+      .update({ 
+        status: 'In Progress',
+        description: updatedDescription,
+        updated_at: new Date().toISOString()
+      })
       .eq('id', id)
       .select()
       .single();
@@ -3981,5 +4668,6 @@ app.delete('/api/superadmin/plans/:id', requireSuperAdmin, async (c) => {
 // Bun Native Server entry point
 export default {
   port: parseInt(process.env.PORT || '3001'),
-  fetch: app.fetch
+  fetch: app.fetch,
+  idleTimeout: 60
 };

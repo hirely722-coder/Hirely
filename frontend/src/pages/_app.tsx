@@ -2,6 +2,7 @@ import "@/styles/globals.css";
 import type { AppProps } from "next/app";
 import { AppContextProvider } from "@/context/AppContext";
 import Layout from "@/components/Layout";
+import Script from "next/script";
 
 // Intercept all API calls globally to redirect relative /api/... calls to the deployed backend server in production
 if (typeof globalThis !== 'undefined') {
@@ -23,6 +24,7 @@ if (typeof globalThis !== 'undefined') {
 export default function App({ Component, pageProps }: AppProps) {
   return (
     <AppContextProvider>
+      <Script src="https://checkout.razorpay.com/v1/checkout.js" strategy="beforeInteractive" />
       <Layout>
         <Component {...pageProps} />
       </Layout>

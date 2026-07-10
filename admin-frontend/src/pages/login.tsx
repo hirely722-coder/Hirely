@@ -28,7 +28,12 @@ export default function AdminLogin() {
 
     try {
       // 1. Call server-side login endpoint to verify super admin rights
-      const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'https://hirely-backend.hirly-app.workers.dev'}/api/superadmin/login`, {
+      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL;
+      if (!backendUrl) {
+        throw new Error('Missing NEXT_PUBLIC_BACKEND_URL environment variable.');
+      }
+
+      const response = await fetch(`${backendUrl}/api/superadmin/login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'

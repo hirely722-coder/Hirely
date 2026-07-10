@@ -8,10 +8,12 @@
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
+    "@napi-rs/canvas": "^1.0.2",
     "@supabase/supabase-js": "^2.43.4",
     "dotenv": "^16.4.5",
     "hono": "^4.4.7",
     "pdf-parse": "^2.4.5",
+    "razorpay": "^2.9.6",
     "unpdf": "^1.6.2"
   },
   "devDependencies": {

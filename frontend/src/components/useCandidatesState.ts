@@ -298,7 +298,6 @@ export function useCandidatesState({
     }
     setShowEditModal(null);
   };
-
   // Call backend Express router to parse all pending/error resumes in bulk with Hirly
   const handleParseBulkResumes = async () => {
     const itemsToParse = bulkItems.filter(item => item.status === 'pending' || item.status === 'error');
@@ -307,71 +306,120 @@ export function useCandidatesState({
     setIsParsing(true);
     setParseError(null);
 
-    // Parse each resume sequentially
-    for (let index = 0; index < itemsToParse.length; index++) {
-      const item = itemsToParse[index];
-      setParsingStep(`Parsing: "${item.file.name}" (${index + 1}/${itemsToParse.length})...`);
-      
-      // Update item status to 'parsing'
-      setBulkItems(prev => prev.map(p => p.id === item.id ? { ...p, status: 'parsing' } : p));
-      
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        const token = session?.access_token;
+    const CONCURRENCY_LIMIT = 5;
+    const MAX_RETRIES = 2; // Try 3 times total
+    let completedCount = 0;
 
-        // Browser-side PDF text extraction and OCR fallback
-        let uploadFile: File | Blob = item.file;
-        let uploadFileName = item.file.name;
+    const updateProgress = () => {
+      setParsingStep(`Parsing: ${completedCount} of ${itemsToParse.length} resumes completed...`);
+    };
 
-        if (item.file.type === 'application/pdf' || item.file.name.endsWith('.pdf')) {
-          const parsedResult = await processPdfFile(item.file);
-          uploadFile = parsedResult.file;
-          uploadFileName = parsedResult.fileName;
-        }
+    updateProgress();
 
-        const formData = new FormData();
-        formData.append('file', uploadFile, uploadFileName);
+    let nextIndex = 0;
 
-        const response = await fetch('/api/ai/parse-resume', {
-          method: 'POST',
-          body: formData,
-          headers: token ? { Authorization: `Bearer ${token}` } : {}
-        });
+    // Worker function that grabs the next available item and parses it
+    const worker = async () => {
+      while (nextIndex < itemsToParse.length) {
+        const currentIndex = nextIndex++;
+        if (currentIndex >= itemsToParse.length) break;
 
-        if (!response.ok) {
-          const result = await response.json().catch(() => ({}));
-          throw new Error(result.error || 'Failed to call parsing route.');
-        }
+        const item = itemsToParse[currentIndex];
+        let success = false;
+        let lastError: any = null;
 
-        const result = await response.json();
-        const extracted = result.data;
+        for (let attempt = 1; attempt <= 1 + MAX_RETRIES; attempt++) {
+          // Set state to 'parsing' (indicate retry number if retrying)
+          setBulkItems(prev => prev.map(p => p.id === item.id ? { 
+            ...p, 
+            status: 'parsing', 
+            errorMessage: attempt > 1 ? `Retrying (Attempt ${attempt}/3)...` : undefined 
+          } : p));
 
-        // Update item status to 'success' with extractedData
-        setBulkItems(prev => prev.map(p => p.id === item.id ? { 
-          ...p, 
-          status: 'success',
-          extractedData: {
-            name: extracted.name || item.file.name.replace(/\.[^/.]+$/, ""),
-            email: extracted.email || '',
-            phone: extracted.phone || '',
-            skills: Array.isArray(extracted.skills) ? extracted.skills : [],
-            experience: extracted.experience || '1 Year',
-            education: extracted.education || '',
-            currentCompany: extracted.currentCompany || 'Independent',
-            address: extracted.address || '',
-            resumeTextSummary: extracted.resumeTextSummary || `${extracted.name}'s parsed resume.`
+          try {
+            const { data: { session } } = await supabase.auth.getSession();
+            const token = session?.access_token;
+
+            // Browser-side PDF text extraction and OCR fallback
+            let uploadFile: File | Blob = item.file;
+            let uploadFileName = item.file.name;
+
+            if (item.file.type === 'application/pdf' || item.file.name.endsWith('.pdf')) {
+              const parsedResult = await processPdfFile(item.file);
+              uploadFile = parsedResult.file;
+              uploadFileName = parsedResult.fileName;
+            }
+
+            const formData = new FormData();
+            formData.append('file', uploadFile, uploadFileName);
+
+            const response = await fetch('/api/ai/parse-resume', {
+              method: 'POST',
+              body: formData,
+              headers: token ? { Authorization: `Bearer ${token}` } : {}
+            });
+
+            if (!response.ok) {
+              const result = await response.json().catch(() => ({}));
+              throw new Error(result.error || 'Failed to call parsing route.');
+            }
+
+            const result = await response.json();
+            const extracted = result.data;
+
+            // Update item status to 'success' with extractedData
+            setBulkItems(prev => prev.map(p => p.id === item.id ? { 
+              ...p, 
+              status: 'success',
+              extractedData: {
+                name: extracted.name || item.file.name.replace(/\.[^/.]+$/, ""),
+                email: extracted.email || '',
+                phone: extracted.phone || '',
+                skills: Array.isArray(extracted.skills) ? extracted.skills : [],
+                experience: extracted.experience || '1 Year',
+                education: extracted.education || '',
+                currentCompany: extracted.currentCompany || 'Independent',
+                address: extracted.address || '',
+                resumeTextSummary: extracted.resumeTextSummary || `${extracted.name}'s parsed resume.`
+              }
+            } : p));
+
+            success = true;
+            break; // Success! Break out of the retry loop.
+          } catch (err: any) {
+            console.error(`Error parsing file ${item.file.name} (Attempt ${attempt}):`, err);
+            lastError = err;
+
+            // Simple wait before next attempt
+            if (attempt <= MAX_RETRIES) {
+              await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+            }
           }
-        } : p));
+        }
 
-      } catch (err: any) {
-        console.error('Error parsing file:', item.file.name, err);
-        setBulkItems(prev => prev.map(p => p.id === item.id ? { 
-          ...p, 
-          status: 'error',
-          errorMessage: err.message || 'Error occurred while contacting the parsing server.' 
-        } : p));
+        // If all attempts failed, set to error state
+        if (!success) {
+          setBulkItems(prev => prev.map(p => p.id === item.id ? { 
+            ...p, 
+            status: 'error',
+            errorMessage: lastError?.message || 'Error occurred while contacting the parsing server.' 
+          } : p));
+        }
+
+        completedCount++;
+        updateProgress();
       }
+    };
+
+    // Spawn up to CONCURRENCY_LIMIT workers in parallel
+    const workers = [];
+    const activeWorkerCount = Math.min(CONCURRENCY_LIMIT, itemsToParse.length);
+    for (let i = 0; i < activeWorkerCount; i++) {
+      workers.push(worker());
     }
+
+    // Wait for all worker streams to finish processing files
+    await Promise.all(workers);
 
     setIsParsing(false);
     setParsingStep('');

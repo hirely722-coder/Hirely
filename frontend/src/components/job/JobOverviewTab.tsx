@@ -39,6 +39,137 @@ function renderFormattedLine(line: string): React.ReactNode[] {
   return finalParts;
 }
 
+function getConversationalText(text: string): string {
+  if (!text) return '';
+  const idx = text.indexOf('<artifact');
+  if (idx !== -1) {
+    return text.substring(0, idx).trim();
+  }
+  return text;
+}
+
+function renderMarkdownContent(text: string): React.ReactNode {
+  if (!text) return null;
+
+  // Clean up backslash escapes and replace dollars with Rupees for Indian context
+  const cleanedText = text
+    .replace(/\\([$*#_~`|₹[\]()])/g, '$1')
+    .replace(/\$/g, '₹');
+
+  const lines = cleanedText.split('\n');
+  const elements: React.ReactNode[] = [];
+  let tableRows: string[][] = [];
+  let inTable = false;
+
+  const flushTable = (key: string) => {
+    if (tableRows.length === 0) return;
+    const headers = tableRows[0];
+    const dataRows = tableRows.slice(2); // Skip separator row
+
+    elements.push(
+      <div key={key} className="overflow-x-auto my-3 border border-slate-200 rounded-xl shadow-2xs">
+        <table className="min-w-full divide-y divide-slate-200 text-[11.5px] font-sans text-left">
+          <thead className="bg-slate-50 text-slate-700 font-extrabold">
+            <tr>
+              {headers.map((h, i) => (
+                <th key={i} className="px-4 py-3 font-semibold uppercase tracking-wider text-[10px] text-slate-500 border-b border-slate-200">
+                  {h.trim()}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100 bg-white">
+            {dataRows.map((row, rIdx) => (
+              <tr key={rIdx} className="hover:bg-slate-50/50 transition-colors">
+                {row.map((cell, cIdx) => (
+                  <td key={cIdx} className="px-4 py-2.5 text-slate-650 max-w-sm">
+                    {renderFormattedLine(cell.trim())}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+    tableRows = [];
+    inTable = false;
+  };
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trim();
+
+    if (trimmed.startsWith('|') && trimmed.endsWith('|')) {
+      inTable = true;
+      const cells = line.split('|').slice(1, -1);
+      tableRows.push(cells);
+      continue;
+    } else if (inTable) {
+      flushTable(`table-${i}`);
+    }
+
+    if (!trimmed) {
+      elements.push(<div key={`empty-${i}`} className="h-2" />);
+      continue;
+    }
+
+    const headerMatch = trimmed.match(/^(#{2,5})\s*(.*)/);
+    if (headerMatch) {
+      const level = headerMatch[1].length;
+      const content = headerMatch[2];
+      elements.push(
+        <h5 key={`h-${i}`} className="text-[11px] font-extrabold text-indigo-950 uppercase tracking-wider mt-4.5 mb-2 border-l-2 border-indigo-500 pl-2">
+          {renderFormattedLine(content)}
+        </h5>
+      );
+      continue;
+    }
+
+    const numberMatch = trimmed.match(/^(\d+)\.\s*(.*)/);
+    if (numberMatch) {
+      const num = numberMatch[1];
+      const rest = numberMatch[2];
+      elements.push(
+        <div key={`num-${i}`} className="flex gap-2.5 items-start bg-slate-50/70 p-3 rounded-xl border border-slate-100/60 my-2 shadow-2xs">
+          <span className="h-5 w-5 shrink-0 rounded-full bg-indigo-150 text-indigo-700 flex items-center justify-center font-mono font-bold text-[10px]">
+            {num}
+          </span>
+          <div className="text-[11.5px] text-slate-700 leading-relaxed font-sans flex-1">
+            {renderFormattedLine(rest)}
+          </div>
+        </div>
+      );
+      continue;
+    }
+
+    if (trimmed.startsWith('•') || trimmed.startsWith('-') || (trimmed.startsWith('*') && !trimmed.endsWith('*'))) {
+      const content = trimmed.substring(1).trim();
+      elements.push(
+        <div key={`bullet-${i}`} className="flex gap-2 items-start pl-1 my-1">
+          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0 mt-0.5" />
+          <div className="text-[11.5px] text-slate-700 leading-relaxed font-sans">
+            {renderFormattedLine(content)}
+          </div>
+        </div>
+      );
+      continue;
+    }
+
+    elements.push(
+      <p key={`p-${i}`} className="text-[11.5px] text-slate-650 leading-relaxed font-sans my-1.5">
+        {renderFormattedLine(trimmed)}
+      </p>
+    );
+  }
+
+  if (inTable) {
+    flushTable(`table-end`);
+  }
+
+  return <div className="space-y-1">{elements}</div>;
+}
+
 interface JobOverviewTabProps {
   job: Job;
   executeAiTool: (toolKey: string) => void;
@@ -286,8 +417,23 @@ export function JobOverviewTab({
 
           {/* AI Generator Output Box */}
           {(isAiProcessing || aiFeatureResult) && (
-            <div className="mt-5 p-4 border-2 border-indigo-200 bg-indigo-50/30 rounded-2xl space-y-3.5 animate-fade-in">
-              {isAiProcessing ? (
+            <div className="mt-5 p-4 border-2 border-indigo-200 bg-indigo-50/30 rounded-2xl space-y-3.5 animate-fade-in relative overflow-hidden">
+              {/* Pinned Top Progress Bar */}
+              {isAiProcessing && (
+                <div className="bg-indigo-600/10 h-1 w-full absolute top-0 left-0 overflow-hidden z-25">
+                  <style dangerouslySetInnerHTML={{ __html: `
+                    @keyframes streamProgress {
+                      0% { transform: translateX(-100%); }
+                      100% { transform: translateX(300%); }
+                    }
+                    .animate-stream-progress {
+                      animation: streamProgress 1.8s infinite linear;
+                    }
+                  ` }} />
+                  <div className="bg-indigo-600 h-full w-1/3 animate-stream-progress" />
+                </div>
+              )}
+              {isAiProcessing && (!aiFeatureResult || !aiFeatureResult.text) ? (
                 <div className="flex flex-col items-center justify-center py-6 gap-3 text-slate-500">
                   <Sparkles className="h-6 w-6 text-indigo-600 animate-spin" />
                   <span className="text-[11px] font-mono tracking-tight animate-pulse">Running advanced matching heuristics...</span>
@@ -427,49 +573,59 @@ export function JobOverviewTab({
                       </div>
                     </div>
                   ) : (
-                    <div className="bg-white border border-indigo-100/80 rounded-xl p-4 shadow-inner max-h-72 overflow-y-auto space-y-3 select-text">
-                      {aiFeatureResult?.text && aiFeatureResult.text.split('\n').map((line, idx) => {
-                        const trimmed = line.trim();
-                        if (!trimmed) return <div key={idx} className="h-2" />;
+                    <div className="bg-white border border-indigo-100/80 rounded-xl p-4 shadow-inner max-h-96 overflow-y-auto space-y-3 select-text relative overflow-hidden">
+                      {/* Streaming Indicator */}
+                      {isAiProcessing && (
+                        <div className="flex items-center justify-between gap-3 pb-2 border-b border-indigo-50/50">
+                          <div className="flex items-center gap-1.5">
+                            <span className="h-1.5 w-1.5 rounded-full bg-indigo-500 animate-ping" />
+                            <span className="text-[9px] font-bold font-mono text-indigo-600 uppercase tracking-wider">Streaming AI Response</span>
+                          </div>
+                        </div>
+                      )}                      {aiFeatureResult?.structured ? (
+                        // Structured Tool (Interview Questions)
+                        <div className="space-y-4">
+                          {/* Conversational Intro */}
+                          {aiFeatureResult?.text && (
+                            <div className="p-3 bg-gradient-to-r from-blue-50/50 to-indigo-50/30 rounded-xl border border-indigo-100/50 text-slate-600 leading-relaxed italic text-[11px] font-sans">
+                              {getConversationalText(aiFeatureResult.text)}
+                            </div>
+                          )}
 
-                        const numberMatch = trimmed.match(/^(\d+)\.\s*(.*)/);
-                        if (numberMatch) {
-                          const num = numberMatch[1];
-                          const rest = numberMatch[2];
-                          return (
-                            <div key={idx} className="flex gap-2.5 items-start bg-slate-50/70 p-2.5 rounded-lg border border-slate-100/60">
-                              <span className="h-5 w-5 shrink-0 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center font-mono font-bold text-[10px]">
-                                {num}
+                          {/* Shimmering Skeleton Cards (Horizontal Line-by-Line List to match finished cards) */}
+                          <div className="space-y-4 pr-1">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] font-bold text-indigo-950 font-sans tracking-tight uppercase flex items-center gap-1.5 animate-pulse">
+                                <Sparkles className="h-3.5 w-3.5 text-indigo-500 animate-spin" />
+                                Compiling Questions Artifact...
                               </span>
-                              <p className="text-[11.5px] text-slate-700 leading-relaxed font-sans">{renderFormattedLine(rest)}</p>
                             </div>
-                          );
-                        }
-
-                        if (trimmed.startsWith('•') || trimmed.startsWith('-')) {
-                          const content = trimmed.substring(1).trim();
-                          return (
-                            <div key={idx} className="flex gap-2 items-start pl-1">
-                              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0 mt-0.5" />
-                              <p className="text-[11.5px] text-slate-700 leading-relaxed font-sans">{renderFormattedLine(content)}</p>
+                            
+                            <div className="space-y-2.5">
+                              {[1, 2, 3].map((i) => (
+                                <div key={i} className="bg-slate-50 border border-slate-200/40 rounded-xl p-4 space-y-3 animate-pulse shadow-sm w-full">
+                                  <div className="flex items-center justify-between border-b border-slate-200/50 pb-2">
+                                    <div className="flex gap-2">
+                                      <div className="h-4 w-6 bg-slate-200 rounded-full" />
+                                      <div className="h-4 w-12 bg-slate-200 rounded-full" />
+                                      <div className="h-4 w-28 bg-slate-200 rounded-full" />
+                                    </div>
+                                    <div className="h-4 w-16 bg-slate-200 rounded-full" />
+                                  </div>
+                                  <div className="space-y-2">
+                                    <div className="h-4.5 w-full bg-slate-250 rounded-md" />
+                                    <div className="h-4.5 w-5/6 bg-slate-250 rounded-md" />
+                                  </div>
+                                </div>
+                              ))}
                             </div>
-                          );
-                        }
+                          </div>
+                        </div>
+                      ) : (
+                        // Advanced Markdown and Table Renderer
+                        renderMarkdownContent(aiFeatureResult?.text || '')
+                      )}
 
-                        if (trimmed.endsWith(':')) {
-                          return (
-                            <h5 key={idx} className="text-[10.5px] font-extrabold text-indigo-950 uppercase tracking-wide mt-3 border-l-2 border-indigo-500 pl-2">
-                              {renderFormattedLine(trimmed)}
-                            </h5>
-                          );
-                        }
-
-                        return (
-                          <p key={idx} className="text-[11.5px] text-slate-600 leading-relaxed font-sans">
-                            {renderFormattedLine(trimmed)}
-                          </p>
-                        );
-                      })}
                     </div>
                   )}
                 </>

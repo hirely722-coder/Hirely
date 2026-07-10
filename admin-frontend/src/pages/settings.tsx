@@ -13,7 +13,7 @@ export default function AdminSettings() {
   const [saving, setSaving] = useState(false);
 
   // Tab State
-  const [activeTab, setActiveTab] = useState<'smtp' | 'api' | 'branding' | 'backup'>('smtp');
+  const [activeTab, setActiveTab] = useState<'smtp' | 'api' | 'branding' | 'backup' | 'trial'>('smtp');
 
   // Input states mapping settings fields
   const [smtpServer, setSmtpServer] = useState('');
@@ -27,6 +27,8 @@ export default function AdminSettings() {
   const [whitelabelDomain, setWhitelabelDomain] = useState('');
   const [allowedDomainsList, setAllowedDomainsList] = useState('');
   const [backupSchedule, setBackupSchedule] = useState('Daily');
+  const [trialEnabled, setTrialEnabled] = useState(true);
+  const [trialDurationDays, setTrialDurationDays] = useState(7);
 
   const loadSettings = async () => {
     setLoading(true);
@@ -46,6 +48,8 @@ export default function AdminSettings() {
       setWhitelabelDomain(data.whitelabelDomain || 'app.hirely.com');
       setAllowedDomainsList(data.allowedDomainsList || '*');
       setBackupSchedule(data.backupSchedule || 'Daily');
+      setTrialEnabled(data.trialEnabled !== false);
+      setTrialDurationDays(data.trialDurationDays || 7);
 
     } catch (err: any) {
       showToast(err.message || 'Failed to load system settings', 'error');
@@ -74,7 +78,9 @@ export default function AdminSettings() {
         telegramToken,
         whitelabelDomain,
         allowedDomainsList,
-        backupSchedule
+        backupSchedule,
+        trialEnabled,
+        trialDurationDays: parseInt(trialDurationDays as any) || 7
       };
 
       const updated = await fetchAdminApi('/api/superadmin/settings', {
@@ -99,7 +105,8 @@ export default function AdminSettings() {
     { id: 'smtp', name: 'SMTP Server', icon: Mail },
     { id: 'api', name: 'API Services', icon: Cpu },
     { id: 'branding', name: 'Branding & Domain', icon: Globe },
-    { id: 'backup', name: 'Backup Schedule', icon: HardDrive }
+    { id: 'backup', name: 'Backup Schedule', icon: HardDrive },
+    { id: 'trial', name: 'Free Trial Settings', icon: Settings }
   ];
 
   return (
@@ -316,6 +323,44 @@ export default function AdminSettings() {
                     <span className="font-bold block uppercase tracking-wider">Automated cold backup</span>
                     <span className="mt-0.5 block">Hirely database snapshots are encrypted via AES-256 and pushed directly to S3 glacier storage. Reclaiming requires 4 hours retrieval delay.</span>
                   </div>
+                </div>
+              </div>
+            )}
+
+            {/* Free Trial Settings Tab View */}
+            {activeTab === 'trial' && (
+              <div className="space-y-4">
+                <div className="border-b border-slate-100 pb-3">
+                  <h3 className="text-sm font-bold text-slate-950 font-display">Global Free Trial Configuration</h3>
+                  <p className="text-[11px] text-slate-400 font-medium">Control the onboarding trial parameters for all new signups.</p>
+                </div>
+
+                <div className="flex items-center justify-between bg-slate-50 border border-slate-200/60 rounded-2xl p-4">
+                  <div>
+                    <span className="font-bold text-xs text-slate-800 block">Enable Trial Globally</span>
+                    <span className="text-[10px] text-slate-400 font-medium block mt-0.5">When active, new workspaces will automatically start on a free trial.</span>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input 
+                      type="checkbox" 
+                      checked={trialEnabled} 
+                      onChange={(e) => setTrialEnabled(e.target.checked)} 
+                      className="sr-only peer"
+                    />
+                    <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
+                  </label>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Trial Duration (Days)</label>
+                  <input
+                    type="number"
+                    required
+                    min={1}
+                    value={trialDurationDays}
+                    onChange={(e) => setTrialDurationDays(parseInt(e.target.value) || 7)}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-2.5 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:bg-white"
+                  />
                 </div>
               </div>
             )}

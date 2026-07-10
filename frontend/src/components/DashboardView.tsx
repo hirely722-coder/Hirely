@@ -1,6 +1,8 @@
-import React from 'react';
-import { LayoutDashboard, Users, Briefcase, CheckSquare, Calendar, Building2, Sparkles, Upload, Plus, ArrowRight, Clock, ChevronRight } from 'lucide-react';
+import React, { useState } from 'react';
+import { LayoutDashboard, Users, Briefcase, CheckSquare, Calendar, Building2, Sparkles, Upload, Plus, ArrowRight, Clock, ChevronRight, Check, X, ShieldCheck } from 'lucide-react';
 import { Candidate, Job, Company, Task } from '../types';
+import { useApp } from '../context/AppContext';
+import AnimatedModal from './AnimatedModal';
 
 interface DashboardViewProps {
   candidates: Candidate[];
@@ -21,6 +23,10 @@ export default function DashboardView({
   onOpenAddModal,
   isLoading = false
 }: DashboardViewProps) {
+  const { subscriptionPlan, showToast, isTrialActive, getTrialDaysRemaining, user, token, setShowUpgradeSuccess } = useApp();
+  const [isPricingModalOpen, setIsPricingModalOpen] = useState(false);
+  const [isUpgrading, setIsUpgrading] = useState(false);
+
   // Calculations
   const totalCandidates = candidates.length;
   const activeJobs = jobs.filter(j => j.status === 'Open').length;
@@ -142,6 +148,44 @@ export default function DashboardView({
 
   return (
     <div className="space-y-6 animate-fade-in" id="dashboard-view">
+      {isTrialActive() && (
+        <div className="w-full bg-gradient-to-r from-indigo-600 via-violet-600 to-indigo-700 rounded-3xl p-5 border border-indigo-400/30 text-white shadow-lg flex flex-col md:flex-row md:items-center md:justify-between gap-4 animate-fade-in mb-6">
+          <div className="flex items-start gap-3">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-white/10 border border-white/20">
+              <Sparkles className="h-5 w-5 text-amber-300 animate-pulse" />
+            </span>
+            <div>
+              <h2 className="text-sm font-black tracking-wide font-display flex items-center gap-1.5">
+                🎉 Welcome to your 7-Day Free Trial
+              </h2>
+              <p className="text-[11px] text-indigo-100 font-medium mt-0.5 leading-relaxed">
+                You currently have FULL, unrestricted access to every Hirely feature including AI Sourcing, parsing, copilot and templates.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-4 shrink-0">
+            <div className="text-right">
+              <div className="text-[10px] text-indigo-200 uppercase font-bold tracking-wider font-mono">Trial Ends</div>
+              <div className="text-xs font-black font-mono mt-0.5">
+                {subscriptionPlan?.trialEndDate ? new Date(subscriptionPlan.trialEndDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }) : 'N/A'}
+              </div>
+            </div>
+            <div className="h-8 w-[1px] bg-white/20 hidden md:block" />
+            <div className="text-right">
+              <div className="text-[10px] text-indigo-200 uppercase font-bold tracking-wider font-mono">Time Left</div>
+              <div className="text-xs font-black font-mono mt-0.5 text-amber-300">
+                {getTrialDaysRemaining()} Days Remaining
+              </div>
+            </div>
+            <button
+              onClick={() => setIsPricingModalOpen(true)}
+              className="flex items-center gap-1.5 px-4.5 py-2.5 bg-white text-indigo-700 hover:bg-indigo-50 rounded-2xl text-xs font-extrabold transition-all cursor-pointer shadow-sm hover:scale-[1.02]"
+            >
+              <span>Upgrade Now</span>
+            </button>
+          </div>
+        </div>
+      )}
       {/* Page Header */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 pb-2">
         <div>
@@ -151,9 +195,28 @@ export default function DashboardView({
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <span className="text-xs font-mono px-2.5 py-1 bg-blue-50 text-blue-700 border border-blue-100 rounded-lg font-medium">
+          <span className="text-xs font-mono px-2.5 py-1 bg-slate-50 text-slate-500 border border-slate-200 rounded-lg font-medium">
             Active Workspace
           </span>
+          {subscriptionPlan?.slug === 'growth' ? (
+            <span className="text-xs font-mono px-2.5 py-1 bg-amber-50 text-amber-700 border border-amber-200 rounded-lg font-bold flex items-center gap-1 shadow-2xs">
+              <ShieldCheck className="h-3.5 w-3.5 text-amber-500" />
+              Pro Recruiter
+            </span>
+          ) : (
+            <div className="flex items-center gap-2 animate-fade-in">
+              <span className="text-xs font-mono px-2.5 py-1 bg-blue-50 text-blue-700 border border-blue-100 rounded-lg font-medium uppercase">
+                {subscriptionPlan?.name || 'Starter'} Plan
+              </span>
+              <button
+                onClick={() => setIsPricingModalOpen(true)}
+                className="flex items-center gap-1.5 px-3.5 py-1 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-lg text-xs font-bold transition-all cursor-pointer shadow-sm"
+              >
+                <Sparkles className="h-3 w-3" />
+                <span>Upgrade Plan</span>
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -534,6 +597,47 @@ export default function DashboardView({
             </div>
           </section>
 
+          {isTrialActive() && (
+            <section className="bg-gradient-to-b from-slate-900 to-slate-950 border border-slate-800 p-5 rounded-3xl shadow-lg text-white space-y-4">
+              <div className="flex justify-between items-center">
+                <span className="text-[9px] font-bold text-indigo-400 uppercase tracking-widest font-mono">Current Plan</span>
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold bg-indigo-500/10 border border-indigo-400/20 text-indigo-300">
+                  <Sparkles className="h-3 w-3" /> Free Trial
+                </span>
+              </div>
+              
+              <div>
+                <h4 className="text-xs font-black font-display text-slate-100">7-Day Free Trial</h4>
+                <div className="mt-2 space-y-1">
+                  {/* Progress Bar */}
+                  <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden flex">
+                    <div 
+                      className="bg-indigo-500 h-full rounded-full" 
+                      style={{ width: `${(getTrialDaysRemaining() / 7) * 100}%` }}
+                    />
+                  </div>
+                  <div className="flex justify-between text-[9px] text-slate-400 font-mono pt-1">
+                    <span>{getTrialDaysRemaining()} days remaining</span>
+                    <span>7 days total</span>
+                  </div>
+                </div>
+              </div>
+
+              <ul className="space-y-1.5 text-[10px] text-slate-300 font-medium">
+                <li className="flex items-center gap-2"><Check className="h-3.5 w-3.5 text-emerald-400 shrink-0" /> <span>All Features Enabled</span></li>
+                <li className="flex items-center gap-2"><Check className="h-3.5 w-3.5 text-emerald-400 shrink-0" /> <span>Unlimited Candidates & Jobs</span></li>
+                <li className="flex items-center gap-2"><Check className="h-3.5 w-3.5 text-emerald-400 shrink-0" /> <span>AI Matching & Copilot Sourcing</span></li>
+              </ul>
+
+              <button
+                onClick={() => setIsPricingModalOpen(true)}
+                className="w-full py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl text-[10px] font-extrabold tracking-wide uppercase transition-all shadow-md cursor-pointer text-center"
+              >
+                Upgrade Anytime
+              </button>
+            </section>
+          )}
+
           {/* Recruiter Smart Tip Bento block */}
           <section className="bg-blue-50/40 border border-blue-100/60 p-5 rounded-2xl shadow-sm">
             <h3 className="text-xs font-bold text-blue-900 font-display flex items-center gap-1.5 uppercase tracking-wide">
@@ -547,6 +651,181 @@ export default function DashboardView({
 
         </div>
       </div>
+
+      {/* Pricing / Plan Upgrade Modal */}
+      <AnimatedModal isOpen={isPricingModalOpen} onClose={() => setIsPricingModalOpen(false)}>
+        {(animate) => (
+          <div 
+            className={`bg-white rounded-2xl border border-slate-100 shadow-2xl max-w-3xl w-full overflow-hidden transition-all duration-200 transform ${
+              animate ? 'opacity-100 scale-100 translate-y-0' : 'opacity-0 scale-95 translate-y-2'
+            }`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-5 py-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
+              <h4 className="text-xs font-bold text-slate-900 font-sans uppercase">Select License Tier</h4>
+              <button 
+                type="button" 
+                onClick={() => setIsPricingModalOpen(false)} 
+                className="text-slate-400 hover:text-slate-600 p-1 hover:bg-slate-100 rounded-lg cursor-pointer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-6">
+              <p className="text-xs text-slate-400 font-medium">Upgrade your workspace to unlock advanced recruitment capabilities.</p>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Starter Plan Card */}
+                <div className="bg-slate-50 border border-slate-200/60 rounded-xl p-5 flex flex-col justify-between">
+                  <div>
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-[10px] font-mono text-slate-400 uppercase font-bold tracking-wider">Starter</span>
+                      {subscriptionPlan?.slug !== 'growth' && (
+                        <span className="text-[9px] bg-slate-200 text-slate-700 px-1.5 py-0.5 rounded font-mono font-bold">ACTIVE</span>
+                      )}
+                    </div>
+                    <h4 className="text-sm font-bold text-slate-800 font-sans">Free Trial</h4>
+                    <div className="mt-2 mb-4 flex items-baseline">
+                      <span className="text-xl font-bold text-slate-900">₹0</span>
+                      <span className="text-xs text-slate-400 font-semibold font-sans ml-1">/ forever</span>
+                    </div>
+                    <ul className="space-y-2 text-xs text-slate-600 font-sans border-t border-slate-200/60 pt-4">
+                      <li className="flex items-center gap-2"><Check className="h-4 w-4 text-slate-400 shrink-0" /> <span>3 Active Jobs</span></li>
+                      <li className="flex items-center gap-2"><Check className="h-4 w-4 text-slate-400 shrink-0" /> <span>100 Candidates Database</span></li>
+                      <li className="flex items-center gap-2"><Check className="h-4 w-4 text-slate-400 shrink-0" /> <span>2 GB Storage Limit</span></li>
+                      <li className="flex items-center gap-2"><Check className="h-4 w-4 text-slate-400 shrink-0" /> <span>10 AI parser requests/mo</span></li>
+                      <li className="flex items-center gap-2 text-slate-400"><X className="h-4 w-4 text-slate-300 shrink-0" /> <span>No advanced analytics</span></li>
+                      <li className="flex items-center gap-2 text-slate-400"><X className="h-4 w-4 text-slate-300 shrink-0" /> <span>No WhatsApp integrations</span></li>
+                    </ul>
+                  </div>
+                  <button
+                    disabled
+                    className="w-full mt-6 py-2.5 bg-slate-200 text-slate-500 rounded-lg text-xs font-bold font-sans cursor-not-allowed"
+                  >
+                    {subscriptionPlan?.slug !== 'growth' ? 'Current Plan' : 'Trial Version'}
+                  </button>
+                </div>
+
+                {/* Growth Plan Card */}
+                <div className="bg-gradient-to-b from-blue-50/50 to-white border-2 border-blue-500 rounded-xl p-5 flex flex-col justify-between shadow-xs relative overflow-hidden">
+                  <div className="absolute top-2 right-2">
+                    <span className="text-[8px] bg-blue-600 text-white px-2 py-0.5 rounded-full font-mono font-bold tracking-wider">POPULAR</span>
+                  </div>
+                  <div>
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-[10px] font-mono text-blue-600 uppercase font-bold tracking-wider">Pro Recruiter</span>
+                    </div>
+                    <h4 className="text-sm font-bold text-slate-800 font-sans">Growth Plan</h4>
+                    <div className="mt-2 mb-4 flex items-baseline">
+                      <span className="text-xl font-bold text-slate-900">₹2,499</span>
+                      <span className="text-xs text-slate-400 font-semibold font-sans ml-1">/ month</span>
+                    </div>
+                    <ul className="space-y-2 text-xs text-slate-600 font-sans border-t border-blue-100 pt-4">
+                      <li className="flex items-center gap-2 font-semibold text-slate-800"><Check className="h-4 w-4 text-emerald-500 shrink-0" /> <span>Unlimited Active Jobs</span></li>
+                      <li className="flex items-center gap-2 font-semibold text-slate-800"><Check className="h-4 w-4 text-emerald-500 shrink-0" /> <span>Unlimited Candidates Database</span></li>
+                      <li className="flex items-center gap-2"><Check className="h-4 w-4 text-emerald-500 shrink-0" /> <span>20 GB Storage Space</span></li>
+                      <li className="flex items-center gap-2"><Check className="h-4 w-4 text-emerald-500 shrink-0" /> <span>500 AI Parser requests/mo</span></li>
+                      <li className="flex items-center gap-2"><Check className="h-4 w-4 text-emerald-500 shrink-0" /> <span>AI Voice commands & search helper</span></li>
+                    </ul>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (isUpgrading) return;
+                      setIsUpgrading(true);
+                      try {
+                        // 1. Fetch order details from Hono Backend
+                        const orderRes = await fetch('/api/payments/create-order', {
+                          method: 'POST',
+                          headers: {
+                            'Content-Type': 'application/json',
+                            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                          },
+                          body: JSON.stringify({ planSlug: 'growth' }),
+                        });
+
+                        if (!orderRes.ok) {
+                          const errData = await orderRes.json();
+                          throw new Error(errData.error || 'Failed to create order');
+                        }
+                        const orderData = await orderRes.json();
+
+                        // 2. Configure Razorpay Standard Modal options
+                        const options = {
+                          key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || 'rzp_test_TBpe5QK85Qnpak',
+                          amount: orderData.amount,
+                          currency: orderData.currency,
+                          name: "Hirely AI Platform",
+                          description: "Upgrade License to GROWTH",
+                          order_id: orderData.orderId,
+                          handler: async function (response: any) {
+                            // 3. Send payment details to verification endpoint
+                            const verifyRes = await fetch('/api/payments/verify-payment', {
+                              method: 'POST',
+                              headers: {
+                                'Content-Type': 'application/json',
+                                ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                              },
+                              body: JSON.stringify({
+                                razorpayPaymentId: response.razorpay_payment_id,
+                                razorpayOrderId: response.razorpay_order_id,
+                                razorpaySignature: response.razorpay_signature,
+                                planSlug: 'growth'
+                              })
+                            });
+
+                            if (verifyRes.ok) {
+                              setShowUpgradeSuccess(true);
+                              setIsPricingModalOpen(false);
+                              setTimeout(() => {
+                                window.location.reload();
+                              }, 3500);
+                            } else {
+                              const errData = await verifyRes.json();
+                              showToast(errData.error || 'Payment verification failed', 'error');
+                            }
+                          },
+                          prefill: {
+                            email: user?.email || '',
+                            name: user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'User'
+                          },
+                          theme: {
+                            color: "#3161f5"
+                          },
+                          modal: {
+                            ondismiss: function () {
+                              showToast('Upgrade cancelled by user.', 'error');
+                            }
+                          }
+                        };
+
+                        const rzp = new (window as any).Razorpay(options);
+                        rzp.on('payment.failed', function (resp: any) {
+                          showToast(`Payment failed: ${resp.error.description}`, 'error');
+                        });
+                        rzp.open();
+                      } catch (err: any) {
+                        console.error(err);
+                        showToast(err.message || 'An unexpected error occurred.', 'error');
+                      } finally {
+                        setIsUpgrading(false);
+                      }
+                    }}
+                    disabled={isUpgrading}
+                    className={`w-full mt-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold font-sans cursor-pointer transition-all shadow-2xs flex items-center justify-center gap-2 ${
+                      isUpgrading ? 'opacity-50 cursor-not-allowed' : ''
+                    }`}
+                  >
+                    {isUpgrading ? 'Launching Checkout...' : 'Upgrade Workspace to Pro'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </AnimatedModal>
+
     </div>
   );
 }

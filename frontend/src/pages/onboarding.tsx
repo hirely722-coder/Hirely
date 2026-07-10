@@ -39,6 +39,7 @@ export default function Onboarding() {
     setIsLoading(true);
 
     try {
+      const isTrial = localStorage.getItem('hirely_setup_trial') === 'true';
       const sessionToken = (await supabase.auth.getSession()).data.session?.access_token;
       const res = await fetch('/api/workspaces', {
         method: 'POST',
@@ -48,7 +49,8 @@ export default function Onboarding() {
         },
         body: JSON.stringify({
           name: agencyName,
-          slug: agencySlug
+          slug: agencySlug,
+          isTrial: isTrial
         })
       });
 
@@ -56,6 +58,11 @@ export default function Onboarding() {
       if (!res.ok || data.error) {
         throw new Error(data.error || 'Failed to create workspace');
       }
+
+      // Cleanup setup keys
+      localStorage.removeItem('hirely_setup_plan');
+      localStorage.removeItem('hirely_setup_cycle');
+      localStorage.removeItem('hirely_setup_trial');
 
       showToast('✓ Workspace created successfully! Welcome to Hirely.');
       // Refetch user profile details

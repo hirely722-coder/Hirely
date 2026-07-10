@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { fetchAdminApi } from '@/utils/adminApi';
 import { 
-  Users, Search, Filter, Edit2, UserMinus, UserCheck, 
+  Users, Search, Filter, Eye, Edit2, UserMinus, UserCheck, 
   Trash2, X, RefreshCcw, RefreshCw, LogOut, Download
 } from 'lucide-react';
 import { useApp } from '@/context/AdminAppContext';
@@ -20,6 +20,15 @@ export default function AdminUsers() {
   const [userName, setUserName] = useState('');
   const [userRole, setUserRole] = useState('Viewer');
   const [userStatus, setUserStatus] = useState('Active');
+
+  // User Details Modal State
+  const [isDetailsOpen, setIsDetailsOpen] = useState(false);
+  const [detailedUser, setDetailedUser] = useState<any>(null);
+
+  const openDetailsModal = (profile: any) => {
+    setDetailedUser(profile);
+    setIsDetailsOpen(true);
+  };
 
   const loadUsers = async () => {
     setLoading(true);
@@ -256,6 +265,13 @@ export default function AdminUsers() {
                       <td className="px-6 py-4 text-right">
                         <div className="flex items-center justify-end gap-1.5">
                           <button
+                            onClick={() => openDetailsModal(profile)}
+                            className="p-1.5 hover:bg-slate-100 text-slate-500 hover:text-emerald-600 rounded-lg transition-colors cursor-pointer"
+                            title="View User Details"
+                          >
+                            <Eye className="h-4 w-4" />
+                          </button>
+                          <button
                             onClick={() => openEditModal(profile)}
                             className="p-1.5 hover:bg-slate-100 text-slate-500 hover:text-blue-600 rounded-lg transition-colors cursor-pointer"
                             title="Edit User Profile"
@@ -381,6 +397,148 @@ export default function AdminUsers() {
                 </button>
               </div>
             </form>
+
+          </div>
+        </div>
+      )}
+
+      {/* View User Details Modal */}
+      {isDetailsOpen && detailedUser && (
+        <div className="fixed inset-0 z-50 overflow-y-auto flex justify-center items-center p-4 bg-slate-900/40 backdrop-blur-xs animate-fade-in">
+          <div className="w-full max-w-xl bg-white border border-slate-200 rounded-3xl p-6 shadow-2xl relative animate-scale-up my-8">
+            
+            <div className="flex items-center justify-between mb-5 border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold text-xs uppercase shrink-0">
+                  {detailedUser.name ? detailedUser.name.substring(0, 2).toUpperCase() : 'US'}
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900 font-display">
+                    User Profile Inspector
+                  </h3>
+                  <p className="text-[10px] text-slate-400 font-mono mt-0.5">ID: {detailedUser.id}</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setIsDetailsOpen(false)}
+                className="text-slate-400 hover:text-slate-600 p-1 hover:bg-slate-50 rounded-lg"
+              >
+                <X className="h-4.5 w-4.5" />
+              </button>
+            </div>
+
+            <div className="space-y-5 max-h-[70vh] overflow-y-auto pr-1">
+              
+              {/* Part 1: Personal Details */}
+              <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100 space-y-3">
+                <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Contact & Profile Details</h4>
+                <div className="grid grid-cols-2 gap-3 text-xs">
+                  <div>
+                    <span className="text-slate-400 block font-semibold text-[9px] uppercase">Full Name</span>
+                    <span className="font-bold text-slate-800">{detailedUser.name || 'N/A'}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 block font-semibold text-[9px] uppercase">Email Address</span>
+                    <span className="font-bold text-slate-800 font-mono">{detailedUser.email || 'N/A'}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 block font-semibold text-[9px] uppercase">Phone Number</span>
+                    <span className="font-bold text-slate-800">{detailedUser.phone || 'N/A'}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 block font-semibold text-[9px] uppercase">Designation</span>
+                    <span className="font-bold text-slate-800">{detailedUser.designation || 'N/A'}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 block font-semibold text-[9px] uppercase">Department</span>
+                    <span className="font-bold text-slate-800">{detailedUser.department || 'N/A'}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 block font-semibold text-[9px] uppercase">Account Status</span>
+                    <span className={`inline-flex px-2.5 py-0.5 rounded-full text-[9px] font-bold mt-0.5 border ${
+                      detailedUser.status === 'Disabled' ? 'bg-rose-50 text-rose-700 border-rose-100/50' : 'bg-emerald-50 text-emerald-700 border-emerald-100/50'
+                    }`}>{detailedUser.status}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Part 2: Workspace context & system credentials */}
+              <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100 space-y-3">
+                <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">System Privileges & Context</h4>
+                <div className="grid grid-cols-2 gap-3 text-xs">
+                  <div>
+                    <span className="text-slate-400 block font-semibold text-[9px] uppercase">Workspace/Agency</span>
+                    <span className="font-bold text-slate-800">{detailedUser.agencyName || 'N/A'}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 block font-semibold text-[9px] uppercase">Workspace Role</span>
+                    <span className="font-bold text-slate-800">{detailedUser.role || 'N/A'}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 block font-semibold text-[9px] uppercase">Superadmin Rights</span>
+                    <span className={`font-bold ${detailedUser.isSuperAdmin ? 'text-indigo-600 font-extrabold' : 'text-slate-500'}`}>
+                      {detailedUser.isSuperAdmin ? '✓ YES (Root Admin)' : 'No'}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 block font-semibold text-[9px] uppercase">Last Session Login</span>
+                    <span className="font-bold text-slate-800 font-mono">{detailedUser.lastLogin || 'Never'}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 block font-semibold text-[9px] uppercase">Created Date</span>
+                    <span className="font-bold text-slate-800">{detailedUser.createdAt ? new Date(detailedUser.createdAt).toLocaleString() : 'N/A'}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 block font-semibold text-[9px] uppercase">Last Updated</span>
+                    <span className="font-bold text-slate-800">{detailedUser.updatedAt ? new Date(detailedUser.updatedAt).toLocaleString() : 'N/A'}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Part 3: Custom Permissions & Restricted Features */}
+              <div className="space-y-3">
+                <div>
+                  <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Granular Feature Blocks</h4>
+                  {Array.isArray(detailedUser.restrictedFeatures) && detailedUser.restrictedFeatures.length > 0 ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      {detailedUser.restrictedFeatures.map((feat: string) => (
+                        <span key={feat} className="inline-flex items-center px-2 py-0.5 rounded bg-rose-50 border border-rose-100 text-rose-700 text-[10px] font-bold">
+                          {feat}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-[10px] text-slate-400 font-medium">No custom feature locks applied to this profile.</p>
+                  )}
+                </div>
+
+                <div>
+                  <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Explicit Custom Permissions</h4>
+                  {Array.isArray(detailedUser.customPermissions) && detailedUser.customPermissions.length > 0 ? (
+                    <div className="flex flex-wrap gap-1.5 max-h-[120px] overflow-y-auto p-1 bg-slate-50 border border-slate-100 rounded-xl">
+                      {detailedUser.customPermissions.map((perm: string) => (
+                        <span key={perm} className="inline-flex items-center px-2 py-0.5 rounded bg-blue-50 border border-blue-100 text-blue-700 text-[9px] font-bold font-mono">
+                          {perm}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-[10px] text-slate-400 font-medium">Inheriting standard role permissions (no custom override permissions active).</p>
+                  )}
+                </div>
+              </div>
+
+            </div>
+
+            <div className="flex gap-3 pt-4 border-t border-slate-100 mt-6 justify-end">
+              <button
+                type="button"
+                onClick={() => setIsDetailsOpen(false)}
+                className="px-4 py-2 bg-slate-900 text-white rounded-xl text-xs font-bold hover:bg-slate-800 cursor-pointer shadow-sm"
+              >
+                Close Inspector
+              </button>
+            </div>
 
           </div>
         </div>

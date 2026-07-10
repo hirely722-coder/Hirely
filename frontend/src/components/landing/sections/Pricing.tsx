@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { Check, Bot, Zap, Crown, Sparkles, RefreshCw } from "lucide-react";
+import { Check, Bot, Zap, Crown, Sparkles, RefreshCw, X } from "lucide-react";
 import Link from "next/link";
 import { Container } from "../ui/Container";
 import { SectionHeading } from "../ui/SectionHeading";
@@ -17,6 +17,7 @@ export function Pricing() {
   const [plans, setPlans] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [billingCycle, setBillingCycle] = useState<"monthly" | "yearly">("monthly");
+  const [selectedPlanForTrialModal, setSelectedPlanForTrialModal] = useState<any>(null);
 
   useEffect(() => {
     const backendUrl = process.env.NEXT_PUBLIC_BACKEND_API_URL || process.env.NEXT_PUBLIC_BACKEND_URL || "https://hirely-backend.hirly-app.workers.dev";
@@ -147,17 +148,85 @@ export function Pricing() {
                     })}
                   </ul>
 
-                  <Link href={`/login?plan=${plan.slug}&cycle=${billingCycle}`} className="w-full flex mt-8 relative z-10">
-                    <Button size="lg" className="w-full">
-                      {plan.monthlyPrice === 0 ? "Get Started for Free" : "Subscribe Now"}
-                    </Button>
-                  </Link>
+                  {plan.monthlyPrice === 0 ? (
+                    <Link href={`/login?plan=${plan.slug}&cycle=${billingCycle}`} className="w-full flex mt-8 relative z-10">
+                      <Button size="lg" className="w-full">
+                        Get Started for Free
+                      </Button>
+                    </Link>
+                  ) : (
+                    <div className="w-full flex mt-8 relative z-10">
+                      <Button 
+                        size="lg" 
+                        className="w-full"
+                        onClick={() => setSelectedPlanForTrialModal(plan)}
+                      >
+                        Subscribe Now
+                      </Button>
+                    </div>
+                  )}
                 </motion.div>
               );
             })}
           </div>
         )}
       </Container>
+
+      {selectedPlanForTrialModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md">
+          <div className="w-full max-w-md bg-slate-900/90 border border-indigo-500/30 rounded-3xl p-8 shadow-2xl relative">
+            <button
+              onClick={() => setSelectedPlanForTrialModal(null)}
+              className="absolute top-4 right-4 text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-all cursor-pointer"
+            >
+              <X className="h-5 w-5" />
+            </button>
+
+            <div className="text-center mb-6">
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-400/20 text-[10px] font-bold text-indigo-300 mb-3 uppercase tracking-wider">
+                <Sparkles className="h-3 w-3" />
+                <span>Subscription Options</span>
+              </div>
+              <h3 className="text-xl font-bold text-white font-display">
+                Choose How to Start
+              </h3>
+              <p className="text-xs text-slate-400 mt-1 font-medium">
+                Experience full access to {selectedPlanForTrialModal.name} with all premium features enabled.
+              </p>
+            </div>
+
+            <div className="space-y-4">
+              <Link 
+                href={`/login?plan=${selectedPlanForTrialModal.slug}&cycle=${billingCycle}&trial=true`}
+                onClick={() => setSelectedPlanForTrialModal(null)}
+                className="block w-full animate-pulse hover:animate-none"
+              >
+                <div className="w-full p-4 rounded-2xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white font-bold text-xs text-center shadow-lg transition-all cursor-pointer border border-indigo-400/30">
+                  <div className="font-extrabold text-sm flex items-center justify-center gap-1">
+                    <Sparkles className="h-4 w-4 text-amber-300" /> Start 7-Day Free Trial
+                  </div>
+                  <div className="text-[10px] text-indigo-200 mt-0.5 font-normal">100% unrestricted access, upgrade or cancel anytime</div>
+                </div>
+              </Link>
+
+              <Link 
+                href={`/login?plan=${selectedPlanForTrialModal.slug}&cycle=${billingCycle}`}
+                onClick={() => setSelectedPlanForTrialModal(null)}
+                className="block w-full"
+              >
+                <div className="w-full p-4 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white font-bold text-xs text-center border border-slate-700 transition-all cursor-pointer">
+                  <div className="font-extrabold text-sm">Subscribe Immediately</div>
+                  <div className="text-[10px] text-slate-400 mt-0.5 font-normal">Skip trial and set up paid billing cycle now</div>
+                </div>
+              </Link>
+            </div>
+
+            <div className="mt-6 text-center text-[10px] text-slate-500">
+              No credit card required for trial. Cancel anytime.
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   );
 }

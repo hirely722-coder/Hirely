@@ -8,6 +8,37 @@ import {
 import { supabase } from '../../utils/supabase';
 import { computeCandidateMatchData } from './jobMatchHelpers';
 
+function cleanAndParseJson(jsonStr: string) {
+  let cleaned = jsonStr.trim();
+  
+  // Remove markdown code blocks (e.g., ```json ... ```) if present
+  cleaned = cleaned.replace(/^```json\s*/i, '').replace(/```$/, '').trim();
+  
+  try {
+    return JSON.parse(cleaned);
+  } catch (e) {
+    try {
+      // Clean trailing commas and control characters
+      const fixedJson = cleaned
+        .replace(/,\s*([\]}])/g, '$1')
+        .replace(/[\u0000-\u001F\u007F-\u009F]/g, '');
+      return JSON.parse(fixedJson);
+    } catch (innerErr) {
+      return null;
+    }
+  }
+}
+
+function parseArtifactData(text: string) {
+  // Matches <artifact ...> ... </artifact> case-insensitively and with any attributes
+  const match = text.match(/<artifact[^>]*>([\s\S]*?)<\/artifact>/i);
+  if (match) {
+    const rawJson = match[1].trim();
+    return cleanAndParseJson(rawJson);
+  }
+  return null;
+}
+
 interface UseJobDetailsStateProps {
   job: Job;
   candidates: Candidate[];
@@ -645,44 +676,56 @@ export function useJobDetailsState({
           candidates
         })
       });
-      const result = await res.json();
-      if (!res.ok || result.error) {
-        throw new Error(result.error || 'Failed to generate AI insights');
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Failed to initiate AI stream');
       }
 
-      const { taskId } = result;
+      const reader = res.body?.getReader();
+      if (!reader) {
+        throw new Error('Failed to open stream reader');
+      }
 
-      // Poll task status until complete or failed
-      const finalResult = await new Promise<any>((resolve, reject) => {
-        const checkStatus = async () => {
-          try {
-            const statusRes = await fetch(`/api/ai/task-status/${taskId}`);
-            if (!statusRes.ok) {
-              throw new Error('Failed to fetch task status');
-            }
-            const task = await statusRes.json();
-            if (task.status === 'completed') {
-              resolve(task.result);
-            } else if (task.status === 'failed') {
-              reject(new Error(task.error || 'Job tool generation failed on server'));
-            } else {
-              setTimeout(checkStatus, 1500);
-            }
-          } catch (e) {
-            reject(e);
-          }
-        };
-        checkStatus();
-      });
+      const decoder = new TextDecoder();
+      let accumulatedText = '';
 
       setAiFeatureResult({
-        title: finalResult.title,
-        text: finalResult.text,
-        structured: finalResult.structured,
-        data: finalResult.data
+        title: toolKey === 'questions' ? `AI Generated Interview Questions: ${job.title}` : 'AI Insights',
+        text: '',
+        structured: false
       });
-      logActivity('AI Feature Triggered', `Generated ${finalResult.title} using Live AI.`);
-      triggerToast('✓ AI Insights calculated and populated below.');
+
+      try {
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+
+          const chunk = decoder.decode(value, { stream: true });
+          accumulatedText += chunk;
+
+          // Check if there is an error code in the stream
+          if (accumulatedText.includes('[Error: ')) {
+            const errorMatch = accumulatedText.match(/\[Error: (.*?)\]/);
+            if (errorMatch) {
+              throw new Error(errorMatch[1]);
+            }
+          }
+
+          // Update state live
+          setAiFeatureResult(prev => ({
+            title: prev?.title || (toolKey === 'questions' ? `AI Generated Interview Questions: ${job.title}` : 'AI Insights'),
+            text: accumulatedText,
+            structured: toolKey === 'questions',
+            data: toolKey === 'questions' ? parseArtifactData(accumulatedText) : undefined
+          }));
+        }
+      } finally {
+        reader.releaseLock();
+      }
+
+      logActivity('AI Feature Triggered', `Generated AI insights for ${toolKey} using Live AI.`);
+      triggerToast('✓ AI Insights generated successfully.');
     } catch (err: any) {
       triggerToast(`❌ AI Error: ${err.message || 'Failed to contact AI Copilot.'}`);
     } finally {

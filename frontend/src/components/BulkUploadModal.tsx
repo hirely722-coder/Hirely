@@ -47,6 +47,11 @@ export function BulkUploadModal({
   const [isOpenLocal, setIsOpenLocal] = useState(isOpen);
   const [activeTab, setActiveTab] = useState<'profile' | 'experience' | 'bio'>('profile');
 
+  // Calculate dynamic progress percentage based on parsed items
+  const totalToParse = bulkItems.length;
+  const completedCount = bulkItems.filter(item => item.status === 'success' || item.status === 'error').length;
+  const progressPercent = totalToParse > 0 ? Math.round((completedCount / totalToParse) * 100) : 0;
+
   useEffect(() => {
     setIsOpenLocal(isOpen);
   }, [isOpen]);
@@ -449,7 +454,10 @@ export function BulkUploadModal({
                       <span className="text-xs font-semibold text-slate-700 font-sans">{parsingStep}</span>
                     </div>
                     <div className="w-full bg-slate-200 h-1.5 rounded-full overflow-hidden">
-                      <div className="bg-blue-600 h-full w-2/3" />
+                      <div 
+                        className="bg-blue-600 h-full transition-all duration-300 ease-out" 
+                        style={{ width: `${progressPercent}%` }}
+                      />
                     </div>
                     <p className="text-[10px] text-slate-400 font-sans">Hirly is structuring skills, education, experience, and contact info in parallel.</p>
                   </div>

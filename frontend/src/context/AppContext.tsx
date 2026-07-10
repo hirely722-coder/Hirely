@@ -104,6 +104,9 @@ interface AppContextType {
   subscriptionUsage: any;
   hasAccess: (featureKey: string) => boolean;
   hasReachedLimit: (limitKey: string) => boolean;
+  isTrialActive: () => boolean;
+  isTrialExpired: () => boolean;
+  getTrialDaysRemaining: () => number;
 
   handleSaveRolePermissions: (roleId: string, permissions: string[]) => Promise<void>;
   handleCreateCustomRole: (name: string, permissions: string[]) => Promise<void>;
@@ -119,6 +122,9 @@ interface AppContextType {
   logout: () => Promise<void>;
   needsOnboarding: boolean;
   setNeedsOnboarding: React.Dispatch<React.SetStateAction<boolean>>;
+  token: string | null;
+  showUpgradeSuccess: boolean;
+  setShowUpgradeSuccess: React.Dispatch<React.SetStateAction<boolean>>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -149,6 +155,7 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [subscriptionUsage, setSubscriptionUsage] = useState<any | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [toast, setToast] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+  const [showUpgradeSuccess, setShowUpgradeSuccess] = useState(false);
 
   const [notifications, setNotifications] = useState<Array<{ id: string; text: string; time: string; read: boolean }>>([]);
   const notificationsLoadedRef = useRef(false);
@@ -576,14 +583,69 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
   }, [token, authInitialized]);
 
+  const isTrialActive = (): boolean => {
+    return !!(
+      subscriptionPlan?.isTrial &&
+      subscriptionPlan?.status === 'active' &&
+      subscriptionPlan?.trialEndDate &&
+      new Date(subscriptionPlan.trialEndDate) >= new Date()
+    );
+  };
+
+  const isTrialExpired = (): boolean => {
+    return !!(
+      subscriptionPlan?.isTrial &&
+      (subscriptionPlan?.status === 'expired' ||
+        (subscriptionPlan?.trialEndDate && new Date(subscriptionPlan.trialEndDate) < new Date()))
+    );
+  };
+
+  const getTrialDaysRemaining = (): number => {
+    if (!subscriptionPlan?.trialEndDate) return 0;
+    const diffMs = new Date(subscriptionPlan.trialEndDate).getTime() - Date.now();
+    return Math.max(0, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
+  };
+
+  // Dynamic Trial Reminder in-app notifications
+  useEffect(() => {
+    if (subscriptionPlan && subscriptionPlan.isTrial && subscriptionPlan.status === 'active' && subscriptionPlan.trialEndDate) {
+      const trialEnd = new Date(subscriptionPlan.trialEndDate);
+      const diffMs = trialEnd.getTime() - Date.now();
+      const daysRemaining = Math.max(0, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
+      
+      if (daysRemaining <= 3) {
+        const notifId = `trial-reminder-${daysRemaining}`;
+        const hasNotif = notifications.some(n => n.id === notifId);
+        
+        if (!hasNotif) {
+          const text = daysRemaining === 0 
+            ? "🚨 Welcome to your trial's last day! Your 7-day free trial expires today. Upgrade now to ensure uninterrupted access." 
+            : `🎉 You have ${daysRemaining} days remaining on your Hirely Free Trial with full feature access. Upgrade anytime!`;
+          
+          setNotifications(prev => [
+            {
+              id: notifId,
+              text,
+              time: 'Just now',
+              read: false
+            },
+            ...prev
+          ]);
+        }
+      }
+    }
+  }, [subscriptionPlan]);
+
   const hasAccess = (featureKey: string): boolean => {
     if (isSuperAdmin) return true;
+    if (isTrialActive()) return true;
     if (!subscriptionPlan || !subscriptionPlan.features) return true;
     return !!subscriptionPlan.features[featureKey];
   };
 
   const hasReachedLimit = (limitKey: string): boolean => {
     if (isSuperAdmin) return false;
+    if (isTrialActive()) return false;
     if (!subscriptionPlan || !subscriptionPlan.limits || !subscriptionUsage) return false;
     
     const limit = subscriptionPlan.limits[limitKey];
@@ -1602,6 +1664,9 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       subscriptionUsage,
       hasAccess,
       hasReachedLimit,
+      isTrialActive,
+      isTrialExpired,
+      getTrialDaysRemaining,
       handleSaveRolePermissions,
       handleCreateCustomRole,
       handleDeleteCustomRole,
@@ -1616,7 +1681,10 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       setNotifications,
       addNotification,
       needsOnboarding,
-      setNeedsOnboarding
+      setNeedsOnboarding,
+      token,
+      showUpgradeSuccess,
+      setShowUpgradeSuccess
     }}>
       {children}
     </AppContext.Provider>

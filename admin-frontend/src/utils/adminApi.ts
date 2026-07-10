@@ -10,7 +10,12 @@ export async function fetchAdminApi(path: string, options: RequestInit = {}) {
     ...(options.headers || {})
   };
 
-  const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'https://hirely-backend.hirly-app.workers.dev'}${path}`, {
+  const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL;
+  if (!backendUrl) {
+    throw new Error('Missing NEXT_PUBLIC_BACKEND_URL environment variable.');
+  }
+
+  const response = await fetch(`${backendUrl}${path}`, {
     ...options,
     headers
   });

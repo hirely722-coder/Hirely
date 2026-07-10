@@ -2,7 +2,7 @@ import React from 'react';
 import { 
   ArrowLeft, Edit2, Trash2, Mail, Phone, MessageSquare, Calendar, 
   MapPin, Building2, Clock, GraduationCap, Briefcase, Database, 
-  FileText, CheckCircle2 
+  FileText, CheckCircle2, Copy 
 } from 'lucide-react';
 import { Candidate, Job, CommunicationLog } from '../types';
 
@@ -47,6 +47,7 @@ export function CandidateDetailsView({
   showToast,
   startEdit
 }: CandidateDetailsViewProps) {
+  const [useMonospace, setUseMonospace] = React.useState(false);
   const prevCompanyMap: Record<string, string> = {
     'Emily Watson': 'Netlify',
     'Marcus Vance': 'Stripe',
@@ -361,23 +362,54 @@ export function CandidateDetailsView({
             </div>
           </div>
 
-          {/* Monospace Resume Preview */}
+          {/* Resume Preview Sheet */}
           <div className="bg-white border border-slate-200/80 rounded-xl p-5 shadow-sm space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3 flex-wrap gap-2">
               <div className="flex items-center gap-2">
                 <FileText className="h-4.5 w-4.5 text-blue-600" />
                 <h2 className="text-xs font-mono uppercase text-slate-400 tracking-wider font-bold">Extracted Resume Contents</h2>
               </div>
-              {selectedCandidate.resumeFileName && (
-                <div className="flex items-center gap-1.5 p-1 px-2.5 bg-blue-50 border border-blue-100 rounded-md text-[10px] text-blue-700">
-                  <FileText className="h-3 w-3" />
-                  <span className="font-semibold truncate max-w-40">{selectedCandidate.resumeFileName}</span>
-                </div>
-              )}
+              <div className="flex items-center gap-2">
+                {/* Font Toggle Option */}
+                <button
+                  type="button"
+                  onClick={() => setUseMonospace(!useMonospace)}
+                  className="px-2.5 py-1 text-[10px] font-semibold border border-slate-200 text-slate-500 rounded-md hover:bg-slate-50 hover:text-slate-700 transition-all cursor-pointer font-sans"
+                >
+                  {useMonospace ? 'Switch to Sans-Serif' : 'Switch to Monospace'}
+                </button>
+
+                {/* Copy Button */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(selectedCandidate.resumeText || '');
+                    showToast('Resume text copied to clipboard!', 'success');
+                  }}
+                  className="px-2.5 py-1 text-[10px] font-semibold bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-600 rounded-md transition-all cursor-pointer flex items-center gap-1 font-sans"
+                >
+                  <Copy className="h-3.5 w-3.5" />
+                  Copy Text
+                </button>
+
+                {selectedCandidate.resumeFileName && (
+                  <div className="flex items-center gap-1.5 p-1 px-2.5 bg-blue-50 border border-blue-100 rounded-md text-[10px] text-blue-700 font-sans">
+                    <FileText className="h-3 w-3" />
+                    <span className="font-semibold truncate max-w-40">{selectedCandidate.resumeFileName}</span>
+                  </div>
+                )}
+              </div>
             </div>
-            <pre className="text-xs font-mono text-slate-700 bg-slate-900 text-slate-100 p-5 rounded-lg overflow-auto max-h-96 whitespace-pre-wrap leading-relaxed shadow-inner">
-              {selectedCandidate.resumeText}
-            </pre>
+            
+            <div className="border border-slate-100 bg-slate-50/50 rounded-xl shadow-inner">
+              <div 
+                className={`bg-white border border-slate-200/60 rounded-lg p-6 shadow-sm overflow-auto max-h-[480px] leading-relaxed whitespace-pre-wrap ${
+                  useMonospace ? 'font-mono text-xs text-slate-800 bg-slate-950/5 text-slate-900' : 'font-sans text-sm text-slate-600'
+                }`}
+              >
+                {selectedCandidate.resumeText}
+              </div>
+            </div>
           </div>
 
         </div>

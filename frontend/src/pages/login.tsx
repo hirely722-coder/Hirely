@@ -36,6 +36,14 @@ export default function Login() {
     }
   }, [user]);
 
+  // Cache signup query parameters in localStorage for onboarding step
+  useEffect(() => {
+    const { plan, cycle, trial } = router.query;
+    if (plan) localStorage.setItem('hirely_setup_plan', plan as string);
+    if (cycle) localStorage.setItem('hirely_setup_cycle', cycle as string);
+    if (trial) localStorage.setItem('hirely_setup_trial', trial as string);
+  }, [router.query]);
+
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -103,8 +111,8 @@ export default function Login() {
     try {
       const { inviteToken } = router.query;
       const redirectUrl = inviteToken 
-        ? `${window.location.origin}/accept-invite?token=${inviteToken}`
-        : window.location.origin;
+        ? `${window.location.origin}/auth/callback?inviteToken=${inviteToken}`
+        : `${window.location.origin}/auth/callback`;
 
       const { error: googleErr } = await supabase.auth.signInWithOAuth({
         provider: 'google',

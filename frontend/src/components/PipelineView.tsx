@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import { useRouter } from 'next/router';
 import { 
   Building2, 
   ChevronLeft, 
@@ -113,6 +114,7 @@ export default function PipelineView({
   onUpdateCandidateStage,
   isLoading = false
 }: PipelineViewProps) {
+  const router = useRouter();
   const [draggedCandidateId, setDraggedCandidateId] = useState<string | null>(null);
   const [activeDropStage, setActiveDropStage] = useState<Exclude<Candidate['status'], 'Pool'> | null>(null);
   
@@ -160,9 +162,10 @@ export default function PipelineView({
       return {
         ...jc.candidate,
         status: jc.stage, // override status with per-job stage
-        jobCandidateId: jc.id // attach junction id
+        jobCandidateId: jc.id, // attach junction id
+        jobId: jc.jobId // attach jobId
       };
-    }).filter(Boolean) as (Candidate & { jobCandidateId?: string })[];
+    }).filter(Boolean) as (Candidate & { jobCandidateId?: string; jobId?: string })[];
   }, [jobCandidates]);
 
   // Calculate customized match score for candidate against the currently filtered job
@@ -547,7 +550,15 @@ export default function PipelineView({
                         key={candidate.id}
                         draggable
                         onDragStart={(e) => handleDragStart(e, candidate.id)}
-                        className={`p-3 bg-white border-2 border-slate-300/95 rounded-lg shadow-2xs hover:shadow-sm cursor-grab active:cursor-grabbing hover:border-slate-400 transition-all duration-200 group relative flex flex-col justify-between ${
+                        onClick={(e) => {
+                          const target = e.target as HTMLElement;
+                          if (target.closest('button')) return;
+                          const jobId = (candidate as any).jobId;
+                          if (jobId) {
+                            router.push(`/jobs/${jobId}`);
+                          }
+                        }}
+                        className={`p-3 bg-white border-2 border-slate-300/95 rounded-lg shadow-2xs hover:shadow-sm cursor-pointer active:cursor-grabbing hover:border-slate-400 transition-all duration-200 group relative flex flex-col justify-between ${
                           draggedCandidateId === candidate.id ? 'opacity-35 border-dashed border-blue-400 bg-slate-50' : ''
                         }`}
                       >
@@ -585,6 +596,18 @@ export default function PipelineView({
 
                           {/* Candidate metadata details */}
                           <div className="space-y-1 text-[9.5px] text-slate-500 font-sans border-t border-slate-100 pt-2">
+                            {/* Job Title */}
+                            {(() => {
+                              const matchingJob = jobs.find(j => j.id === (candidate as any).jobId);
+                              if (!matchingJob) return null;
+                              return (
+                                <div className="flex items-center gap-1 text-blue-600 font-bold bg-blue-50/70 border border-blue-100/40 px-1.5 py-0.5 rounded shadow-3xs mb-1 hover:bg-blue-100/80 cursor-pointer hover:underline transition-all">
+                                  <Briefcase className="h-2.5 w-2.5 text-blue-500 shrink-0" />
+                                  <span className="truncate">{matchingJob.title}</span>
+                                </div>
+                              );
+                            })()}
+
                             {/* Experience */}
                             <div className="flex items-center gap-1">
                               <Award className="h-3 w-3 text-slate-400 shrink-0" />

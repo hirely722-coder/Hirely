@@ -26,20 +26,22 @@ export function usePermission() {
     if (!currentUserRole) return false;
     const roleLower = currentUserRole.toLowerCase();
 
-    // Owner bypasses all locks
-    if (roleLower === 'owner') return false;
-
-    // Check individual member restrictions
-    const userRestricted = currentUserRestrictedFeatures || [];
-    if (userRestricted.map(f => f.toLowerCase()).includes(feature.toLowerCase())) {
-      return true;
+    // 1. Check member-level restrictions (Owner bypasses)
+    if (roleLower !== 'owner') {
+      const userRestricted = currentUserRestrictedFeatures || [];
+      if (userRestricted.map(f => f.toLowerCase()).includes(feature.toLowerCase())) {
+        return true;
+      }
     }
 
-    // Admin bypasses global workspace locks, other roles blocked
-    if (roleLower === 'admin') return false;
+    // 2. Check global workspace locks (Applies to all users)
+    if (lockedFeatures) {
+      if (lockedFeatures.map(f => f.toLowerCase()).includes(feature.toLowerCase())) {
+        return true;
+      }
+    }
 
-    if (!lockedFeatures) return false;
-    return lockedFeatures.map(f => f.toLowerCase()).includes(feature.toLowerCase());
+    return false;
   };
 
   return {

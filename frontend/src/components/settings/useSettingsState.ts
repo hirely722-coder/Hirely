@@ -20,7 +20,7 @@ export function useSettingsState({
   setNotifications,
   showToast
 }: UseSettingsStateProps) {
-  const [activeTab, setActiveTab] = useState<'general' | 'appearance' | 'team' | 'email' | 'notifications' | 'custom_fields' | 'rbac' | 'locks' | 'logs'>('general');
+  const [activeTab, setActiveTab] = useState<'general' | 'appearance' | 'team' | 'email' | 'notifications' | 'custom_fields' | 'rbac' | 'locks' | 'logs' | 'billing'>('general');
   const [savedMessage, setSavedMessage] = useState(false);
 
   // General tab form values

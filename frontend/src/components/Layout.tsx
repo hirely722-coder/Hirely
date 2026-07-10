@@ -4,15 +4,17 @@ import Link from 'next/link';
 import { 
   LayoutDashboard, Building2, Briefcase, Users, GitMerge, Mail, Sparkles, Settings, 
   LogOut, Shield, ChevronDown, Bell, Menu, X, CheckSquare, Plus, CreditCard, Activity, Database, MessageSquare, Lock,
-  Search, Palette, Check, User, ChevronRight
+  Search, Palette, Check, User, ChevronRight, ShieldAlert
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import { supabase } from '../utils/supabase';
 import { usePermission } from '../hooks/usePermission';
 import { injectThemeCSS } from './theme/themeHelpers';
 import { THEME_PRESETS } from './theme/themePresets';
 import { EmailComposeModal, WhatsAppComposeModal, InterviewSchedulerModal, AddTaskModal } from './GlobalModals';
 import CSVImportModal from './CSVImportModal';
 import BackgroundImportWidget from './BackgroundImportWidget';
+import UpgradeSuccessLoader from './UpgradeSuccessLoader';
 import { Company, Job, Candidate, Task, EmailTemplate, CustomTheme } from '../types';
 
 export default function Layout({ children }: { children: React.ReactNode }) {
@@ -66,8 +68,15 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     setAddTaskCandidate,
     notifications,
     setNotifications,
-    needsOnboarding
+    needsOnboarding,
+    isTrialActive,
+    isTrialExpired,
+    token,
+    showUpgradeSuccess,
+    setShowUpgradeSuccess
   } = useApp();
+
+  const [isUpgrading, setIsUpgrading] = useState(false);
 
   const [mounted, setMounted] = useState(false);
   const [theme, setTheme] = useState<string>('slate');
@@ -82,16 +91,16 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     setMounted(true);
   }, []);
 
-  // Redirect to login if user session is absent and we aren't on login, landing, onboarding, or invite pages
+  // Redirect to login if user session is absent and we aren't on login, landing, onboarding, invite, or callback pages
   useEffect(() => {
-    if (!isLoading && !user && router.pathname !== '/login' && router.pathname !== '/admin/login' && router.pathname !== '/' && router.pathname !== '/onboarding' && router.pathname !== '/accept-invite') {
+    if (!isLoading && !user && router.pathname !== '/login' && router.pathname !== '/' && router.pathname !== '/onboarding' && router.pathname !== '/accept-invite' && router.pathname !== '/auth/callback') {
       router.replace('/login');
     }
   }, [user, isLoading, router.pathname]);
 
   // Redirect to onboarding if user is logged in but lacks a workspace, and is trying to access dashboard pages
   useEffect(() => {
-    if (!isLoading && user && needsOnboarding && router.pathname !== '/onboarding' && router.pathname !== '/accept-invite') {
+    if (!isLoading && user && needsOnboarding && router.pathname !== '/onboarding' && router.pathname !== '/accept-invite' && router.pathname !== '/auth/callback') {
       router.replace('/onboarding');
     }
   }, [user, isLoading, needsOnboarding, router.pathname]);
@@ -175,17 +184,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
   const { can, isLocked } = usePermission();
 
-  // Protect /admin routes
-  useEffect(() => {
-    if (router.pathname === '/admin/login') return;
-    if (!isLoading && user && router.pathname.startsWith('/admin') && !isSuperAdmin) {
-      showToast('Access Denied: Super Admin role required', 'error');
-      router.replace('/dashboard');
-    }
-  }, [user, isLoading, router.pathname, isSuperAdmin]);
-
   // Early Returns placed AFTER all hooks have run
-  if (router.pathname === '/login' || router.pathname === '/admin/login' || router.pathname === '/onboarding' || router.pathname === '/accept-invite') {
+  if (router.pathname === '/login' || router.pathname === '/onboarding' || router.pathname === '/accept-invite' || router.pathname === '/auth/callback') {
     return <div className="min-h-screen bg-slate-950 text-white font-sans">{children}</div>;
   }
 
@@ -312,6 +312,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     { name: 'Tasks', path: '/tasks', icon: CheckSquare, badge: Array.isArray(tasks) ? tasks.filter(t => t.status === 'Pending').length : 0 },
     { name: 'Templates', path: '/templates', icon: Mail },
     { name: 'Copilot', path: '/copilot', icon: Sparkles },
+    { name: 'Support', path: '/support', icon: MessageSquare },
     { name: 'Settings', path: '/settings', icon: Settings },
   ];
   
@@ -387,6 +388,280 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   });
 
   const currentNavItems = isAdminPath ? adminNavItems : filteredNavItems;
+
+  const isExpired = isTrialExpired();
+  const showLockout = isExpired && 
+    router.pathname !== '/login' && 
+    router.pathname !== '/' && 
+    router.pathname !== '/onboarding' && 
+    router.pathname !== '/accept-invite' && 
+    router.pathname !== '/auth/callback';
+
+  if (showLockout) {
+    return (
+      <div className="fixed inset-0 z-50 bg-slate-950 flex flex-col items-center justify-center p-4 overflow-y-auto text-white">
+        <div className="w-full max-w-4xl bg-slate-900/55 border border-slate-800 rounded-[2.5rem] p-8 md:p-12 shadow-2xl relative backdrop-blur-md text-center space-y-8 animate-scale-up">
+          <div className="space-y-3">
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-500/10 border border-rose-400/20 text-[10px] font-bold text-rose-400 uppercase tracking-widest">
+              <ShieldAlert className="h-3.5 w-3.5" /> Trial Expired
+            </span>
+            <h2 className="text-2xl md:text-4xl font-extrabold text-white font-display tracking-tight leading-none mt-2">
+              Your 7-Day Free Trial Has Ended
+            </h2>
+            <p className="text-slate-400 text-xs md:text-sm font-medium max-w-xl mx-auto leading-relaxed">
+              We hope you enjoyed Hirely! All your data is safe, but you need to select a plan to unlock full recruitment dashboard capabilities.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-left">
+            {/* Standard Plan */}
+            <div className="bg-slate-800/40 border border-slate-800 rounded-3xl p-6 flex flex-col justify-between hover:border-slate-700 transition-all">
+              <div className="space-y-4">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-100">Standard</h3>
+                  <p className="text-[10px] text-slate-400 mt-1">Core ATS & Pipeline</p>
+                </div>
+                <div className="flex items-baseline gap-1">
+                  <span className="text-2xl font-black font-mono">₹2,000</span>
+                  <span className="text-[10px] text-slate-400">/month</span>
+                </div>
+                <ul className="space-y-2 text-[10px] text-slate-300 font-medium">
+                  <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-indigo-400" /> Up to 5 team members</li>
+                  <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-indigo-400" /> Unlimited jobs</li>
+                  <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-indigo-400" /> Kanban Pipeline</li>
+                </ul>
+              </div>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (isUpgrading) return;
+                  setIsUpgrading(true);
+                  try {
+                    const orderRes = await fetch('/api/payments/create-order', {
+                      method: 'POST',
+                      headers: {
+                        'Content-Type': 'application/json',
+                        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                      },
+                      body: JSON.stringify({ planSlug: 'starter' }),
+                    });
+
+                    if (!orderRes.ok) {
+                      const errData = await orderRes.json();
+                      throw new Error(errData.error || 'Failed to create order');
+                    }
+                    const orderData = await orderRes.json();
+
+                    const options = {
+                      key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || 'rzp_test_TBpe5QK85Qnpak',
+                      amount: orderData.amount,
+                      currency: orderData.currency,
+                      name: "Hirely AI Platform",
+                      description: "Upgrade License to STANDARD",
+                      order_id: orderData.orderId,
+                      handler: async function (response: any) {
+                        const verifyRes = await fetch('/api/payments/verify-payment', {
+                          method: 'POST',
+                          headers: {
+                            'Content-Type': 'application/json',
+                            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                          },
+                          body: JSON.stringify({
+                            razorpayPaymentId: response.razorpay_payment_id,
+                            razorpayOrderId: response.razorpay_order_id,
+                            razorpaySignature: response.razorpay_signature,
+                            planSlug: 'starter'
+                          })
+                        });
+
+                        if (verifyRes.ok) {
+                          setShowUpgradeSuccess(true);
+                          setTimeout(() => {
+                            window.location.reload();
+                          }, 3500);
+                        } else {
+                          const errData = await verifyRes.json();
+                          showToast(errData.error || 'Payment verification failed', 'error');
+                        }
+                      },
+                      prefill: {
+                        email: user?.email || '',
+                        name: user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'User'
+                      },
+                      theme: {
+                        color: "#3161f5"
+                      },
+                      modal: {
+                        ondismiss: function () {
+                          showToast('Upgrade cancelled by user.', 'error');
+                        }
+                      }
+                    };
+
+                    const rzp = new (window as any).Razorpay(options);
+                    rzp.on('payment.failed', function (resp: any) {
+                      showToast(`Payment failed: ${resp.error.description}`, 'error');
+                    });
+                    rzp.open();
+                  } catch (err: any) {
+                    showToast(err.message || 'Upgrade failed', 'error');
+                  } finally {
+                    setIsUpgrading(false);
+                  }
+                }}
+                disabled={isUpgrading}
+                className={`w-full mt-6 py-2.5 bg-slate-800 hover:bg-slate-700 text-white rounded-2xl text-[11px] font-bold transition-all border border-slate-700 cursor-pointer text-center flex items-center justify-center gap-2 ${
+                  isUpgrading ? 'opacity-50 cursor-not-allowed' : ''
+                }`}
+              >
+                {isUpgrading ? 'Loading...' : 'Choose Standard'}
+              </button>
+            </div>
+
+            {/* AI Pro Plan */}
+            <div className="bg-indigo-950/20 border border-indigo-500/30 rounded-3xl p-6 flex flex-col justify-between hover:border-indigo-500/50 transition-all relative">
+              <span className="absolute -top-3 left-1/2 -translate-x-1/2 px-2.5 py-0.5 bg-indigo-600 border border-indigo-400/20 text-[9px] font-black uppercase rounded-full text-white tracking-wider">
+                Recommended
+              </span>
+              <div className="space-y-4">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-100">AI Pro</h3>
+                  <p className="text-[10px] text-slate-400 mt-1">Full AI Copilot & Sourcing</p>
+                </div>
+                <div className="flex items-baseline gap-1">
+                  <span className="text-2xl font-black font-mono">₹5,000</span>
+                  <span className="text-[10px] text-slate-400">/month</span>
+                </div>
+                <ul className="space-y-2 text-[10px] text-slate-300 font-medium">
+                  <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-indigo-400" /> Unlimited team members</li>
+                  <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-indigo-400" /> Full Voice AI Copilot</li>
+                  <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-indigo-400" /> AI Resume parsing</li>
+                </ul>
+              </div>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (isUpgrading) return;
+                  setIsUpgrading(true);
+                  try {
+                    const orderRes = await fetch('/api/payments/create-order', {
+                      method: 'POST',
+                      headers: {
+                        'Content-Type': 'application/json',
+                        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                      },
+                      body: JSON.stringify({ planSlug: 'growth' }),
+                    });
+
+                    if (!orderRes.ok) {
+                      const errData = await orderRes.json();
+                      throw new Error(errData.error || 'Failed to create order');
+                    }
+                    const orderData = await orderRes.json();
+
+                    const options = {
+                      key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || 'rzp_test_TBpe5QK85Qnpak',
+                      amount: orderData.amount,
+                      currency: orderData.currency,
+                      name: "Hirely AI Platform",
+                      description: "Upgrade License to AI PRO",
+                      order_id: orderData.orderId,
+                      handler: async function (response: any) {
+                        const verifyRes = await fetch('/api/payments/verify-payment', {
+                          method: 'POST',
+                          headers: {
+                            'Content-Type': 'application/json',
+                            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                          },
+                          body: JSON.stringify({
+                            razorpayPaymentId: response.razorpay_payment_id,
+                            razorpayOrderId: response.razorpay_order_id,
+                            razorpaySignature: response.razorpay_signature,
+                            planSlug: 'growth'
+                          })
+                        });
+
+                        if (verifyRes.ok) {
+                          setShowUpgradeSuccess(true);
+                          setTimeout(() => {
+                            window.location.reload();
+                          }, 3500);
+                        } else {
+                          const errData = await verifyRes.json();
+                          showToast(errData.error || 'Payment verification failed', 'error');
+                        }
+                      },
+                      prefill: {
+                        email: user?.email || '',
+                        name: user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'User'
+                      },
+                      theme: {
+                        color: "#3161f5"
+                      },
+                      modal: {
+                        ondismiss: function () {
+                          showToast('Upgrade cancelled by user.', 'error');
+                        }
+                      }
+                    };
+
+                    const rzp = new (window as any).Razorpay(options);
+                    rzp.on('payment.failed', function (resp: any) {
+                      showToast(`Payment failed: ${resp.error.description}`, 'error');
+                    });
+                    rzp.open();
+                  } catch (err: any) {
+                    showToast(err.message || 'Upgrade failed', 'error');
+                  } finally {
+                    setIsUpgrading(false);
+                  }
+                }}
+                disabled={isUpgrading}
+                className={`w-full mt-6 py-2.5 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white rounded-2xl text-[11px] font-extrabold transition-all cursor-pointer border border-indigo-400/20 text-center shadow-md shadow-indigo-900/50 flex items-center justify-center gap-2 ${
+                  isUpgrading ? 'opacity-50 cursor-not-allowed' : ''
+                }`}
+              >
+                {isUpgrading ? 'Loading...' : 'Choose AI Pro'}
+              </button>
+            </div>
+
+            {/* Enterprise Plan */}
+            <div className="bg-slate-800/40 border border-slate-800 rounded-3xl p-6 flex flex-col justify-between hover:border-slate-700 transition-all">
+              <div className="space-y-4">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-100">Enterprise</h3>
+                  <p className="text-[10px] text-slate-400 mt-1">Custom agency deployments</p>
+                </div>
+                <div className="flex items-baseline gap-1">
+                  <span className="text-xl font-black font-mono">Custom</span>
+                </div>
+                <ul className="space-y-2 text-[10px] text-slate-300 font-medium">
+                  <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-indigo-400" /> Dedicated database</li>
+                  <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-indigo-400" /> Custom branding & CORS</li>
+                  <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-indigo-400" /> 24/7 SLA Priority</li>
+                </ul>
+              </div>
+              <a
+                href="mailto:sales@hirely.ai?subject=Enterprise Subscription Request"
+                className="w-full mt-6 py-2.5 bg-slate-800 hover:bg-slate-700 text-white rounded-2xl text-[11px] font-bold transition-all border border-slate-700 cursor-pointer text-center block"
+              >
+                Contact Sales
+              </a>
+            </div>
+          </div>
+
+          <div className="flex gap-4 items-center justify-center pt-4">
+            <button
+              onClick={() => logout()}
+              className="text-xs text-slate-400 hover:text-white transition-all underline cursor-pointer"
+            >
+              Sign out from this workspace
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={`flex h-screen bg-slate-50 font-sans overflow-hidden theme-${theme}`}>
@@ -833,6 +1108,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         </div>
       )}
 
+      {showUpgradeSuccess && <UpgradeSuccessLoader />}
     </div>
   );
 }
