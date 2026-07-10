@@ -3299,9 +3299,6 @@ app.post('/api/payments/verify-payment', async (c) => {
   }
 });
 
-app.get('/api/payments/webhook', async (c) => {
-  return c.text('Hirely Razorpay Webhook endpoint is active and listening for POST requests.');
-});
 
 app.post('/api/payments/webhook', async (c) => {
   try {
