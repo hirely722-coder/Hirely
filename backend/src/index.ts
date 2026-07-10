@@ -3361,6 +3361,7 @@ app.post('/api/payments/webhook', async (c) => {
       const renewalDate = new Date();
       renewalDate.setMonth(renewalDate.getMonth() + 1);
 
+      // Perform update on workspaces table
       const { error: updateError } = await supabase
         .from('workspaces')
         .update({
@@ -3380,13 +3381,295 @@ app.post('/api/payments/webhook', async (c) => {
         throw updateError;
       }
 
+      // Log transaction record in database
+      const paymentId = event === 'payment.captured' ? entity.id : (entity.payment_id || `pay_order_${entity.id}`);
+      await supabase
+        .from('billing_transactions')
+        .insert({
+          id: paymentId,
+          workspace_id: workspaceId,
+          amount: entity.amount,
+          currency: entity.currency || 'INR',
+          status: 'captured',
+          event_type: event,
+          plan_slug: planSlug
+        });
+
       console.log(`Workspace ${workspaceId} successfully upgraded via Webhook to ${planSlug}`);
+    } 
+    
+    else if (event === 'subscription.charged') {
+      const paymentEntity = body.payload.payment.entity;
+      const subscriptionEntity = body.payload.subscription.entity;
+      const notes = subscriptionEntity.notes || paymentEntity.notes || {};
+      const workspaceId = notes.workspace_id;
+      const planSlug = notes.plan_slug || 'growth';
+
+      if (workspaceId) {
+        const renewalDate = new Date();
+        renewalDate.setMonth(renewalDate.getMonth() + 1);
+
+        await supabase
+          .from('workspaces')
+          .update({
+            subscription_status: 'active',
+            renewal_date: renewalDate.toISOString(),
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', workspaceId);
+
+        await supabase
+          .from('billing_transactions')
+          .insert({
+            id: paymentEntity.id,
+            workspace_id: workspaceId,
+            amount: paymentEntity.amount,
+            currency: paymentEntity.currency || 'INR',
+            status: 'captured',
+            event_type: 'subscription.charged',
+            plan_slug: planSlug
+          });
+
+        console.log(`Workspace ${workspaceId} subscription successfully renewed via webhook.`);
+      }
+    } 
+    
+    else if (event === 'subscription.cancelled' || event === 'subscription.halted') {
+      const subscriptionEntity = body.payload.subscription.entity;
+      const notes = subscriptionEntity.notes || {};
+      const workspaceId = notes.workspace_id;
+
+      if (workspaceId) {
+        await supabase
+          .from('workspaces')
+          .update({
+            subscription_status: event === 'subscription.cancelled' ? 'cancelled' : 'expired',
+            subscription_type: 'trial',
+            is_trial: true,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', workspaceId);
+
+        console.log(`Workspace ${workspaceId} subscription status set to inactive due to: ${event}`);
+      }
+    } 
+    
+    else if (event === 'refund.processed') {
+      const refundEntity = body.payload.refund.entity;
+      const originalPaymentId = refundEntity.payment_id;
+
+      // Look up original transaction to find workspace_id
+      const { data: originalTx } = await supabase
+        .from('billing_transactions')
+        .select('*')
+        .eq('id', originalPaymentId)
+        .single();
+
+      if (originalTx) {
+        await supabase
+          .from('workspaces')
+          .update({
+            subscription_status: 'refunded',
+            subscription_type: 'trial',
+            is_trial: true,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', originalTx.workspace_id);
+
+        await supabase
+          .from('billing_transactions')
+          .insert({
+            id: refundEntity.id,
+            workspace_id: originalTx.workspace_id,
+            amount: refundEntity.amount,
+            currency: refundEntity.currency || 'INR',
+            status: 'refunded',
+            event_type: 'refund.processed',
+            plan_slug: originalTx.plan_slug
+          });
+
+        console.log(`Workspace ${originalTx.workspace_id} subscription refunded successfully.`);
+      }
+    } 
+    
+    else if (event === 'payment.dispute.created') {
+      const disputeEntity = body.payload.dispute.entity;
+      const originalPaymentId = disputeEntity.payment_id;
+
+      const { data: originalTx } = await supabase
+        .from('billing_transactions')
+        .select('*')
+        .eq('id', originalPaymentId)
+        .single();
+
+      if (originalTx) {
+        await supabase
+          .from('workspaces')
+          .update({
+            subscription_status: 'suspended',
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', originalTx.workspace_id);
+
+        await supabase
+          .from('billing_disputes')
+          .insert({
+            id: disputeEntity.id,
+            payment_id: originalPaymentId,
+            workspace_id: originalTx.workspace_id,
+            amount: disputeEntity.amount,
+            currency: disputeEntity.currency || 'INR',
+            status: 'under_review',
+            reason: disputeEntity.reason_code
+          });
+
+        console.log(`Workspace ${originalTx.workspace_id} suspended due to active payment dispute.`);
+      }
+    } 
+    
+    else if (event === 'payment.dispute.lost') {
+      const disputeEntity = body.payload.dispute.entity;
+      const originalPaymentId = disputeEntity.payment_id;
+
+      const { data: originalTx } = await supabase
+        .from('billing_transactions')
+        .select('*')
+        .eq('id', originalPaymentId)
+        .single();
+
+      if (originalTx) {
+        await supabase
+          .from('workspaces')
+          .update({
+            subscription_status: 'expired',
+            subscription_type: 'trial',
+            is_trial: true,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', originalTx.workspace_id);
+
+        await supabase
+          .from('billing_disputes')
+          .update({
+            status: 'lost',
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', disputeEntity.id);
+
+        console.log(`Workspace ${originalTx.workspace_id} downgraded permanently after lost dispute.`);
+      }
     }
 
     return c.json({ status: 'ok' }, 200);
   } catch (err: any) {
     console.error('Error handling webhook:', err);
     return c.json({ error: err.message || 'Webhook internal error' }, 500);
+  }
+});
+
+app.get('/api/admin/billing/subscriptions', async (c) => {
+  const user = c.get('user') as any;
+  if (!user || !user.is_super_admin) return c.json({ error: 'Unauthorized' }, 401);
+
+  try {
+    const { data: workspaces, error: wsError } = await supabase
+      .from('workspaces')
+      .select('id, name, subscription_plan, subscription_status, subscription_type, is_trial, renewal_date, trial_expiry');
+
+    const { data: transactions, error: txError } = await supabase
+      .from('billing_transactions')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    const { data: disputes, error: dispError } = await supabase
+      .from('billing_disputes')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (wsError) throw wsError;
+    if (txError) throw txError;
+    if (dispError) throw dispError;
+
+    return c.json(keysToCamel({
+      workspaces: workspaces || [],
+      transactions: transactions || [],
+      disputes: disputes || []
+    }));
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+app.post('/api/admin/billing/refund', async (c) => {
+  const user = c.get('user') as any;
+  if (!user || !user.is_super_admin) return c.json({ error: 'Unauthorized' }, 401);
+
+  try {
+    const body = await c.req.json();
+    const { paymentId, amount, reason } = body;
+
+    if (!paymentId) {
+      return c.json({ error: 'Missing paymentId parameter' }, 400);
+    }
+
+    const keyId = process.env.RAZORPAY_KEY_ID;
+    const keySecret = process.env.RAZORPAY_KEY_SECRET;
+
+    if (!keyId || !keySecret) {
+      return c.json({ error: 'Razorpay keys not configured.' }, 500);
+    }
+
+    const razorpay = new Razorpay({
+      key_id: keyId,
+      key_secret: keySecret
+    });
+
+    const refundOptions: any = {
+      payment_id: paymentId,
+      notes: {
+        refund_reason: reason || 'Refunded by administrator'
+      }
+    };
+
+    if (amount) {
+      refundOptions.amount = Math.round(amount * 100);
+    }
+
+    const refund = await razorpay.payments.refund(paymentId, refundOptions);
+
+    const { data: originalTx } = await supabase
+      .from('billing_transactions')
+      .select('*')
+      .eq('id', paymentId)
+      .single();
+
+    if (originalTx) {
+      await supabase
+        .from('workspaces')
+        .update({
+          subscription_status: 'refunded',
+          subscription_type: 'trial',
+          is_trial: true,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', originalTx.workspace_id);
+
+      await supabase
+        .from('billing_transactions')
+        .insert({
+          id: refund.id,
+          workspace_id: originalTx.workspace_id,
+          amount: refund.amount,
+          currency: refund.currency || 'INR',
+          status: 'refunded',
+          event_type: 'admin.refund',
+          plan_slug: originalTx.plan_slug
+        });
+    }
+
+    return c.json({ success: true, refundId: refund.id });
+  } catch (err: any) {
+    return c.json({ error: err.message || 'Refund failed' }, 500);
   }
 });
 
