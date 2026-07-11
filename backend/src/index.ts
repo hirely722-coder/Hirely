@@ -18,6 +18,7 @@ const app = new Hono<{
     user: any;
   }
 }>();
+export { app };
 
 // Enable CORS for frontend
 app.use('/*', cors({
@@ -1667,7 +1668,16 @@ Only generate ONE action block at the very end of your message. Ensure the JSON 
     });
 
     // Execute task in the background using c.executionCtx.waitUntil
-    if (c.executionCtx && typeof c.executionCtx.waitUntil === 'function') {
+    let hasExecutionCtx = false;
+    try {
+      if (c.executionCtx && typeof c.executionCtx.waitUntil === 'function') {
+        hasExecutionCtx = true;
+      }
+    } catch (e) {
+      // Accessing c.executionCtx throws when running outside Cloudflare (e.g. Node/Bun local dev)
+    }
+
+    if (hasExecutionCtx) {
       c.executionCtx.waitUntil(runCopilotAgent(taskId, messages, autoExecute, user, systemInstruction, tools));
     } else {
       runCopilotAgent(taskId, messages, autoExecute, user, systemInstruction, tools);
