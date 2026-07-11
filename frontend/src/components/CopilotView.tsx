@@ -384,6 +384,12 @@ export default function CopilotView({
   const [isParsingFile, setIsParsingFile] = useState(false);
   const [hasLoadedHistory, setHasLoadedHistory] = useState(false);
 
+  // Refs to prevent stale closures in assistant-ui bridged runtime callbacks
+  const attachedFilesRef = useRef(attachedFiles);
+  const handleSendRef = useRef<any>(null);
+
+  attachedFilesRef.current = attachedFiles;
+
   // Bridged Runtime for assistant-ui
   const runtime = useExternalStoreRuntime({
     messages,
@@ -394,7 +400,9 @@ export default function CopilotView({
     }),
     onNew: async (message) => {
       const text = message.content[0]?.type === 'text' ? message.content[0].text : '';
-      await handleSend(text);
+      if (handleSendRef.current) {
+        await handleSendRef.current(text);
+      }
     },
   });
 
@@ -501,12 +509,13 @@ export default function CopilotView({
 
   const handleSend = async (textToSend: string) => {
     const text = textToSend.trim();
-    if (!text && attachedFiles.length === 0) return;
+    const currentAttachedFiles = attachedFilesRef.current;
+    if (!text && currentAttachedFiles.length === 0) return;
 
     const userMsg: Message = { 
       role: 'user', 
-      content: text || `Analyzed file: ${attachedFiles.map(f => f.name).join(', ')}`,
-      attachments: attachedFiles.map(f => f.name)
+      content: text || `Analyzed file: ${currentAttachedFiles.map(f => f.name).join(', ')}`,
+      attachments: currentAttachedFiles.map(f => f.name)
     };
     const updatedMessages = [...messages, userMsg];
     setMessages(updatedMessages);
@@ -535,8 +544,8 @@ export default function CopilotView({
         },
         body: JSON.stringify({
           messages: updatedMessages.map((m, idx) => {
-            if (idx === updatedMessages.length - 1 && attachedFiles.length > 0) {
-              const fileContentBlock = attachedFiles.map(f => 
+            if (idx === updatedMessages.length - 1 && currentAttachedFiles.length > 0) {
+              const fileContentBlock = currentAttachedFiles.map(f => 
                 `[ATTACHED FILE: ${f.name}]\n${f.text}\n[END OF FILE: ${f.name}]`
               ).join('\n\n');
               return {
@@ -570,33 +579,21 @@ export default function CopilotView({
         : await new Promise<any>((resolve, reject) => {
             const checkStatus = async () => {
               try {
-                const { data: { session: s } } = await supabase.auth.getSession();
-                const t = s?.access_token;
-                const statusRes = await fetch(`/api/ai/task-status/${taskId}`, {
-                  headers: t ? { Authorization: `Bearer ${t}` } : {}
-                });
-                if (!statusRes.ok) {
-                  throw new Error('Failed to fetch task status');
-                }
-                const task = await statusRes.json();
-
-                if (task.currentStep?.name) {
-                  setCurrentTool(task.currentStep.name);
-                } else {
-                  setCurrentTool(null);
-                }
-
-                if (task.status === 'streaming' || task.status === 'completed') {
-                  resolve(task.result);
-                } else if (task.status === 'pending_approval') {
+                const res = await fetch(`/api/ai/task-status/${taskId}`);
+                const data = await res.json();
+                if (data.status === 'completed' || data.status === 'pending_approval') {
                   resolve({
-                    responseText: task.result.responseText,
-                    action: task.result.action,
-                    pendingApproval: true
+                    responseText: data.result?.responseText,
+                    action: data.result?.action,
+                    pendingApproval: data.status === 'pending_approval'
                   });
-                } else if (task.status === 'failed') {
-                  reject(new Error(task.error || 'Copilot query failed on server'));
+                } else if (data.status === 'failed') {
+                  reject(new Error(data.error || 'Task execution failed.'));
                 } else {
+                  // If running, set current tool label dynamically
+                  if (data.current_step) {
+                    setCurrentTool(data.current_step);
+                  }
                   setTimeout(checkStatus, 800);
                 }
               } catch (e) {
@@ -648,6 +645,7 @@ export default function CopilotView({
       setCurrentTool(null);
     }
   };
+  handleSendRef.current = handleSend;
 
   const handleClear = () => {
     setMessages([]);
