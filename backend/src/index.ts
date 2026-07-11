@@ -381,12 +381,41 @@ export interface BackgroundTask {
 export const backgroundTasks = new Map<string, BackgroundTask>();
 
 // Task Status polling endpoint
-app.get('/api/ai/task-status/:id', (c) => {
+app.get('/api/ai/task-status/:id', async (c) => {
   const taskId = c.req.param('id');
-  const task = backgroundTasks.get(taskId);
+  
+  // 1. Try local memory map first (fast fallback)
+  let task = backgroundTasks.get(taskId);
+  
+  // 2. If not found in local memory (different Cloudflare isolate), query database
+  if (!task) {
+    console.log(`[Task Status] Task ${taskId} not found in memory, checking database...`);
+    const { data: dbTask, error } = await supabase
+      .from('copilot_tasks')
+      .select('*')
+      .eq('id', taskId)
+      .maybeSingle();
+
+    if (error) {
+      console.error('[Task Status] Database query failed:', error.message);
+    }
+
+    if (dbTask) {
+      task = {
+        status: dbTask.status,
+        currentStep: dbTask.current_step ? { name: dbTask.current_step, args: {} } : undefined,
+        result: dbTask.result,
+        error: dbTask.error
+      };
+      // Cache it locally in this isolate for subsequent polls
+      backgroundTasks.set(taskId, task);
+    }
+  }
+
   if (!task) {
     return c.json({ error: 'Task not found' }, 404);
   }
+  
   return c.json(task);
 });
 
