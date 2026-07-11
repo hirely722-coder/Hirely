@@ -767,6 +767,16 @@ export default function CopilotView({
                               : 'max-w-[70%] rounded-[22px] bg-[#0d0d0d] px-4 py-2.5 text-white dark:bg-[#ececec] dark:text-[#0d0d0d] shadow-sm animate-fade-in'
                           }`}>
                             <div className="space-y-2">
+                              {!isAi && m.attachments && m.attachments.length > 0 && (
+                                <div className="flex flex-col gap-1.5 pb-2 mb-2 border-b border-white/15 dark:border-black/10">
+                                  {m.attachments.map((fileName, fIdx) => (
+                                    <div key={fIdx} className="flex items-center gap-1.5 px-2.5 py-1.5 bg-white/10 dark:bg-black/5 rounded-lg text-[10px] font-bold text-white dark:text-[#0d0d0d] border border-white/10 dark:border-black/10 max-w-[200px]">
+                                      <FileText className="h-3.5 w-3.5 opacity-80" />
+                                      <span className="truncate max-w-[140px]">{fileName}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
                               {m.isStreaming ? (
                                 <TypewriterText
                                   content={m.content}
