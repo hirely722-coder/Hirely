@@ -902,6 +902,7 @@ app.post('/api/ai/parse-file', requirePermission('candidates.run_ai_parsing'), a
     const arrayBufferCopy = arrayBuffer.slice(0);
     const mimeType = file.type;
     const isPdf = mimeType === 'application/pdf' || file.name.endsWith('.pdf');
+    const isImage = mimeType.startsWith('image/') || file.name.endsWith('.png') || file.name.endsWith('.jpg') || file.name.endsWith('.jpeg');
     
     let textContent = '';
     
@@ -939,6 +940,28 @@ app.post('/api/ai/parse-file', requirePermission('candidates.run_ai_parsing'), a
           console.error('[Copilot File Parser] OCR fallback failed:', ocrErr.message);
         }
       }
+    } else if (isImage) {
+      console.log('[Copilot File Parser] Uploaded file is an image. Calling multimodal transcription...');
+      try {
+        const base64Image = Buffer.from(arrayBufferCopy).toString('base64');
+        const dataUrl = `data:${mimeType || 'image/png'};base64,${base64Image}`;
+
+        const systemInstruction = 'You are a high-accuracy document transcription assistant. Transcribe all text content from the provided image as cleanly as possible. Return ONLY the transcribed text. Do not add explanations or conversational comments.';
+        const multimodalPrompt = [
+          { type: 'text', text: 'Please transcribe all text from this image.' },
+          {
+            type: 'image_url',
+            image_url: {
+              url: dataUrl
+            }
+          }
+        ];
+
+        textContent = await callLLM(systemInstruction, multimodalPrompt, 0.2);
+        console.log(`[Copilot File Parser] Successfully transcribed image. Length: ${textContent.length} characters.`);
+      } catch (ocrErr: any) {
+        console.error('[Copilot File Parser] Image OCR failed:', ocrErr.message);
+      }
     } else {
       // Treat as plain text
       textContent = Buffer.from(arrayBuffer).toString('utf-8');
@@ -962,6 +985,390 @@ app.post('/api/ai/parse-file', requirePermission('candidates.run_ai_parsing'), a
 
 
 // Copilot Chat / Search Engine
+export async function runCopilotAgent(
+  taskId: string,
+  messages: any[],
+  autoExecute: boolean,
+  user: any,
+  systemInstruction: string,
+  tools: any[]
+) {
+  const transformMessagesForLLM = (msgs: any[]) => {
+    return msgs.map(msg => {
+      if (msg.role === 'assistant' && msg.pendingAction) {
+        const desc = msg.pendingAction.command;
+        return {
+          role: 'assistant',
+          content: `[System Action: Invoked tools: ${desc}]`
+        };
+      }
+      if (msg.role === 'tool') {
+        return {
+          role: 'user',
+          content: `[System Output for tool '${msg.name}': ${msg.content}]`
+        };
+      }
+      return {
+        role: msg.role,
+        content: msg.content
+      };
+    });
+  };
+
+  const messagesForLLM = [
+    { role: 'system', content: systemInstruction },
+    ...messages
+  ];
+
+  // Local Tool Execution Handler
+  const executeTool = async (name: string, args: any): Promise<any> => {
+    console.log(`[Copilot Agent] Executing tool '${name}' with args:`, args);
+    
+    // Update Supabase task current step
+    await supabase.from('copilot_tasks').update({
+      current_step: name
+    }).eq('id', taskId);
+
+    const currentTask = backgroundTasks.get(taskId) || { status: 'pending' };
+    currentTask.currentStep = { name, args };
+    backgroundTasks.set(taskId, currentTask);
+    
+    if (name === 'search_candidates') {
+      const repo = new WorkspaceRepository('candidates', user);
+      let candidates = await repo.getAll();
+      
+      if (args.query) {
+        const q = args.query.toLowerCase();
+        candidates = candidates.filter(c => {
+          // 1. Scan standard fields
+          const matchesStandard = 
+            (c.name || '').toLowerCase().includes(q) ||
+            (c.designation || '').toLowerCase().includes(q) ||
+            (c.city || '').toLowerCase().includes(q) ||
+            (c.skills || []).some((s: string) => s.toLowerCase().includes(q));
+
+          if (matchesStandard) return true;
+
+          // 2. Scan custom fields dynamically
+          if (c.customFields && typeof c.customFields === 'object') {
+            return Object.entries(c.customFields).some(([key, val]) => {
+              const fieldKey = key.toLowerCase();
+              const fieldValue = String(val || '').toLowerCase();
+              return fieldKey.includes(q) || fieldValue.includes(q);
+            });
+          }
+
+          return false;
+        });
+      }
+      if (args.skills && Array.isArray(args.skills)) {
+        candidates = candidates.filter(c => {
+          const candidateSkills = (c.skills || []).map((s: string) => s.toLowerCase());
+          return args.skills.every((s: string) => candidateSkills.includes(s.toLowerCase()));
+        });
+      }
+      if (args.stage) {
+        candidates = candidates.filter(c => (c.status || '').toLowerCase() === args.stage.toLowerCase());
+      }
+
+      const totalMatches = candidates.length;
+      const limit = args.limit || 15;
+      const offset = args.offset || 0;
+      const sliced = candidates.slice(offset, offset + limit);
+
+      return {
+        totalMatches,
+        resultsCount: sliced.length,
+        limit,
+        offset,
+        warning: totalMatches > (offset + limit) ? `Showing matches ${offset + 1} to ${offset + sliced.length} of ${totalMatches}. More matches are available. Ask to fetch the next page.` : undefined,
+        results: sliced.map(c => ({
+          id: c.id,
+          name: c.name,
+          email: c.email,
+          phone: c.phone,
+          experience: c.experience,
+          skills: c.skills,
+          currentCompany: c.currentCompany,
+          status: c.status,
+          designation: c.designation,
+          city: c.city,
+          customFields: c.customFields
+        }))
+      };
+    }
+
+    if (name === 'get_candidate_resume') {
+      const repo = new WorkspaceRepository('candidates', user);
+      const candidates = await repo.getCustom('*', { id: args.candidate_id });
+      const candidate = candidates?.[0];
+      if (!candidate) return { error: 'Candidate not found' };
+      return {
+        id: candidate.id,
+        name: candidate.name,
+        skills: candidate.skills,
+        customFields: candidate.customFields,
+        parsedResumeText: candidate.parsedResumeText || candidate.notes || 'No resume text available'
+      };
+    }
+
+    if (name === 'list_active_jobs') {
+      const repo = new WorkspaceRepository('jobs', user);
+      const jobs = await repo.getAll();
+      return jobs.map(j => ({
+        id: j.id,
+        title: j.title,
+        department: j.department,
+        location: j.location,
+        status: j.status,
+        experience: j.experience,
+        requiredSkills: j.requiredSkills
+      }));
+    }
+
+    if (name === 'list_companies') {
+      const repo = new WorkspaceRepository('companies', user);
+      const companies = await repo.getAll();
+      return companies.map(comp => ({
+        id: comp.id,
+        name: comp.name,
+        industry: comp.industry,
+        companySize: comp.companySize,
+        website: comp.website
+      }));
+    }
+
+    if (name === 'get_workspace_tasks') {
+      const repo = new WorkspaceRepository('tasks', user);
+      const tasks = await repo.getAll();
+      return tasks.map(t => ({
+        id: t.id,
+        type: t.type,
+        title: t.title,
+        dueDate: t.dueDate,
+        priority: t.priority,
+        status: t.status,
+        candidateName: t.candidateName
+      }));
+    }
+
+    if (name === 'get_custom_field_definitions') {
+      const repo = new WorkspaceRepository('custom_field_definitions', user);
+      const defs = await repo.getAll();
+      return defs.map(d => ({
+        id: d.id,
+        name: d.name,
+        key: d.key,
+        type: d.type,
+        options: d.options,
+        isRequired: d.isRequired
+      }));
+    }
+
+    if (name === 'get_pipeline_summary') {
+      const repo = new WorkspaceRepository('candidates', user);
+      const candidates = await repo.getAll();
+      const summary: Record<string, number> = {};
+      for (const c of candidates) {
+        const stage = c.status || 'Pool';
+        summary[stage] = (summary[stage] || 0) + 1;
+      }
+      return summary;
+    }
+
+    return { error: `Tool ${name} not found` };
+  };
+
+  // Helper to execute database action commands
+  const executeDatabaseAction = async (actionJson: any) => {
+    const { command, id, data } = actionJson;
+    console.log(`[Copilot Agent] Executing action command: ${command}`);
+    
+    if (command === 'create_candidate') {
+      const repo = new WorkspaceRepository('candidates', user);
+      await repo.create(data);
+    } else if (command === 'create_job') {
+      const sanitizedData = await sanitizeJobData(data, user);
+      const repo = new WorkspaceRepository('jobs', user);
+      await repo.create(sanitizedData);
+    } else if (command === 'create_task') {
+      const repo = new WorkspaceRepository('tasks', user);
+      await repo.create(data);
+    } else if (command === 'create_company') {
+      const repo = new WorkspaceRepository('companies', user);
+      await repo.create(data);
+    } else if (command === 'create_template' || command === 'create_email_template') {
+      const repo = new WorkspaceRepository('email_templates', user);
+      await repo.create(data);
+    } else if (command === 'update_candidate') {
+      const repo = new WorkspaceRepository('candidates', user);
+      await repo.update(id, data);
+    } else if (command === 'update_job') {
+      const sanitizedData = await sanitizeJobData(data, user);
+      const repo = new WorkspaceRepository('jobs', user);
+      await repo.update(id, sanitizedData);
+    } else if (command === 'update_task') {
+      const repo = new WorkspaceRepository('tasks', user);
+      await repo.update(id, data);
+    } else if (command === 'update_company') {
+      const repo = new WorkspaceRepository('companies', user);
+      await repo.update(id, data);
+    } else if (command === 'update_template' || command === 'update_email_template') {
+      const repo = new WorkspaceRepository('email_templates', user);
+      await repo.update(id, data);
+    } else if (command === 'delete_candidate') {
+      const repo = new WorkspaceRepository('candidates', user);
+      await repo.delete(id);
+    } else if (command === 'delete_job') {
+      const repo = new WorkspaceRepository('jobs', user);
+      await repo.delete(id);
+    } else if (command === 'delete_task') {
+      const repo = new WorkspaceRepository('tasks', user);
+      await repo.delete(id);
+    } else if (command === 'delete_company') {
+      const repo = new WorkspaceRepository('companies', user);
+      await repo.delete(id);
+    } else if (command === 'delete_template' || command === 'delete_email_template') {
+      const repo = new WorkspaceRepository('email_templates', user);
+      await repo.delete(id);
+    } else {
+      throw new Error(`Action command '${command}' is not supported.`);
+    }
+  };
+
+  let loopCount = 0;
+  let responseText = '';
+  let cleanedResponse = '';
+  let finalChoices = null;
+  let finalStatus: 'completed' | 'pending_approval' | 'failed' = 'completed';
+  let pendingActionData: any = null;
+
+  try {
+    while (loopCount < 3) {
+      console.log(`[Copilot Agent] Running ReAct iteration ${loopCount + 1}...`);
+      const result = await callEdenAIWithTools(transformMessagesForLLM(messagesForLLM), tools);
+      const rawMessage = result.choices?.[0]?.message;
+
+      if (!rawMessage) {
+        throw new Error('Invalid empty response received from completions API.');
+      }
+
+      if (rawMessage.tool_calls && rawMessage.tool_calls.length > 0) {
+        console.log(`[Copilot Agent] Model requested ${rawMessage.tool_calls.length} tool call(s)`);
+        
+        // Push the assistant message with tool calls
+        messagesForLLM.push(rawMessage);
+
+        // Execute all requested tool calls in parallel
+        await Promise.all(rawMessage.tool_calls.map(async (call: any) => {
+          let parsedArgs = {};
+          try {
+            parsedArgs = typeof call.function.arguments === 'string' 
+              ? JSON.parse(call.function.arguments) 
+              : call.function.arguments || {};
+          } catch (e) {
+            console.error('[Copilot Agent] Failed to parse arguments for tool:', call.function.name);
+          }
+
+          const toolOutput = await executeTool(call.function.name, parsedArgs);
+          
+          // Push the tool execution result
+          messagesForLLM.push({
+            role: 'tool',
+            tool_call_id: call.id,
+            name: call.function.name,
+            content: JSON.stringify(toolOutput)
+          });
+        }));
+
+        loopCount++;
+      } else {
+        responseText = rawMessage.content || '';
+        finalChoices = result;
+        cleanedResponse = responseText;
+
+        // Catch database constraint violations synchronously inside the loop!
+        const actionMatch = responseText.match(/<action>([\s\S]*?)<\/action>/);
+        if (actionMatch) {
+          if (autoExecute) {
+            try {
+              const actionJson = JSON.parse(actionMatch[1].trim());
+              await executeDatabaseAction(actionJson);
+              
+              // Action executed successfully! Clean output and break loop.
+              cleanedResponse = responseText.replace(/<action>[\s\S]*?<\/action>/, '').trim();
+              break;
+            } catch (actionErr: any) {
+              console.error('[Copilot Agent Self-Healing] Database action failed:', actionErr.message);
+
+              // Append the failed assistant message and action block
+              messagesForLLM.push({
+                role: 'assistant',
+                content: responseText
+              });
+
+              // Append direct error feedback to prompt history
+              messagesForLLM.push({
+                role: 'user',
+                content: `[System Action Error: The database action failed with error: "${actionErr.message}". This usually means a candidate, job, or task ID you provided does not exist, or you violated a database constraint. Please check your IDs, call the appropriate search tools (e.g. 'search_candidates') to get the correct UUID, and generate the corrected <action> block again.]`
+              });
+
+              loopCount++;
+              continue; // Re-run completions API to allow AI to self-correct!
+            }
+          } else {
+            // If auto-execute is disabled, we set status to pending_approval and stop loop!
+            try {
+              const actionJson = JSON.parse(actionMatch[1].trim());
+              cleanedResponse = responseText.replace(/<action>[\s\S]*?<\/action>/, '').trim();
+              finalStatus = 'pending_approval';
+              pendingActionData = actionJson;
+              break;
+            } catch (parseErr: any) {
+              console.error('Failed to parse action JSON during manual approval:', parseErr.message);
+            }
+          }
+        }
+        break;
+      }
+    }
+
+    if (loopCount >= 3 && !responseText) {
+      throw new Error('Agent execution loop exceeded maximum steps without producing final answer.');
+    }
+
+    const taskResult: any = { responseText: cleanedResponse };
+    if (finalStatus === 'pending_approval') {
+      taskResult.action = pendingActionData;
+    }
+
+    // Update status in Supabase database
+    await supabase.from('copilot_tasks').update({
+      status: finalStatus,
+      result: taskResult,
+      current_step: null // Clear running step when finished
+    }).eq('id', taskId);
+
+    // Update local memory map for fallback compatibility
+    backgroundTasks.set(taskId, {
+      status: finalStatus,
+      user,
+      result: taskResult
+    });
+
+  } catch (err: any) {
+    console.error('Error in background copilot task:', err.message);
+    
+    await supabase.from('copilot_tasks').update({
+      status: 'failed',
+      error: err.message,
+      current_step: null
+    }).eq('id', taskId);
+
+    backgroundTasks.set(taskId, { status: 'failed', error: err.message });
+  }
+}
+
 app.post('/api/ai/copilot', requirePermission('copilot.open'), async (c) => {
   try {
     const { messages, autoExecute } = await c.req.json();
@@ -993,11 +1400,11 @@ app.post('/api/ai/copilot', requirePermission('copilot.open'), async (c) => {
         type: 'function',
         function: {
           name: 'get_candidate_resume',
-          description: 'Fetches the detailed resume text and parsed data for a single candidate by their ID.',
+          description: 'Fetches the full parsed resume text for a candidate. Always call this if the recruiter asks for resume highlights, summary, education, experience, or details for a candidate.',
           parameters: {
             type: 'object',
             properties: {
-              candidate_id: { type: 'string', description: 'The unique ID of the candidate.' }
+              candidate_id: { type: 'string', description: 'Unique UUID of the candidate' }
             },
             required: ['candidate_id']
           }
@@ -1007,7 +1414,7 @@ app.post('/api/ai/copilot', requirePermission('copilot.open'), async (c) => {
         type: 'function',
         function: {
           name: 'list_active_jobs',
-          description: 'Returns a summary list of all active jobs in the workspace (ID, title, department, status, location, etc.).',
+          description: 'Returns a list of all active jobs in the workspace (titles, locations, status, required skills).',
           parameters: {
             type: 'object',
             properties: {}
@@ -1018,7 +1425,7 @@ app.post('/api/ai/copilot', requirePermission('copilot.open'), async (c) => {
         type: 'function',
         function: {
           name: 'list_companies',
-          description: 'Returns a summary list of all registered corporate partner companies (ID, name, industry, website).',
+          description: 'Returns a list of all companies / corporate partners in the workspace.',
           parameters: {
             type: 'object',
             properties: {}
@@ -1060,8 +1467,10 @@ app.post('/api/ai/copilot', requirePermission('copilot.open'), async (c) => {
       }
     ];
 
-    const systemInstruction = `You are a helpful, professional AI Recruiter Assistant called Copilot.
-You assist the recruiter in managing candidates, jobs, companies, tasks, and templates.
+    const systemInstruction = `You are Forge, a friendly, supportive, and professional AI recruitment assistant.
+You assist the recruiter in querying pipelines, searching candidates, drafting outreach messages, and managing their daily workflow. Speak conversationally, encourage them, and offer helpful suggestions.
+
+- IMPORTANT: All salary values, currency formatting, and monetary ranges MUST be in Indian Rupees using the INR symbol (₹).
 
 Instead of having all data pre-loaded, you have ACCESS to live tools to search the database. You MUST use these tools whenever you need information to answer user queries:
 - Use 'search_candidates' to find candidates matching search queries, skills, or stages.
@@ -1069,120 +1478,26 @@ Instead of having all data pre-loaded, you have ACCESS to live tools to search t
 - Use 'list_active_jobs' to check jobs.
 - Use 'list_companies' to check companies.
 - Use 'get_workspace_tasks' to check tasks.
-- Use 'get_custom_field_definitions' to check what dynamic custom fields (like charges, current salary, etc.) are available in this workspace.
-- Use 'get_pipeline_summary' to see candidate counts grouped by stage (Applied, Screening, Shortlisted, Selected, Rejected, etc.). Always use this instead of loading all candidates when the user asks about pipeline status or candidate counts.
+- Use 'get_custom_field_definitions' to check custom fields.
+- Use 'get_pipeline_summary' to check candidate stage aggregates.
 
-Always perform candidate search or lookup first before answering! Only request candidate resumes if explicitly asked to read, summarize, or evaluate details of a candidate.
+You are also authorized to propose data actions. If the user asks you to create, update, or delete candidates, jobs, tasks, companies, or templates, formulate your proposed action as a structured JSON block enclosed inside <action>...</action> tags at the very end of your response.
 
-DATABASE WRITE ACTIONS:
-If the user asks you to write, add, create, delete, or update any information (e.g., adding, modifying, or deleting a candidate, job, company, task, or email template), you MUST append a JSON action block at the very end of your response, wrapped in <action>...</action> tags.
-Do NOT output this action block to the user in conversational text—the system will intercept and execute it. 
-
-- IMPORTANT: When creating or updating a job, if the user does not specify a partner company, or if the company name they specify does not exist in the active companies list (retrieved from 'list_companies'), you MUST set "companyId" to null and "companyName" to "None". NEVER invent or make up a fake company name.
-Here are the supported commands and their payload schemas:
-
-1. Company Commands:
-- Create Company:
-<action>
-{
-  "command": "create_company",
-  "data": {
-    "name": "Company Name",
-    "contactPerson": "Contact Person Name",
-    "status": "Active | Inactive",
-    "email": "company@example.com",
-    "phone": "Phone Number",
-    "website": "http://example.com",
-    "address": "Street Address",
-    "notes": "Additional notes",
-    "recContact": "Recruiter contact name",
-    "industry": "Software | Finance | etc",
-    "companySize": "1-10 | 11-50 | 51-200 | 201-500 | 500+",
-    "foundedYear": "YYYY",
-    "tier": "Tier 1 | Tier 2 | Tier 3",
-    "linkedInUrl": "LinkedIn URL"
-  }
-}
-</action>
-
-- Update Company:
-<action>
-{
-  "command": "update_company",
-  "id": "Company ID",
-  "data": { ...fields to update... }
-}
-</action>
-
-- Delete Company:
-<action>
-{
-  "command": "delete_company",
-  "id": "Company ID"
-}
-</action>
-
-2. Job Commands:
-- Create Job:
-<action>
-{
-  "command": "create_job",
-  "data": {
-    "title": "Job Title",
-    "companyId": "Optional Company ID (omit or set to null if not associated with a specific partner company in list_companies)",
-    "companyName": "Company Name (set to \"None\" if not associated with a specific partner company)",
-    "experience": "Experience Range (e.g. 3-5 Years)",
-    "location": "Job Location",
-    "status": "Open | Closed",
-    "description": "Description text",
-    "requiredSkills": ["Skill1", "Skill2"],
-    "salary": "Salary Range",
-    "employmentType": "Full-time | Part-time | Contract | Internship",
-    "department": "Department name",
-    "urgency": "Urgent | High | Medium | Low",
-    "recruiterName": "Recruiter Name"
-  }
-}
-</action>
-
-- Update Job:
-<action>
-{
-  "command": "update_job",
-  "id": "Job ID",
-  "data": { ...fields to update... }
-}
-</action>
-
-- Delete Job:
-<action>
-{
-  "command": "delete_job",
-  "id": "Job ID"
-}
-</action>
-
-3. Candidate Commands:
+Action formats:
+1. Candidate Commands:
 - Create Candidate:
 <action>
 {
   "command": "create_candidate",
   "data": {
-    "name": "Full Name",
-    "email": "email@example.com",
-    "phone": "Phone Number",
-    "experience": "e.g., 2 Years",
+    "name": "Candidate Name",
+    "email": "Candidate Email",
+    "phone": "Optional phone",
+    "designation": "Optional job title",
     "skills": ["Skill1", "Skill2"],
-    "currentCompany": "Company Name",
-    "status": "Pool | Applied | Screening | Shortlisted | Interview | Selected | Offer Sent | Joined",
-    "education": "Education details",
-    "address": "Location/Address",
-    "notes": "Notes/Description",
-    "designation": "Designation",
-    "gender": "Male | Female | Other",
-    "city": "City name",
-    "expectedSalary": "Expected Salary",
-    "noticePeriod": "Notice Period"
+    "experience": 3,
+    "city": "Candidate City",
+    "status": "Applied"
   }
 }
 </action>
@@ -1204,17 +1519,68 @@ Here are the supported commands and their payload schemas:
 }
 </action>
 
-- Assign Candidate to Job (Add/Move to Job Pipeline Stage):
+2. Job Commands:
+- Create Job:
 <action>
 {
-  "command": "assign_candidate_to_job",
+  "command": "create_job",
   "data": {
-    "candidateId": "Candidate ID",
-    "candidateName": "Candidate Name",
-    "jobId": "Job ID",
-    "jobTitle": "Job Title",
-    "stage": "Applied | Screening | Shortlisted | Interview | Selected | Offer Sent | Joined | Rejected"
+    "title": "Job Title",
+    "department": "Department name",
+    "location": "Job Location",
+    "experience": "e.g. 2-5 years",
+    "requiredSkills": ["Skill1", "Skill2"],
+    "description": "Job details",
+    "status": "Active"
   }
+}
+</action>
+
+- Update Job:
+<action>
+{
+  "command": "update_job",
+  "id": "Job ID",
+  "data": { ...fields to update... }
+}
+</action>
+
+- Delete Job:
+<action>
+{
+  "command": "delete_job",
+  "id": "Job ID"
+}
+</action>
+
+3. Company Commands:
+- Create Company:
+<action>
+{
+  "command": "create_company",
+  "data": {
+    "name": "Company Name",
+    "industry": "Industry category",
+    "website": "Optional URL",
+    "companySize": "e.g. 50-200"
+  }
+}
+</action>
+
+- Update Company:
+<action>
+{
+  "command": "update_company",
+  "id": "Company ID",
+  "data": { ...fields to update... }
+}
+</action>
+
+- Delete Company:
+<action>
+{
+  "command": "delete_company",
+  "id": "Company ID"
 }
 </action>
 
@@ -1292,375 +1658,25 @@ Only generate ONE action block at the very end of your message. Ensure the JSON 
     const taskId = 'task_copilot_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
     backgroundTasks.set(taskId, { status: 'pending' });
 
-    // Local Tool Execution Handler
-    const executeTool = async (name: string, args: any): Promise<any> => {
-      console.log(`[Copilot Agent] Executing tool '${name}' with args:`, args);
-      
-      const currentTask = backgroundTasks.get(taskId);
-      if (currentTask) {
-        currentTask.currentStep = { name, args };
-        backgroundTasks.set(taskId, currentTask);
-      }
-      
-      if (name === 'search_candidates') {
-        const repo = new WorkspaceRepository('candidates', user);
-        let candidates = await repo.getAll();
-        
-        if (args.query) {
-          const q = args.query.toLowerCase();
-          candidates = candidates.filter(c => {
-            // 1. Scan standard fields
-            const matchesStandard = 
-              (c.name || '').toLowerCase().includes(q) ||
-              (c.designation || '').toLowerCase().includes(q) ||
-              (c.city || '').toLowerCase().includes(q) ||
-              (c.skills || []).some((s: string) => s.toLowerCase().includes(q));
+    // Write initial task status to Supabase database
+    await supabase.from('copilot_tasks').insert({
+      id: taskId,
+      status: 'pending',
+      user_id: user?.id || null,
+      current_step: 'Planning...'
+    });
 
-            if (matchesStandard) return true;
-
-            // 2. Scan custom fields dynamically (future-proof!)
-            if (c.customFields && typeof c.customFields === 'object') {
-              return Object.entries(c.customFields).some(([key, val]) => {
-                const fieldKey = key.toLowerCase();
-                const fieldValue = String(val || '').toLowerCase();
-                return fieldKey.includes(q) || fieldValue.includes(q);
-              });
-            }
-
-            return false;
-          });
-        }
-        if (args.skills && Array.isArray(args.skills)) {
-          candidates = candidates.filter(c => {
-            const candidateSkills = (c.skills || []).map((s: string) => s.toLowerCase());
-            return args.skills.every((s: string) => candidateSkills.includes(s.toLowerCase()));
-          });
-        }
-        if (args.stage) {
-          candidates = candidates.filter(c => (c.status || '').toLowerCase() === args.stage.toLowerCase());
-        }
-
-        const totalMatches = candidates.length;
-        const limit = args.limit || 15;
-        const offset = args.offset || 0;
-        const sliced = candidates.slice(offset, offset + limit);
-
-        return {
-          totalMatches,
-          resultsCount: sliced.length,
-          limit,
-          offset,
-          warning: totalMatches > (offset + limit) ? `Showing matches ${offset + 1} to ${offset + sliced.length} of ${totalMatches}. More matches are available. Ask to fetch the next page.` : undefined,
-          results: sliced.map(c => ({
-            id: c.id,
-            name: c.name,
-            email: c.email,
-            phone: c.phone,
-            experience: c.experience,
-            skills: c.skills,
-            currentCompany: c.currentCompany,
-            status: c.status,
-            designation: c.designation,
-            city: c.city,
-            customFields: c.customFields
-          }))
-        };
-      }
-
-      if (name === 'get_candidate_resume') {
-        const repo = new WorkspaceRepository('candidates', user);
-        const candidates = await repo.getCustom('*', { id: args.candidate_id });
-        const candidate = candidates?.[0];
-        if (!candidate) return { error: 'Candidate not found' };
-        return {
-          id: candidate.id,
-          name: candidate.name,
-          skills: candidate.skills,
-          customFields: candidate.customFields,
-          parsedResumeText: candidate.parsedResumeText || candidate.notes || 'No resume text available'
-        };
-      }
-
-      if (name === 'list_active_jobs') {
-        const repo = new WorkspaceRepository('jobs', user);
-        const jobs = await repo.getAll();
-        return jobs.map(j => ({
-          id: j.id,
-          title: j.title,
-          department: j.department,
-          location: j.location,
-          status: j.status,
-          experience: j.experience,
-          requiredSkills: j.requiredSkills
-        }));
-      }
-
-      if (name === 'list_companies') {
-        const repo = new WorkspaceRepository('companies', user);
-        const companies = await repo.getAll();
-        return companies.map(comp => ({
-          id: comp.id,
-          name: comp.name,
-          industry: comp.industry,
-          companySize: comp.companySize,
-          website: comp.website
-        }));
-      }
-
-      if (name === 'get_workspace_tasks') {
-        const repo = new WorkspaceRepository('tasks', user);
-        const tasks = await repo.getAll();
-        return tasks.map(t => ({
-          id: t.id,
-          type: t.type,
-          title: t.title,
-          dueDate: t.dueDate,
-          priority: t.priority,
-          status: t.status,
-          candidateName: t.candidateName
-        }));
-      }
-
-      if (name === 'get_custom_field_definitions') {
-        const repo = new WorkspaceRepository('custom_field_definitions', user);
-        const defs = await repo.getAll();
-        return defs.map(d => ({
-          id: d.id,
-          name: d.name,
-          key: d.key,
-          type: d.type,
-          options: d.options,
-          isRequired: d.isRequired
-        }));
-      }
-
-      if (name === 'get_pipeline_summary') {
-        const repo = new WorkspaceRepository('candidates', user);
-        const candidates = await repo.getAll();
-        const summary: Record<string, number> = {};
-        for (const c of candidates) {
-          const stage = c.status || 'Pool';
-          summary[stage] = (summary[stage] || 0) + 1;
-        }
-        return summary;
-      }
-
-      return { error: `Tool ${name} not found` };
-    };
-
-    // Helper to execute database action commands
-    const executeDatabaseAction = async (actionJson: any) => {
-      const { command, id, data } = actionJson;
-      console.log(`[Copilot Agent] Executing action command: ${command}`);
-      
-      if (command === 'create_candidate') {
-        const repo = new WorkspaceRepository('candidates', user);
-        await repo.create(data);
-      } else if (command === 'create_job') {
-        const sanitizedData = await sanitizeJobData(data, user);
-        const repo = new WorkspaceRepository('jobs', user);
-        await repo.create(sanitizedData);
-      } else if (command === 'create_task') {
-        const repo = new WorkspaceRepository('tasks', user);
-        await repo.create(data);
-      } else if (command === 'create_company') {
-        const repo = new WorkspaceRepository('companies', user);
-        await repo.create(data);
-      } else if (command === 'create_template' || command === 'create_email_template') {
-        const repo = new WorkspaceRepository('email_templates', user);
-        await repo.create(data);
-      } else if (command === 'update_candidate') {
-        const repo = new WorkspaceRepository('candidates', user);
-        await repo.update(id, data);
-      } else if (command === 'update_job') {
-        const sanitizedData = await sanitizeJobData(data, user);
-        const repo = new WorkspaceRepository('jobs', user);
-        await repo.update(id, sanitizedData);
-      } else if (command === 'update_task') {
-        const repo = new WorkspaceRepository('tasks', user);
-        await repo.update(id, data);
-      } else if (command === 'update_company') {
-        const repo = new WorkspaceRepository('companies', user);
-        await repo.update(id, data);
-      } else if (command === 'update_template' || command === 'update_email_template') {
-        const repo = new WorkspaceRepository('email_templates', user);
-        await repo.update(id, data);
-      } else if (command === 'delete_candidate') {
-        const repo = new WorkspaceRepository('candidates', user);
-        await repo.delete(id);
-      } else if (command === 'delete_job') {
-        const repo = new WorkspaceRepository('jobs', user);
-        await repo.delete(id);
-      } else if (command === 'delete_task') {
-        const repo = new WorkspaceRepository('tasks', user);
-        await repo.delete(id);
-      } else if (command === 'delete_company') {
-        const repo = new WorkspaceRepository('companies', user);
-        await repo.delete(id);
-      } else if (command === 'delete_template' || command === 'delete_email_template') {
-        const repo = new WorkspaceRepository('email_templates', user);
-        await repo.delete(id);
-      } else {
-        throw new Error(`Unknown action command: ${command}`);
-      }
-    };
-
-    // Run AI Agent call in background
-    // Helper to transform tool calls & responses into plain text user/assistant messages to bypass Eden AI gateway bug
-    const transformMessagesForLLM = (msgs: any[]) => {
-      return msgs.map(msg => {
-        if (msg.tool_calls && msg.tool_calls.length > 0) {
-          const desc = msg.tool_calls.map((tc: any) => `${tc.function.name}(${tc.function.arguments || ''})`).join(', ');
-          return {
-            role: 'assistant',
-            content: `[System Action: Invoked tools: ${desc}]`
-          };
-        }
-        if (msg.role === 'tool') {
-          return {
-            role: 'user',
-            content: `[System Output for tool '${msg.name}': ${msg.content}]`
-          };
-        }
-        return {
-          role: msg.role,
-          content: msg.content
-        };
-      });
-    };
-
-    const messagesForLLM = [
-      { role: 'system', content: systemInstruction },
-      ...messages
-    ];
-
-    let loopCount = 0;
-    let responseText = '';
-    let cleanedResponse = '';
-    let finalChoices = null;
-    let finalStatus: 'completed' | 'pending_approval' | 'failed' = 'completed';
-    let pendingActionData: any = null;
-
-    try {
-      while (loopCount < 3) {
-        console.log(`[Copilot Agent] Running ReAct iteration ${loopCount + 1}...`);
-        const result = await callEdenAIWithTools(transformMessagesForLLM(messagesForLLM), tools);
-        const rawMessage = result.choices?.[0]?.message;
-
-        if (!rawMessage) {
-          throw new Error('Invalid empty response received from completions API.');
-        }
-
-        if (rawMessage.tool_calls && rawMessage.tool_calls.length > 0) {
-          console.log(`[Copilot Agent] Model requested ${rawMessage.tool_calls.length} tool call(s)`);
-          
-          // Push the assistant message with tool calls
-          messagesForLLM.push(rawMessage);
-
-          // Execute all requested tool calls in parallel
-          await Promise.all(rawMessage.tool_calls.map(async (call: any) => {
-            let parsedArgs = {};
-            try {
-              parsedArgs = typeof call.function.arguments === 'string' 
-                ? JSON.parse(call.function.arguments) 
-                : call.function.arguments || {};
-            } catch (e) {
-              console.error('[Copilot Agent] Failed to parse arguments for tool:', call.function.name);
-            }
-
-            const toolOutput = await executeTool(call.function.name, parsedArgs);
-            
-            // Push the tool execution result
-            messagesForLLM.push({
-              role: 'tool',
-              tool_call_id: call.id,
-              name: call.function.name,
-              content: JSON.stringify(toolOutput)
-            });
-          }));
-
-          loopCount++;
-        } else {
-          responseText = rawMessage.content || '';
-          finalChoices = result;
-          cleanedResponse = responseText;
-
-          // Catch database constraint violations synchronously inside the loop!
-          const actionMatch = responseText.match(/<action>([\s\S]*?)<\/action>/);
-          if (actionMatch) {
-            if (autoExecute) {
-              try {
-                const actionJson = JSON.parse(actionMatch[1].trim());
-                await executeDatabaseAction(actionJson);
-                
-                // Action executed successfully! Clean output and break loop.
-                cleanedResponse = responseText.replace(/<action>[\s\S]*?<\/action>/, '').trim();
-                break;
-              } catch (actionErr: any) {
-                console.error('[Copilot Agent Self-Healing] Database action failed:', actionErr.message);
-
-                // Append the failed assistant message and action block
-                messagesForLLM.push({
-                  role: 'assistant',
-                  content: responseText
-                });
-
-                // Append direct error feedback to prompt history
-                messagesForLLM.push({
-                  role: 'user',
-                  content: `[System Action Error: The database action failed with error: "${actionErr.message}". This usually means a candidate, job, or task ID you provided does not exist, or you violated a database constraint. Please check your IDs, call the appropriate search tools (e.g. 'search_candidates') to get the correct UUID, and generate the corrected <action> block again.]`
-                });
-
-                loopCount++;
-                continue; // Re-run completions API to allow AI to self-correct!
-              }
-            } else {
-              // If auto-execute is disabled, we set status to pending_approval and stop loop!
-              try {
-                const actionJson = JSON.parse(actionMatch[1].trim());
-                cleanedResponse = responseText.replace(/<action>[\s\S]*?<\/action>/, '').trim();
-                finalStatus = 'pending_approval';
-                pendingActionData = actionJson;
-                break;
-              } catch (parseErr: any) {
-                console.error('Failed to parse action JSON during manual approval:', parseErr.message);
-              }
-            }
-          }
-          break;
-        }
-      }
-
-      if (loopCount >= 3 && !responseText) {
-        throw new Error('Agent execution loop exceeded maximum steps without producing final answer.');
-      }
-
-      const taskResult: any = { responseText: cleanedResponse };
-      if (finalStatus === 'pending_approval') {
-        taskResult.action = pendingActionData;
-      }
-
-      backgroundTasks.set(taskId, {
-        status: finalStatus,
-        user,
-        result: taskResult
-      });
-
-      return c.json({
-        taskId,
-        status: finalStatus,
-        result: taskResult
-      });
-
-    } catch (err: any) {
-      console.error('Error in synchronous copilot task:', err.message);
-      backgroundTasks.set(taskId, { status: 'failed', error: err.message });
-      return c.json({
-        taskId,
-        status: 'failed',
-        error: err.message
-      });
+    // Execute task in the background using c.executionCtx.waitUntil
+    if (c.executionCtx && typeof c.executionCtx.waitUntil === 'function') {
+      c.executionCtx.waitUntil(runCopilotAgent(taskId, messages, autoExecute, user, systemInstruction, tools));
+    } else {
+      runCopilotAgent(taskId, messages, autoExecute, user, systemInstruction, tools);
     }
+
+    return c.json({
+      taskId,
+      status: 'pending'
+    });
   } catch (err: any) {
     console.error('Error in copilot route:', err.message);
     return c.json({
@@ -1670,7 +1686,7 @@ Only generate ONE action block at the very end of your message. Ensure the JSON 
   }
 });
 
-// Approve Copilot Action Endpoint
+// Approve Copilot Action Endpoint// Approve Copilot Action Endpoint
 app.post('/api/ai/copilot/approve', requirePermission('copilot.open'), async (c) => {
   try {
     const { taskId, action } = await c.req.json();

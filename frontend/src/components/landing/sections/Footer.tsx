@@ -45,10 +45,8 @@ export function Footer() {
         <div className="grid grid-cols-1 gap-12 sm:grid-cols-2 lg:grid-cols-5">
           <div className="lg:col-span-2">
             <a href="#" className="flex items-center gap-2 font-bold text-slate-900 dark:text-white">
-              <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 via-violet-500 to-blue-500 shadow-lg shadow-indigo-500/30">
-                <Sparkles className="h-5 w-5 text-white" />
-              </span>
-              <span className="text-lg tracking-tight">Hirely AI</span>
+              <img src="/logo.svg" alt="Hirly Logo" className="h-9 w-9 rounded-xl shadow-md" />
+              <span className="text-lg tracking-tight">Hirly AI</span>
             </a>
             <p className="mt-4 max-w-xs text-sm leading-relaxed text-slate-500 dark:text-slate-400">
               The AI-powered recruitment management platform helping agencies hire smarter, not
@@ -56,7 +54,7 @@ export function Footer() {
             </p>
             <div className="mt-6 flex items-center gap-3">
               <a
-                href="mailto:hello@hirely.ai"
+                href="mailto:hello@hirly.ai"
                 className="flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 text-slate-500 transition-colors hover:bg-slate-100 dark:border-white/10 dark:text-slate-400 dark:hover:bg-white/10"
                 aria-label="Email"
               >
@@ -92,7 +90,7 @@ export function Footer() {
         </div>
 
         <div className="mt-12 flex flex-col items-center justify-between gap-4 border-t border-slate-200/70 pt-8 text-sm text-slate-400 sm:flex-row dark:border-white/10">
-          <p>© {new Date().getFullYear()} Hirely AI. All rights reserved.</p>
+          <p>© {new Date().getFullYear()} Hirly AI. All rights reserved.</p>
           <p>Built with ❤️ for modern recruitment teams.</p>
         </div>
       </Container>

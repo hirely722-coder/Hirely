@@ -19,18 +19,8 @@ export default function AuthCallback() {
         if (inviteToken) {
           router.replace(`/accept-invite?token=${inviteToken}`);
         } else {
-          // Retrieve fresh profile to check workspace_id
-          const { data: profile } = await supabase
-            .from('profiles')
-            .select('workspace_id')
-            .eq('id', session.user.id)
-            .single();
-
-          if (profile && profile.workspace_id) {
-            router.replace('/dashboard');
-          } else {
-            router.replace('/onboarding');
-          }
+          // Simply redirect to /dashboard and let global Layout guards handle onboarding if needed
+          router.replace('/dashboard');
         }
       } else {
         router.replace('/login');
@@ -102,7 +92,10 @@ export default function AuthCallback() {
             </svg>
           </div>
           <div className="word-group flex flex-col items-center gap-2.5 opacity-0 translate-y-1.5 animate-[fadeUp_0.6s_ease_forwards] [animation-delay:1.15s]">
-            <div className="font-sora font-bold text-[21px] tracking-[0.02em] text-[#0f172a]">Hirly</div>
+            <div className="flex items-center gap-2 font-sora font-bold text-[21px] tracking-[0.02em] text-[#0f172a]">
+              <img src="/logo.svg" alt="Hirly Logo" className="h-6 w-6 rounded-md shadow-sm animate-pulse" />
+              <span>Hirly</span>
+            </div>
             <div className="text-[11.5px] text-[#64748b] font-semibold tracking-[0.12em] uppercase h-4 relative min-w-[230px] text-center">
               <span className="status-layer absolute left-0 right-0 opacity-0 translate-y-1 animate-[statusCycle_7.2s_ease-in-out_infinite] [animation-delay:0s]">Authorizing session</span>
               <span className="status-layer absolute left-0 right-0 opacity-0 translate-y-1 animate-[statusCycle_7.2s_ease-in-out_infinite] [animation-delay:1.8s]">Loading user profile</span>

@@ -53,7 +53,7 @@ export function DashboardMockup() {
             <span className="h-3 w-3 rounded-full bg-emerald-400" />
           </div>
           <div className="flex items-center gap-2 rounded-lg bg-slate-100/80 px-3 py-1 text-xs text-slate-400 dark:bg-white/5">
-            <Search className="h-3 w-3" /> app.hirely.ai/dashboard
+            <Search className="h-3 w-3" /> app.hirly.ai/dashboard
           </div>
           <Bell className="h-4 w-4 text-slate-400" />
         </div>

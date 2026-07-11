@@ -12,6 +12,12 @@
     "PORT": "3001",
     "SUPABASE_URL": "https://wnaayghjmewxzwratqas.supabase.co"
   },
+  "routes": [
+    {
+      "pattern": "api.hirly.online",
+      "custom_domain": true
+    }
+  ],
   "alias": {
     "@napi-rs/canvas": "./src/canvas-mock.ts"
   }

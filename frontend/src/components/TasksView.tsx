@@ -433,8 +433,8 @@ export default function TasksView({
       {showAddModal && (
         <Portal>
           <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-xl border border-slate-200 shadow-xl max-w-md w-full overflow-hidden animate-slide-up">
-            <div className="flex items-center justify-between p-4 border-b border-slate-150 bg-slate-50">
+            <div className="bg-white rounded-xl border border-slate-200 shadow-xl max-w-md w-full max-h-[90vh] flex flex-col overflow-hidden animate-slide-up">
+            <div className="flex items-center justify-between p-4 border-b border-slate-150 bg-slate-50 shrink-0">
               <h2 className="text-xs font-bold text-slate-950 font-sans flex items-center gap-1.5">
                 <CheckSquare className="h-4 w-4 text-blue-600" />
                 Create New Simplified Task
@@ -444,7 +444,7 @@ export default function TasksView({
               </button>
             </div>
             
-            <form onSubmit={handleSubmit} className="p-4 space-y-4">
+            <form onSubmit={handleSubmit} className="p-4 space-y-4 overflow-y-auto flex-1">
               <div className="space-y-3">
                 <div>
                   <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-wider mb-1">Task Title *</label>

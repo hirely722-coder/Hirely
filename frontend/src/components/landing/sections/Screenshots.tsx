@@ -94,7 +94,7 @@ export function Screenshots() {
       <Container>
         <SectionHeading
           eyebrow="Product Tour"
-          title="A Closer Look Inside Hirely AI"
+          title="A Closer Look Inside Hirly AI"
           subtitle="Explore the modules that power your entire recruitment workflow — beautifully designed, effortlessly fast."
         />
 
@@ -122,7 +122,7 @@ export function Screenshots() {
               <span className="h-3 w-3 rounded-full bg-red-400" />
               <span className="h-3 w-3 rounded-full bg-amber-400" />
               <span className="h-3 w-3 rounded-full bg-emerald-400" />
-              <span className="ml-4 text-xs text-slate-400">app.hirely.ai/{current.key}</span>
+              <span className="ml-4 text-xs text-slate-400">app.hirly.ai/{current.key}</span>
             </div>
 
             <AnimatePresence mode="wait">

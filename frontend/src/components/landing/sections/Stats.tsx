@@ -14,8 +14,8 @@ export function Stats() {
     <section className="relative py-24 sm:py-32">
       <Container>
         <SectionHeading
-          eyebrow="Why Hirely AI"
-          title="Why Choose Hirely AI"
+          eyebrow="Why Hirly AI"
+          title="Why Choose Hirly AI"
           subtitle="Real results for recruitment agencies that switched from spreadsheets and legacy ATS tools."
         />
 

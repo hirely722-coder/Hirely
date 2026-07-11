@@ -7,7 +7,7 @@ import { SectionHeading } from "../ui/SectionHeading";
 const faqs = [
   {
     q: "Can I import Excel data?",
-    a: "Yes! Hirely AI supports bulk import of candidates from Excel and CSV files. You can import thousands of records in minutes, with automatic field mapping and duplicate detection.",
+    a: "Yes! Hirly AI supports bulk import of candidates from Excel and CSV files. You can import thousands of records in minutes, with automatic field mapping and duplicate detection.",
   },
   {
     q: "Does AI parse resumes automatically?",
@@ -19,7 +19,7 @@ const faqs = [
   },
   {
     q: "Is WhatsApp supported?",
-    a: "Yes, Hirely AI integrates with WhatsApp and Email so you can send interview invitations, updates, and offer letters to candidates directly from the platform with one click.",
+    a: "Yes, Hirly AI integrates with WhatsApp and Email so you can send interview invitations, updates, and offer letters to candidates directly from the platform with one click.",
   },
   {
     q: "Can I cancel anytime?",

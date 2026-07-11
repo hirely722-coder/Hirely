@@ -3,7 +3,7 @@ import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { supabase } from '../utils/supabase';
 import { useApp } from '../context/AppContext';
-import { Mail, Lock, User, Sparkles, AlertCircle, ArrowLeft } from 'lucide-react';
+import { Mail, Lock, User, Sparkles, AlertCircle, ArrowLeft, Eye, EyeOff } from 'lucide-react';
 
 function GoogleLogo({ size = 24 }: { size?: number }) {
   return (
@@ -28,6 +28,8 @@ export default function Login() {
   
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   // If session already exists, redirect to dashboard
   useEffect(() => {
@@ -84,7 +86,7 @@ export default function Login() {
       if (signUpErr) {
         setError(signUpErr.message);
       } else {
-        showToast('Account created successfully! Welcome to Hirely.');
+        showToast('Account created successfully! Welcome to Hirly.');
         const { inviteToken } = router.query;
         router.replace(inviteToken ? `/accept-invite?token=${inviteToken}` : '/');
       }
@@ -146,11 +148,9 @@ export default function Login() {
           </div>
           
           <div className="flex items-center justify-center gap-2 mb-2">
-            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 via-violet-500 to-blue-500 shadow-lg shadow-indigo-500/30">
-              <Sparkles className="h-5 w-5 text-white" />
-            </span>
+            <img src="/logo.svg" alt="Hirly Logo" className="h-9 w-9 rounded-xl shadow-md" />
             <h1 className="text-3xl font-black text-white tracking-tight font-display">
-              Hirely <span className="text-indigo-500">AI</span>
+              Hirly <span className="text-indigo-500">AI</span>
             </h1>
           </div>
           
@@ -238,13 +238,20 @@ export default function Login() {
             <div className="relative">
               <Lock className="absolute left-4 top-3.5 h-4 w-4 text-slate-400" />
               <input
-                type="password"
+                type={showPassword ? 'text' : 'password'}
                 required
                 placeholder="••••••••"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-800 rounded-2xl pl-11 pr-4 py-3 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all font-medium"
+                className="w-full bg-slate-950 border border-slate-800 rounded-2xl pl-11 pr-11 py-3 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all font-medium"
               />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-4 top-3 text-slate-400 hover:text-slate-200 focus:outline-none"
+              >
+                {showPassword ? <EyeOff className="h-4.5 w-4.5" /> : <Eye className="h-4.5 w-4.5" />}
+              </button>
             </div>
           </div>
 
@@ -254,13 +261,20 @@ export default function Login() {
               <div className="relative">
                 <Lock className="absolute left-4 top-3.5 h-4 w-4 text-slate-400" />
                 <input
-                  type="password"
+                  type={showConfirmPassword ? 'text' : 'password'}
                   required
                   placeholder="••••••••"
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-2xl pl-11 pr-4 py-3 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all font-medium"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-2xl pl-11 pr-11 py-3 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all font-medium"
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                  className="absolute right-4 top-3 text-slate-400 hover:text-slate-200 focus:outline-none"
+                >
+                  {showConfirmPassword ? <EyeOff className="h-4.5 w-4.5" /> : <Eye className="h-4.5 w-4.5" />}
+                </button>
               </div>
             </div>
           )}

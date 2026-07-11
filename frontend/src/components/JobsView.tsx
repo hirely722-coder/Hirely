@@ -862,8 +862,8 @@ export default function JobsView({
       {showAddModal && (
         <Portal>
           <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-xl border border-slate-100 shadow-xl max-w-lg w-full overflow-hidden animate-slide-up">
-            <div className="flex items-center justify-between p-5 border-b border-slate-100 bg-slate-50">
+            <div className="bg-white rounded-xl border border-slate-100 shadow-xl max-w-lg w-full max-h-[90vh] flex flex-col overflow-hidden animate-slide-up">
+            <div className="flex items-center justify-between p-5 border-b border-slate-100 bg-slate-50 shrink-0">
               <h2 className="text-sm font-bold text-slate-950 font-sans flex items-center gap-1.5">
                 <Briefcase className="h-4 w-4 text-slate-500" />
                 Add New Job Position
@@ -873,7 +873,7 @@ export default function JobsView({
               </button>
             </div>
             
-            <form onSubmit={handleSaveAdd} className="p-5 space-y-4">
+            <form onSubmit={handleSaveAdd} className="p-5 space-y-4 overflow-y-auto flex-1">
               <div className="grid grid-cols-2 gap-4">
                 <div className="col-span-2">
                   <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-wider mb-1">Job Title *</label>
@@ -1074,8 +1074,8 @@ export default function JobsView({
       {showEditModal && (
         <Portal>
           <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-xl border border-slate-100 shadow-xl max-w-lg w-full overflow-hidden animate-slide-up">
-            <div className="flex items-center justify-between p-5 border-b border-slate-100 bg-slate-50">
+            <div className="bg-white rounded-xl border border-slate-100 shadow-xl max-w-lg w-full max-h-[90vh] flex flex-col overflow-hidden animate-slide-up">
+            <div className="flex items-center justify-between p-5 border-b border-slate-100 bg-slate-50 shrink-0">
               <h2 className="text-sm font-bold text-slate-950 font-sans flex items-center gap-1.5">
                 <Briefcase className="h-4 w-4 text-slate-500" />
                 Edit Job: {showEditModal.title}
@@ -1085,7 +1085,7 @@ export default function JobsView({
               </button>
             </div>
             
-            <form onSubmit={handleSaveEdit} className="p-5 space-y-4">
+            <form onSubmit={handleSaveEdit} className="p-5 space-y-4 overflow-y-auto flex-1">
               <div className="grid grid-cols-2 gap-4">
                 <div className="col-span-2">
                   <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-wider mb-1">Job Title *</label>

@@ -43,10 +43,8 @@ export function Navbar() {
           )}
         >
           <a href="#" className="flex items-center gap-2 font-bold text-slate-900 dark:text-white">
-            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 via-violet-500 to-blue-500 shadow-lg shadow-indigo-500/30">
-              <Sparkles className="h-5 w-5 text-white" />
-            </span>
-            <span className="text-lg tracking-tight">Hirely AI</span>
+            <img src="/logo.svg" alt="Hirly Logo" className="h-9 w-9 rounded-xl shadow-md" />
+            <span className="text-lg tracking-tight">Hirly AI</span>
           </a>
 
           <nav className="hidden items-center gap-8 lg:flex">

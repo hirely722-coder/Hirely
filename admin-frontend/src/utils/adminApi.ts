@@ -10,7 +10,7 @@ export async function fetchAdminApi(path: string, options: RequestInit = {}) {
     ...(options.headers || {})
   };
 
-  const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL;
+  const backendUrl = (process.env.NEXT_PUBLIC_BACKEND_URL || '').replace(/^\uFEFF/, '');
   if (!backendUrl) {
     throw new Error('Missing NEXT_PUBLIC_BACKEND_URL environment variable.');
   }

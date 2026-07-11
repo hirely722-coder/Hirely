@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { 
   LayoutDashboard, Building2, Briefcase, Users, GitMerge, Mail, Sparkles, Settings, 
   LogOut, Shield, ChevronDown, Bell, Menu, X, CheckSquare, Plus, CreditCard, Activity, Database, MessageSquare, Lock,
-  Search, Palette, Check, User, ChevronRight, ShieldAlert
+  Search, Palette, Check, User, ChevronRight, ShieldAlert, Zap
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { supabase } from '../utils/supabase';
@@ -255,7 +255,10 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               </svg>
             </div>
             <div className="word-group flex flex-col items-center gap-2.5 opacity-0 translate-y-1.5 animate-[fadeUp_0.6s_ease_forwards] [animation-delay:1.15s]">
-              <div className="font-sora font-bold text-[21px] tracking-[0.02em] text-[#0f172a]">Hirly</div>
+              <div className="flex items-center gap-2 font-sora font-bold text-[21px] tracking-[0.02em] text-[#0f172a]">
+                <img src="/logo.svg" alt="Hirly Logo" className="h-6 w-6 rounded-md shadow-sm animate-pulse" />
+                <span>Hirly</span>
+              </div>
               <div className="text-[11.5px] text-[#64748b] font-semibold tracking-[0.12em] uppercase h-4 relative min-w-[230px] text-center">
                 <span className="status-layer absolute left-0 right-0 opacity-0 translate-y-1 animate-[statusCycle_7.2s_ease-in-out_infinite] [animation-delay:0s]">Setting up your workspace</span>
                 <span className="status-layer absolute left-0 right-0 opacity-0 translate-y-1 animate-[statusCycle_7.2s_ease-in-out_infinite] [animation-delay:1.8s]">Syncing your pipelines</span>
@@ -311,7 +314,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     { name: 'Pipeline', path: '/pipeline', icon: GitMerge },
     { name: 'Tasks', path: '/tasks', icon: CheckSquare, badge: Array.isArray(tasks) ? tasks.filter(t => t.status === 'Pending').length : 0 },
     { name: 'Templates', path: '/templates', icon: Mail },
-    { name: 'Copilot', path: '/copilot', icon: Sparkles },
+    { name: 'Hirly Forge', path: '/copilot', icon: Zap },
     { name: 'Support', path: '/support', icon: MessageSquare },
     { name: 'Settings', path: '/settings', icon: Settings },
   ];
@@ -682,11 +685,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         {/* Brand Header */}
         <div className="h-16 flex items-center justify-between px-6 border-b border-slate-100 shrink-0">
           <div className="flex items-center gap-2.5">
-            <div className="h-8 w-8 rounded-lg bg-blue-600 flex items-center justify-center font-bold text-white shadow-md shadow-blue-100 font-display">
-              H
-            </div>
+            <img src="/logo.svg" alt="Hirly Logo" className="h-8 w-8 rounded-lg shadow-sm" />
             <div>
-              <h1 className="text-sm font-bold text-slate-900 font-display tracking-tight leading-none">Hirely</h1>
+              <h1 className="text-sm font-bold text-slate-900 font-display tracking-tight leading-none">Hirly</h1>
               <p className="text-[10px] text-slate-400 font-medium mt-0.5 tracking-wider font-mono">
                 {isAdminPath ? 'SUPER ADMIN' : 'ATS PORTAL'}
               </p>
@@ -950,7 +951,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         </header>
 
         {/* Page Content Panel */}
-        <main className="flex-1 overflow-y-auto p-4 md:p-8 bg-slate-50/30">
+        <main className={`flex-1 overflow-y-auto bg-slate-50/30 ${router.pathname === '/copilot' ? '' : 'p-4 md:p-8'}`}>
           {isLockedRoute() ? (
             <div className="flex flex-col items-center justify-center min-h-[60vh] text-center p-8">
               <div className="h-16 w-16 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center mb-4 border border-amber-100 shadow-sm animate-pulse">

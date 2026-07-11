@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { Mic, Sparkles, User } from "lucide-react";
+import { Mic, Sparkles, User, Zap } from "lucide-react";
 import { Container } from "../ui/Container";
 
 const bars = Array.from({ length: 22 });
@@ -16,13 +16,13 @@ export function VoiceCopilot() {
           <div className="relative grid items-center gap-14 lg:grid-cols-2">
             <div>
               <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-indigo-400/30 bg-indigo-500/10 px-4 py-1.5 text-xs font-semibold text-indigo-300">
-                <Sparkles className="h-3.5 w-3.5" /> AI Voice Copilot
+                <Zap className="h-3.5 w-3.5 text-indigo-300" /> Hirly Forge AI
               </div>
               <h2 className="text-balance text-3xl font-bold tracking-tight text-white sm:text-4xl md:text-5xl">
                 Meet Your AI Recruitment Assistant
               </h2>
               <p className="mt-6 max-w-lg text-balance text-lg leading-relaxed text-slate-400">
-                Simply speak to Hirely AI like you would to a colleague. Search candidates, send
+                Simply speak to Hirly AI like you would to a colleague. Search candidates, send
                 emails, move pipeline stages, and get insights — all with your voice.
               </p>
 
@@ -90,8 +90,8 @@ export function VoiceCopilot() {
                   transition={{ delay: 0.6, duration: 0.5 }}
                   className="flex max-w-[90%] items-start gap-2.5"
                 >
-                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-emerald-400 to-teal-500">
-                    <Sparkles className="h-4 w-4 text-white" />
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-violet-600">
+                    <Zap className="h-4 w-4 text-white" />
                   </span>
                   <div className="rounded-2xl rounded-tl-sm bg-white/10 px-4 py-3 text-sm leading-relaxed text-slate-200">
                     I found <span className="font-semibold text-white">28 candidates</span>.

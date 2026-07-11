@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { supabase } from '@/utils/supabase';
 import { useApp } from '@/context/AdminAppContext';
-import { Mail, Lock, Shield, AlertCircle, ArrowLeft } from 'lucide-react';
+import { Mail, Lock, Shield, AlertCircle, ArrowLeft, Eye, EyeOff } from 'lucide-react';
 import Link from 'next/link';
 
 export default function AdminLogin() {
@@ -13,6 +13,7 @@ export default function AdminLogin() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   // If already a super admin, redirect to admin panel
   useEffect(() => {
@@ -28,7 +29,7 @@ export default function AdminLogin() {
 
     try {
       // 1. Call server-side login endpoint to verify super admin rights
-      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL;
+      const backendUrl = (process.env.NEXT_PUBLIC_BACKEND_URL || '').replace(/^\uFEFF/, '');
       if (!backendUrl) {
         throw new Error('Missing NEXT_PUBLIC_BACKEND_URL environment variable.');
       }
@@ -108,11 +109,9 @@ export default function AdminLogin() {
           </div>
           
           <div className="flex items-center justify-center gap-2 mb-2">
-            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-600 shadow-md shadow-blue-500/20">
-              <Shield className="h-5 w-5 text-white" />
-            </span>
+            <img src="/logo.svg" alt="Hirly Logo" className="h-9 w-9 rounded-xl shadow-md" />
             <h1 className="text-2xl font-black text-slate-900 tracking-tight font-display">
-              Hirely <span className="text-blue-600">Admin</span>
+              Hirly <span className="text-blue-600">Admin</span>
             </h1>
           </div>
           
@@ -151,13 +150,20 @@ export default function AdminLogin() {
             <div className="relative">
               <Lock className="absolute left-4 top-3.5 h-4 w-4 text-slate-400" />
               <input
-                type="password"
+                type={showPassword ? 'text' : 'password'}
                 required
                 placeholder="••••••••"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full bg-white border border-slate-200 rounded-2xl pl-11 pr-4 py-3.5 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600 transition-all font-medium font-mono"
+                className="w-full bg-white border border-slate-200 rounded-2xl pl-11 pr-11 py-3.5 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600 transition-all font-medium font-mono"
               />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-4 top-3.5 text-slate-400 hover:text-slate-600 focus:outline-none"
+              >
+                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
             </div>
           </div>
 

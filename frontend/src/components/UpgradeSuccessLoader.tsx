@@ -57,21 +57,24 @@ export default function UpgradeSuccessLoader() {
 
         {/* Animated Brand Container */}
         <div className="flex items-center justify-center h-12 relative min-w-[280px]">
-          {/* Brand Name "Hirly" */}
-          <span 
-            className="font-sora font-extrabold text-[32px] tracking-tight text-slate-900 transition-all duration-700 ease-out"
+          {/* Brand Name "Hirly" with Logo */}
+          <div 
+            className="flex items-center gap-2.5 transition-all duration-700 ease-out"
             style={{
-              transform: isShifted ? 'translateX(-22px)' : 'translateX(0px)',
+              transform: isShifted ? 'translateX(-30px)' : 'translateX(0px)',
             }}
           >
-            Hirly
-          </span>
+            <img src="/logo.svg" alt="Hirly Logo" className="h-8 w-8 rounded-lg shadow-md" />
+            <span className="font-sora font-extrabold text-[32px] tracking-tight text-slate-900">
+              Hirly
+            </span>
+          </div>
 
           {/* Pro Tag (Renders beside Hirly after shift) */}
           {isShifted && (
             <span 
               className="absolute font-sans font-bold text-[13px] tracking-wider uppercase px-2.5 py-1 rounded bg-gradient-to-r from-blue-600 to-emerald-500 text-white shadow-[0_4px_12px_rgba(49,97,245,0.25)] animate-[badgeReveal_0.5s_cubic-bezier(0.34,1.56,0.64,1)_forwards]"
-              style={{ left: 'calc(50% + 18px)' }}
+              style={{ left: 'calc(50% + 32px)' }}
             >
               Pro
             </span>

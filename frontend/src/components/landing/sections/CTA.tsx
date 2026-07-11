@@ -23,7 +23,7 @@ export function CTA() {
             Ready to Modernize Your Recruitment Process?
           </h2>
           <p className="relative mx-auto mt-5 max-w-xl text-balance text-lg text-indigo-100">
-            Join hundreds of agencies using Hirely AI to hire faster, automate busywork, and close
+            Join hundreds of agencies using Hirly AI to hire faster, automate busywork, and close
             more roles.
           </p>
 

@@ -370,8 +370,8 @@ export default function TemplatesView({
       {showAddModal && (
         <Portal>
           <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-2xl border border-slate-100 shadow-2xl max-w-2xl w-full p-8 animate-slide-up relative overflow-visible">
-            <div className="flex items-start justify-between pb-4">
+            <div className="bg-white rounded-2xl border border-slate-100 shadow-2xl max-w-2xl w-full p-8 max-h-[90vh] flex flex-col overflow-hidden animate-slide-up relative">
+            <div className="flex items-start justify-between pb-4 shrink-0">
               <div>
                 <h2 className="text-xl font-bold text-slate-900">Create template</h2>
                 <p className="text-xs text-slate-500 mt-1">Define a reusable email template with merge variables.</p>
@@ -385,7 +385,7 @@ export default function TemplatesView({
               </button>
             </div>
             
-            <form onSubmit={handleSaveAdd} className="space-y-5">
+            <form onSubmit={handleSaveAdd} className="space-y-5 overflow-y-auto flex-1 pr-1">
               <div>
                 <label className="block text-xs font-semibold text-slate-800 mb-1.5">Recipient Audience</label>
                 <div className="grid grid-cols-2 gap-3">
@@ -540,8 +540,8 @@ export default function TemplatesView({
       {showEditModal && (
         <Portal>
           <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-2xl border border-slate-100 shadow-2xl max-w-2xl w-full p-8 animate-slide-up relative overflow-visible">
-            <div className="flex items-start justify-between pb-4">
+            <div className="bg-white rounded-2xl border border-slate-100 shadow-2xl max-w-2xl w-full p-8 max-h-[90vh] flex flex-col overflow-hidden animate-slide-up relative">
+            <div className="flex items-start justify-between pb-4 shrink-0">
               <div>
                 <h2 className="text-xl font-bold text-slate-900">Edit template</h2>
                 <p className="text-xs text-slate-500 mt-1">Define a reusable email template with merge variables.</p>
@@ -555,7 +555,7 @@ export default function TemplatesView({
               </button>
             </div>
             
-            <form onSubmit={handleSaveEdit} className="space-y-5">
+            <form onSubmit={handleSaveEdit} className="space-y-5 overflow-y-auto flex-1 pr-1">
               <div>
                 <label className="block text-xs font-semibold text-slate-800 mb-1.5">Recipient Audience</label>
                 <div className="grid grid-cols-2 gap-3">

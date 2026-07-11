@@ -539,14 +539,14 @@ export function SettingsRbacTab() {
       {/* Create Custom Role Modal */}
       {showCreateModal && (
         <div className="fixed inset-0 bg-slate-900/40 z-50 flex items-center justify-center p-4">
-          <div className="bg-white border border-slate-200 rounded-xl max-w-sm w-full p-6 shadow-xl animate-scale-up">
-            <h3 className="text-sm font-bold text-slate-900 font-sans flex items-center gap-1.5">
+          <div className="bg-white border border-slate-200 rounded-xl max-w-sm w-full p-6 max-h-[90vh] flex flex-col overflow-hidden shadow-xl animate-scale-up">
+            <h3 className="text-sm font-bold text-slate-900 font-sans flex items-center gap-1.5 shrink-0">
               <Shield className="h-4 w-4 text-blue-600" />
               <span>Create Custom Workspace Role</span>
             </h3>
-            <p className="text-xs text-slate-500 mt-1">Provide a unique descriptor name for the custom role.</p>
+            <p className="text-xs text-slate-500 mt-1 shrink-0">Provide a unique descriptor name for the custom role.</p>
 
-            <form onSubmit={handleCreateRole} className="mt-4 space-y-4">
+            <form onSubmit={handleCreateRole} className="mt-4 space-y-4 overflow-y-auto flex-1">
               <div>
                 <label className="block text-[10px] font-bold uppercase text-slate-400 font-mono">Role Name</label>
                 <input

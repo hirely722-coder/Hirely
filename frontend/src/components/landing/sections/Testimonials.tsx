@@ -9,7 +9,7 @@ const testimonials = [
     role: "Agency Owner",
     company: "Carter Talent Group",
     quote:
-      "Hirely AI cut our time-to-hire in half. The AI resume parsing alone saves my team over 20 hours a week. It's the ATS we always wanted.",
+      "Hirly AI cut our time-to-hire in half. The AI resume parsing alone saves my team over 20 hours a week. It's the ATS we always wanted.",
     initials: "MC",
   },
   {
@@ -37,7 +37,7 @@ export function Testimonials() {
         <SectionHeading
           eyebrow="Testimonials"
           title="Loved by Recruitment Teams Everywhere"
-          subtitle="Here's what agency owners, HR managers, and consultants say about Hirely AI."
+          subtitle="Here's what agency owners, HR managers, and consultants say about Hirly AI."
         />
 
         <div className="mt-16 grid grid-cols-1 gap-6 md:grid-cols-3">

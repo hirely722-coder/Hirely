@@ -91,7 +91,10 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
             {/* Custom Admin Status Messages */}
             <div className="word-group flex flex-col items-center gap-2.5 opacity-0 translate-y-1.5 animate-[fadeUp_0.6s_ease_forwards] [animation-delay:1.15s]">
-              <div className="font-sora font-bold text-[21px] tracking-[0.02em] text-[#0f172a]">Hirely AI</div>
+              <div className="flex items-center gap-2 font-sora font-bold text-[21px] tracking-[0.02em] text-[#0f172a]">
+                <img src="/logo.svg" alt="Hirly Logo" className="h-6 w-6 rounded-md shadow-sm animate-pulse" />
+                <span>Hirly AI</span>
+              </div>
               <div className="text-[11.5px] text-[#64748b] font-semibold tracking-[0.12em] uppercase h-4 relative min-w-[250px] text-center">
                 <span className="status-layer absolute left-0 right-0 opacity-0 translate-y-1 animate-[statusCycle_7.2s_ease-in-out_infinite] [animation-delay:0s]">Securing Admin Console</span>
                 <span className="status-layer absolute left-0 right-0 opacity-0 translate-y-1 animate-[statusCycle_7.2s_ease-in-out_infinite] [animation-delay:1.8s]">Loading Workspace Metrics</span>
@@ -167,11 +170,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         {/* Brand Header */}
         <div className="h-16 flex items-center justify-between px-6 border-b border-slate-100 shrink-0">
           <div className="flex items-center gap-2.5">
-            <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-violet-500 shadow-md shadow-indigo-500/10">
-              <Shield className="h-4.5 w-4.5 text-white" />
-            </span>
+            <img src="/logo.svg" alt="Hirly Logo" className="h-8 w-8 rounded-lg shadow-sm" />
             <div>
-              <h1 className="text-sm font-bold text-slate-900 font-display tracking-tight leading-none">Hirely AI</h1>
+              <h1 className="text-sm font-bold text-slate-900 font-display tracking-tight leading-none">Hirly AI</h1>
               <p className="text-[9px] text-indigo-600 font-bold mt-0.5 tracking-wider font-mono uppercase">SUPER ADMIN</p>
             </div>
           </div>

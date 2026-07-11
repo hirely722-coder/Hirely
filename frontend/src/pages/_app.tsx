@@ -1,4 +1,5 @@
 import "@/styles/globals.css";
+import "@assistant-ui/react-ui/styles/index.css";
 import type { AppProps } from "next/app";
 import { AppContextProvider } from "@/context/AppContext";
 import Layout from "@/components/Layout";
@@ -21,9 +22,15 @@ if (typeof globalThis !== 'undefined') {
   };
 }
 
+import Head from "next/head";
+
 export default function App({ Component, pageProps }: AppProps) {
   return (
     <AppContextProvider>
+      <Head>
+        <title>Hirly - Premium Recruiter Platform</title>
+        <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+      </Head>
       <Script src="https://checkout.razorpay.com/v1/checkout.js" strategy="beforeInteractive" />
       <Layout>
         <Component {...pageProps} />
