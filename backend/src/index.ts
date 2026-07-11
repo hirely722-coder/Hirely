@@ -1044,6 +1044,8 @@ export async function runCopilotAgent(
           // 1. Scan standard fields
           const matchesStandard = 
             (c.name || '').toLowerCase().includes(q) ||
+            (c.email || '').toLowerCase().includes(q) ||
+            (c.phone || '').toLowerCase().includes(q) ||
             (c.designation || '').toLowerCase().includes(q) ||
             (c.city || '').toLowerCase().includes(q) ||
             (c.skills || []).some((s: string) => s.toLowerCase().includes(q));
