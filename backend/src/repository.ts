@@ -78,6 +78,27 @@ export class WorkspaceRepository {
 
   async create(body: any) {
     const snakeBody = keysToSnake(body);
+
+    if (this.tableName === 'candidates') {
+      const email = snakeBody.email?.trim().toLowerCase();
+      if (email) {
+        const { data: existing, error: checkError } = await supabase
+          .from('candidates')
+          .select('id, name')
+          .eq('workspace_id', this.user.workspace_id)
+          .eq('email', email)
+          .maybeSingle();
+
+        if (checkError) {
+          console.error('[WorkspaceRepository] Error checking existing candidate email:', checkError.message);
+        }
+
+        if (existing) {
+          throw new Error(`Candidate with email '${email}' already exists in this workspace (Name: ${existing.name}, ID: ${existing.id}).`);
+        }
+      }
+    }
+
     if (!snakeBody.id) {
       snakeBody.id = crypto.randomUUID();
     }

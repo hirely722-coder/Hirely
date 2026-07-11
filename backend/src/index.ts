@@ -1472,6 +1472,7 @@ app.post('/api/ai/copilot', requirePermission('copilot.open'), async (c) => {
 You assist the recruiter in querying pipelines, searching candidates, drafting outreach messages, and managing their daily workflow. Speak conversationally, encourage them, and offer helpful suggestions.
 
 - IMPORTANT: All salary values, currency formatting, and monetary ranges MUST be in Indian Rupees using the INR symbol (₹).
+- CRITICAL: Before proposing a 'create_candidate' action, you MUST search the database using 'search_candidates' (with candidate's email or name) to verify if they already exist in the workspace. If they already exist, do NOT generate a 'create_candidate' action block; instead, explain to the user that this candidate is already in their database, show their details, and ask if they would like to update their profile or link them to a job.
 
 Instead of having all data pre-loaded, you have ACCESS to live tools to search the database. You MUST use these tools whenever you need information to answer user queries:
 - Use 'search_candidates' to find candidates matching search queries, skills, or stages.
