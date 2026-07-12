@@ -3,7 +3,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { 
   Plus, Mic, AudioLines, SendHorizontal, Square,
-  Loader2, Trash2, ArrowRight, Paperclip, X, FileText, Zap, User 
+  Loader2, Trash2, ArrowRight, Paperclip, X, FileText, Zap, User, ChevronDown, BrainCircuit
 } from 'lucide-react';
 import { Candidate, Job, Company, Task, EmailTemplate } from '../types';
 import { supabase } from '../utils/supabase';
@@ -409,6 +409,8 @@ export default function CopilotView({
   const [currentTool, setCurrentTool] = useState<string | null>(null);
   const [autoExecute, setAutoExecute] = useState(false);
   const [approvingTaskId, setApprovingTaskId] = useState<string | null>(null);
+  const [thinkingSteps, setThinkingSteps] = useState<Array<{ label: string; reasoning: string; completed: boolean }>>([]);
+  const [thinkingOpen, setThinkingOpen] = useState(true);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -523,6 +525,8 @@ export default function CopilotView({
     setAttachedFiles([]);
     setIsLoading(true);
     setCurrentTool(null);
+    setThinkingSteps([]);
+    setThinkingOpen(true);
 
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -590,9 +594,12 @@ export default function CopilotView({
                 } else if (data.status === 'failed') {
                   reject(new Error(data.error || 'Task execution failed.'));
                 } else {
-                  // If running, set current tool label dynamically
+                  // If running, set current tool label and thinking steps dynamically
                   if (data.current_step) {
                     setCurrentTool(data.current_step);
+                  }
+                  if (data.thinkingSteps && data.thinkingSteps.length > 0) {
+                    setThinkingSteps(data.thinkingSteps);
                   }
                   setTimeout(checkStatus, 800);
                 }
@@ -949,6 +956,60 @@ export default function CopilotView({
                   })}
                   {isLoading && (
                     <div className="flex flex-col gap-3 w-full max-w-3xl mx-auto my-6 px-4 animate-fade-in">
+                      {/* Thinking Panel - shows Gemma 4 reasoning steps */}
+                      {thinkingSteps.length > 0 && (
+                        <div style={{
+                          border: '1px solid rgba(99,102,241,0.2)',
+                          borderRadius: '12px',
+                          background: 'rgba(99,102,241,0.04)',
+                          padding: '12px 14px',
+                          marginBottom: '4px'
+                        }}>
+                          <button
+                            onClick={() => setThinkingOpen(o => !o)}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              width: '100%',
+                              background: 'none',
+                              border: 'none',
+                              cursor: 'pointer',
+                              padding: 0,
+                              color: 'rgb(148,163,184)'
+                            }}
+                          >
+                            <span style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', fontWeight: 600 }}>
+                              <BrainCircuit size={13} style={{ color: 'rgb(99,102,241)' }} />
+                              Thinking... ({thinkingSteps.filter(s => s.completed).length} step{thinkingSteps.filter(s => s.completed).length !== 1 ? 's' : ''} completed)
+                            </span>
+                            <ChevronDown size={13} style={{ transform: thinkingOpen ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }} />
+                          </button>
+                          {thinkingOpen && (
+                            <div style={{ marginTop: '10px', borderTop: '1px solid rgba(148,163,184,0.1)', paddingTop: '10px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                              {thinkingSteps.map((step, i) => (
+                                <details key={i} style={{ fontSize: '11px', color: 'rgb(100,116,139)' }}>
+                                  <summary style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', listStyle: 'none', userSelect: 'none' }}>
+                                    <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: step.completed ? 'rgb(34,197,94)' : 'rgb(99,102,241)', display: 'inline-block', flexShrink: 0 }} />
+                                    {step.label}
+                                  </summary>
+                                  <pre style={{
+                                    whiteSpace: 'pre-wrap',
+                                    fontFamily: 'monospace',
+                                    fontSize: '10px',
+                                    opacity: 0.5,
+                                    maxHeight: '180px',
+                                    overflowY: 'auto',
+                                    marginTop: '6px',
+                                    paddingLeft: '12px',
+                                    borderLeft: '2px solid rgba(99,102,241,0.3)'
+                                  }}>{step.reasoning}</pre>
+                                </details>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
                       <div className="flex items-center gap-1.5 text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
                         <Zap className="h-3.5 w-3.5 animate-pulse text-indigo-650" />
                         <span>

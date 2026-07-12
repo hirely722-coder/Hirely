@@ -197,7 +197,8 @@ async function callLLM(
     body: JSON.stringify({
       model: 'google/gemma-4-31b-it',
       messages: formattedMessages,
-      temperature
+      temperature,
+      reasoning_effort: 'high'
     })
   });
 
@@ -366,7 +367,8 @@ async function callEdenAIWithTools(
       model: 'google/gemma-4-31b-it',
       messages,
       tools,
-      temperature: 0.7
+      temperature: 0.7,
+      reasoning_effort: 'high'
     })
   });
 
@@ -375,7 +377,18 @@ async function callEdenAIWithTools(
     throw new Error(`Eden AI API returned status ${response.status}: ${errorText}`);
   }
 
-  return await response.json();
+  const json = await response.json() as any;
+
+  // Normalize reasoning_content onto the message object for downstream consumers
+  if (json?.choices?.[0]?.message) {
+    const reasoning = json.choices[0].message.reasoning_content ?? null;
+    json.choices[0].message.reasoning = reasoning;
+    if (reasoning) {
+      console.log(`[Copilot Thinking] Gemma 4 reasoning captured (${reasoning.length} chars)`);
+    }
+  }
+
+  return json;
 }
 
 // Global event emitter for streaming response tokens to client SSE route
@@ -385,6 +398,11 @@ export const streamEmitter = new EventEmitter();
 export interface BackgroundTask {
   status: 'pending' | 'completed' | 'failed' | 'pending_approval' | 'streaming';
   currentStep?: { name: string; args: any };
+  thinkingSteps?: Array<{
+    label: string;      // e.g. "Reasoning (iteration 1)"
+    reasoning: string;  // raw reasoning_content from Gemma 4
+    completed: boolean;
+  }>;
   result?: any;
   error?: string;
   user?: any;
@@ -1359,6 +1377,20 @@ export async function runCopilotAgent(
           const res = await callEdenAIWithTools(subMessages, activeTools);
           const msg = res.choices?.[0]?.message;
           if (!msg) break;
+
+          // Capture Gemma 4 reasoning from sub-agent
+          if (msg.reasoning) {
+            const currentTask = backgroundTasks.get(taskId);
+            if (currentTask) {
+              currentTask.thinkingSteps = currentTask.thinkingSteps ?? [];
+              currentTask.thinkingSteps.push({
+                label: `${task.agent} reasoning (step ${subLoop + 1})`,
+                reasoning: msg.reasoning,
+                completed: true
+              });
+              backgroundTasks.set(taskId, currentTask);
+            }
+          }
           
           if (msg.tool_calls && msg.tool_calls.length > 0) {
             subMessages.push(msg);
@@ -1425,6 +1457,20 @@ export async function runCopilotAgent(
 
         if (!rawMessage) {
           throw new Error('Invalid empty response received from completions API.');
+        }
+
+        // Capture Gemma 4 native reasoning_content if available
+        if (rawMessage.reasoning) {
+          const currentTask = backgroundTasks.get(taskId);
+          if (currentTask) {
+            currentTask.thinkingSteps = currentTask.thinkingSteps ?? [];
+            currentTask.thinkingSteps.push({
+              label: `Reasoning (step ${loopCount + 1})`,
+              reasoning: rawMessage.reasoning,
+              completed: true
+            });
+            backgroundTasks.set(taskId, currentTask);
+          }
         }
 
         if (rawMessage.tool_calls && rawMessage.tool_calls.length > 0) {
