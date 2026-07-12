@@ -698,9 +698,12 @@ app.use('/api/*', async (c, next) => {
   }
 
   const authHeader = c.req.header('Authorization');
-  const token = authHeader?.split(' ')[1];
+  let token = authHeader?.split(' ')[1];
   if (!token) {
-    return c.json({ error: 'Authorization header is missing' }, 401);
+    token = c.req.query('token');
+  }
+  if (!token) {
+    return c.json({ error: 'Authorization token is missing' }, 401);
   }
 
   const { data: { user }, error } = await supabase.auth.getUser(token);

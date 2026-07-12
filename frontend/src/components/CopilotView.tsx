@@ -599,7 +599,7 @@ export default function CopilotView({
               { role: 'assistant', content: '', reasoningText: '' }
             ]);
 
-            const eventSource = new EventSource(`/api/ai/task-status/${taskId}/stream`);
+            const eventSource = new EventSource(`/api/ai/task-status/${taskId}/stream?token=${encodeURIComponent(token || '')}`);
             
             eventSource.addEventListener('status', (e) => {
               try {
