@@ -73,12 +73,12 @@ export function CompanyOverviewTab({
               <span className="font-mono text-[10px] text-slate-400 uppercase block font-bold">Partnership Tier</span>
               <p className="font-semibold text-slate-800">{company.tier || 'Tier 3 (Standard)'}</p>
             </div>
-            {company.linkedInUrl && (
+            {company.linkedinUrl && (
               <div className="space-y-1 col-span-1 sm:col-span-2">
                 <span className="font-mono text-[10px] text-slate-400 uppercase block font-bold">LinkedIn Profile</span>
                 <p className="font-semibold text-slate-800">
-                  <a href={company.linkedInUrl} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline inline-flex items-center gap-1">
-                    {company.linkedInUrl}
+                  <a href={company.linkedinUrl} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline inline-flex items-center gap-1">
+                    {company.linkedinUrl}
                     <ExternalLink className="h-3 w-3" />
                   </a>
                 </p>

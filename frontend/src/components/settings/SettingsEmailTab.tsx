@@ -6,7 +6,7 @@ interface SettingsEmailTabProps {
   emailConfig: EmailConfig;
   wizardStep: 1 | 2 | 3 | 4;
   setWizardStep: (step: 1 | 2 | 3 | 4) => void;
-  wizProvider: 'Gmail' | 'Outlook' | 'SMTP' | 'Microsoft 365';
+  wizProvider: 'Gmail' | 'Outlook' | 'SMTP';
   wizHost: string;
   setWizHost: (host: string) => void;
   wizPort: string;
@@ -21,7 +21,7 @@ interface SettingsEmailTabProps {
   setTestEmailTarget: (target: string) => void;
   testingStatus: 'idle' | 'testing' | 'success' | 'failed';
   testLogs: string[];
-  handleSelectProvider: (prov: 'Gmail' | 'Outlook' | 'SMTP' | 'Microsoft 365') => void;
+  handleSelectProvider: (prov: 'Gmail' | 'Outlook' | 'SMTP') => void;
   handleTestConnection: () => void;
   handleSaveEmailConfig: () => void;
 }
@@ -93,18 +93,7 @@ export function SettingsEmailTab({
                   </div>
                 </button>
 
-                <button 
-                  onClick={() => handleSelectProvider('Microsoft 365')}
-                  className="p-4 border border-slate-200 rounded-xl hover:border-blue-500 hover:bg-blue-50/10 text-left transition-all space-y-2 group cursor-pointer"
-                >
-                  <div className="h-8 w-8 rounded-lg bg-blue-50 text-blue-650 flex items-center justify-center font-bold text-sm">M</div>
-                  <div>
-                    <p className="font-semibold text-slate-900 group-hover:text-blue-600">Microsoft Office 365</p>
-                    <p className="text-[10px] text-slate-400 mt-0.5 font-sans">Direct connections for standard Outlook corporate mail.</p>
-                  </div>
-                </button>
-
-                <button 
+                 <button 
                   onClick={() => handleSelectProvider('Outlook')}
                   className="p-4 border border-slate-200 rounded-xl hover:border-blue-500 hover:bg-blue-50/10 text-left transition-all space-y-2 group cursor-pointer"
                 >

@@ -44,6 +44,15 @@ export function useCandidatesState({
 }: UseCandidatesStateProps) {
   // Navigation & Search State
   const [searchTerm, setSearchTerm] = useState('');
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
+
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedSearchTerm(searchTerm);
+    }, 300);
+    return () => clearTimeout(handler);
+  }, [searchTerm]);
+
   const [statusFilter, setStatusFilter] = useState<string>('All');
   const [sortBy, setSortBy] = useState<'name' | 'score' | 'experience'>('name');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
@@ -501,6 +510,7 @@ export function useCandidatesState({
 
   return {
     searchTerm, setSearchTerm,
+    debouncedSearchTerm,
     statusFilter, setStatusFilter,
     sortBy, setSortBy,
     sortOrder, setSortOrder,

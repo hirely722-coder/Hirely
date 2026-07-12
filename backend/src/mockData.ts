@@ -80,7 +80,7 @@ export const initialJobs: Job[] = [
     status: 'Open',
     description: 'We are looking for a Senior React Developer to join our design systems team. You will build highly responsive, fully accessible components used by millions of users worldwide.',
     requiredSkills: ['React', 'TypeScript', 'Tailwind CSS', 'Framer Motion', 'GraphQL'],
-    salary: '$160,000 - $190,000'
+    salary: '₹160,000 - ₹190,000'
   },
   {
     id: 'j2',
@@ -93,7 +93,7 @@ export const initialJobs: Job[] = [
     status: 'Open',
     description: 'Join the Billing engineering team to design, architect, and scale payment infrastructure handling billions of requests daily. Deep knowledge of API design and distributed databases is a must.',
     requiredSkills: ['Ruby on Rails', 'Go', 'TypeScript', 'PostgreSQL', 'System Design'],
-    salary: '$210,000 - $240,000'
+    salary: '₹210,000 - ₹240,000'
   },
   {
     id: 'j3',
@@ -106,7 +106,7 @@ export const initialJobs: Job[] = [
     status: 'Open',
     description: 'We are looking for a Product Designer with a heavy interest in engineering or high-fidelity prototyping. You will own entire feature cycles from concept, visuals, to interactive implementation.',
     requiredSkills: ['Figma', 'Prototyping', 'UI/UX', 'HTML/CSS', 'Product Strategy'],
-    salary: '$140,000 - $170,000'
+    salary: '₹140,000 - ₹170,000'
   },
   {
     id: 'j4',
@@ -119,7 +119,7 @@ export const initialJobs: Job[] = [
     status: 'Open',
     description: 'Help Stripe scale and maintain our Kubernetes clusters and multi-region AWS cloud infrastructure. Strong automation focus and background in Linux systems is required.',
     requiredSkills: ['AWS', 'Kubernetes', 'Terraform', 'Go', 'Docker'],
-    salary: '$180,000 - $210,000'
+    salary: '₹180,000 - ₹210,000'
   },
   {
     id: 'j5',
@@ -132,7 +132,7 @@ export const initialJobs: Job[] = [
     status: 'Open',
     description: 'Own the user-facing editor experience. Implement high-performance canvas systems, drag-and-drop features, and custom browser sandbox layouts.',
     requiredSkills: ['React', 'TypeScript', 'Web Workers', 'Performance Optimization'],
-    salary: '$175,000 - $205,000'
+    salary: '₹175,000 - ₹205,000'
   }
 ];
 
@@ -155,7 +155,7 @@ export const initialCandidates: Candidate[] = [
     designation: 'Senior Frontend Engineer',
     gender: 'Female',
     city: 'Oakland',
-    expectedSalary: '$150,000',
+    expectedSalary: '₹150,000',
     noticePeriod: '15 days'
   },
   {
@@ -176,7 +176,7 @@ export const initialCandidates: Candidate[] = [
     designation: 'Staff Backend Engineer',
     gender: 'Male',
     city: 'Palo Alto',
-    expectedSalary: '$220,000',
+    expectedSalary: '₹220,000',
     noticePeriod: '30 days'
   },
   {
@@ -197,7 +197,7 @@ export const initialCandidates: Candidate[] = [
     designation: 'Product Designer',
     gender: 'Female',
     city: 'San Francisco',
-    expectedSalary: '$140,000',
+    expectedSalary: '₹140,000',
     noticePeriod: '15 days'
   },
   {
@@ -218,7 +218,7 @@ export const initialCandidates: Candidate[] = [
     designation: 'Full Stack Engineer',
     gender: 'Male',
     city: 'Austin',
-    expectedSalary: '$130,000',
+    expectedSalary: '₹130,000',
     noticePeriod: '30 days'
   },
   {
@@ -239,7 +239,7 @@ export const initialCandidates: Candidate[] = [
     designation: 'DevOps Lead',
     gender: 'Female',
     city: 'Atlanta',
-    expectedSalary: '$180,000',
+    expectedSalary: '₹180,000',
     noticePeriod: '15 days'
   },
   {
@@ -260,7 +260,7 @@ export const initialCandidates: Candidate[] = [
     designation: 'Junior Developer',
     gender: 'Other',
     city: 'San Jose',
-    expectedSalary: '$85,000',
+    expectedSalary: '₹85,000',
     noticePeriod: '30 days'
   }
 ];

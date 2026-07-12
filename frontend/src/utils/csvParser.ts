@@ -106,7 +106,7 @@ export const FIELD_MAPPINGS = {
     companySize: ['companysize', 'employees', 'size'],
     foundedYear: ['foundedyear', 'founded', 'yearfounded'],
     tier: ['partnershiptier', 'tier', 'partnership'],
-    linkedInUrl: ['linkedinurl', 'linkedin', 'linkedinpage']
+    linkedinUrl: ['linkedinurl', 'linkedin', 'linkedinpage']
   },
   jobs: {
     title: ['jobtitle', 'title', 'position', 'role'],

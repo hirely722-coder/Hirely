@@ -32,7 +32,7 @@ async function seed() {
       company_size: c.companySize || null,
       founded_year: c.foundedYear || null,
       tier: c.tier || null,
-      linkedin_url: c.linkedInUrl || null,
+      linkedin_url: c.linkedinUrl || null,
       import_id: c.importId || null
     }));
 

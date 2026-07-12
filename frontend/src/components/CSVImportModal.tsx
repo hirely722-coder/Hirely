@@ -386,7 +386,7 @@ export default function CSVImportModal({
         { key: 'companySize', label: 'Company Size' },
         { key: 'foundedYear', label: 'Founded Year' },
         { key: 'tier', label: 'Partnership Tier' },
-        { key: 'linkedInUrl', label: 'LinkedIn Page' }
+        { key: 'linkedinUrl', label: 'LinkedIn Page' }
       ];
     } else {
       return [

@@ -9,6 +9,7 @@ interface UseSettingsStateProps {
   addActivityLog: (type: string, description: string) => void;
   setNotifications: React.Dispatch<React.SetStateAction<{ id: string; text: string; time: string; read: boolean }[]>>;
   showToast: (text: string, type: 'success' | 'error') => void;
+  token?: string | null;
 }
 
 export function useSettingsState({
@@ -18,7 +19,8 @@ export function useSettingsState({
   setEmailConfig,
   addActivityLog,
   setNotifications,
-  showToast
+  showToast,
+  token
 }: UseSettingsStateProps) {
   const [activeTab, setActiveTab] = useState<'general' | 'appearance' | 'team' | 'email' | 'notifications' | 'custom_fields' | 'rbac' | 'locks' | 'logs' | 'billing'>('general');
   const [savedMessage, setSavedMessage] = useState(false);
@@ -192,7 +194,7 @@ export function useSettingsState({
 
   // EMAIL SETUP WIZARD STATES
   const [wizardStep, setWizardStep] = useState<1 | 2 | 3 | 4>(1);
-  const [wizProvider, setWizProvider] = useState<'Gmail' | 'Outlook' | 'SMTP' | 'Microsoft 365'>('Gmail');
+  const [wizProvider, setWizProvider] = useState<'Gmail' | 'Outlook' | 'SMTP'>('Gmail');
   const [wizHost, setWizHost] = useState('smtp.gmail.com');
   const [wizPort, setWizPort] = useState('587');
   const [wizUsername, setWizUsername] = useState('sarah.j@apexstaffing.com');
@@ -227,15 +229,12 @@ export function useSettingsState({
   };
 
   // EMAIL WIZARD ACTIONS
-  const handleSelectProvider = (prov: 'Gmail' | 'Outlook' | 'SMTP' | 'Microsoft 365') => {
+  const handleSelectProvider = (prov: 'Gmail' | 'Outlook' | 'SMTP') => {
     setWizProvider(prov);
     if (prov === 'Gmail') {
       setWizHost('smtp.gmail.com');
       setWizPort('587');
     } else if (prov === 'Outlook') {
-      setWizHost('smtp.office365.com');
-      setWizPort('587');
-    } else if (prov === 'Microsoft 365') {
       setWizHost('smtp.office365.com');
       setWizPort('587');
     } else {
@@ -245,7 +244,7 @@ export function useSettingsState({
     setWizardStep(2);
   };
 
-  const handleTestConnection = () => {
+  const handleTestConnection = async () => {
     setTestingStatus('testing');
     setTestLogs([
       'Initializing SMTP socket connection...',
@@ -253,34 +252,48 @@ export function useSettingsState({
       `Negotiating secure ${wizEncryption} handshake...`
     ]);
 
-    setTimeout(() => {
-      setTestLogs(prev => [...prev, 'TLS Handshake completed successfully.']);
-      
-      setTimeout(() => {
-        setTestLogs(prev => [...prev, `Authenticating with outbox username: ${wizUsername}...`]);
-        
-        setTimeout(() => {
-          if (wizUsername.includes('@') && wizPassword.length > 3) {
-            setTestLogs(prev => [
-              ...prev, 
-              'SMTP credentials approved.', 
-              `Dispatching mock handshake packet to ${testEmailTarget}...`,
-              'Socket response code: 250 (OK).'
-            ]);
-            setTestingStatus('success');
-            showToast('✓ SMTP Connection Verified!', 'success');
-          } else {
-            setTestLogs(prev => [
-              ...prev, 
-              'ERROR: SMTP Authentication Failed (535 Invalid Credentials).',
-              'Socket response code: 535.'
-            ]);
-            setTestingStatus('failed');
-            showToast('❌ Outbox authentication failed.', 'error');
-          }
-        }, 1000);
-      }, 800);
-    }, 800);
+    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_API_URL || '';
+
+    try {
+      const res = await fetch(`${backendUrl}/api/email-config/test`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify({
+          provider: wizProvider,
+          smtpHost: wizHost,
+          port: wizPort,
+          username: wizUsername,
+          password: wizPassword,
+          encryption: wizEncryption,
+          testEmailTarget
+        })
+      });
+
+      // Guard against non-JSON responses (HTML error pages, etc.)
+      const contentType = res.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
+        const text = await res.text();
+        throw new Error(`Server returned non-JSON response: ${text.slice(0, 120)}`);
+      }
+
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setTestLogs(data.logs || ['SMTP Connection Verified!']);
+        setTestingStatus('success');
+        showToast('✓ SMTP Connection Verified!', 'success');
+      } else {
+        setTestLogs(data.logs || ['ERROR: SMTP connection failed.', data.error || 'Unknown error']);
+        setTestingStatus('failed');
+        showToast(data.error ? `❌ ${data.error}` : '❌ Outbox authentication failed.', 'error');
+      }
+    } catch (err: any) {
+      setTestLogs(prev => [...prev, `ERROR: ${err.message || 'Network error'}`]);
+      setTestingStatus('failed');
+      showToast('❌ Failed to test outbox connection.', 'error');
+    }
   };
 
   const handleSaveEmailConfig = () => {

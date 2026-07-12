@@ -155,7 +155,7 @@ export default function CandidatesView(props: CandidatesViewProps) {
   const filteredCandidates = useMemo(() => {
     return filterAndSortCandidates({
       candidates,
-      searchTerm: state.searchTerm,
+      searchTerm: state.debouncedSearchTerm,
       statusFilter: state.statusFilter,
       designationFilter: state.designationFilter,
       genderFilter: state.genderFilter,
@@ -172,7 +172,7 @@ export default function CandidatesView(props: CandidatesViewProps) {
     });
   }, [
     candidates,
-    state.searchTerm,
+    state.debouncedSearchTerm,
     state.statusFilter,
     state.designationFilter,
     state.genderFilter,

@@ -260,7 +260,7 @@ export default function CompaniesView({
       companySize: formCompanySize,
       foundedYear: formFoundedYear,
       tier: formTier,
-      linkedInUrl: formLinkedInUrl
+      linkedinUrl: formLinkedInUrl
     };
 
     onAddCompany(newCompany);
@@ -287,7 +287,7 @@ export default function CompaniesView({
       companySize: formCompanySize,
       foundedYear: formFoundedYear,
       tier: formTier,
-      linkedInUrl: formLinkedInUrl
+      linkedinUrl: formLinkedInUrl
     };
 
     onEditCompany(updated);
@@ -313,7 +313,7 @@ export default function CompaniesView({
     setFormCompanySize(company.companySize || '11-50');
     setFormFoundedYear(company.foundedYear || '');
     setFormTier(company.tier || 'Tier 3');
-    setFormLinkedInUrl(company.linkedInUrl || '');
+    setFormLinkedInUrl(company.linkedinUrl || '');
     setShowEditModal(company);
   };
 

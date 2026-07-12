@@ -33,6 +33,9 @@ export default function DashboardView({
   const pendingTasks = tasks.filter(t => t.status === 'Pending').length;
   const interviewsToday = tasks.filter(t => t.type === 'Interview' && t.status === 'Pending').length;
   const openPositions = activeJobs; // Same as active jobs in this simplified model
+  const paidDaysRemaining = subscriptionPlan?.renewalDate
+    ? Math.max(0, Math.ceil((new Date(subscriptionPlan.renewalDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24)))
+    : 0;
 
   // Recent subsets
   const recentCandidates = [...candidates]
@@ -182,6 +185,46 @@ export default function DashboardView({
               className="flex items-center gap-1.5 px-4.5 py-2.5 bg-white text-indigo-700 hover:bg-indigo-50 rounded-2xl text-xs font-extrabold transition-all cursor-pointer shadow-sm hover:scale-[1.02]"
             >
               <span>Upgrade Now</span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Paid Active Plan Banner */}
+      {subscriptionPlan && !subscriptionPlan.isTrial && subscriptionPlan.status === 'active' && subscriptionPlan.renewalDate && new Date(subscriptionPlan.renewalDate) >= new Date() && paidDaysRemaining <= 7 && (
+        <div className="w-full bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 rounded-3xl p-5 border border-emerald-400/30 text-white shadow-lg flex flex-col md:flex-row md:items-center md:justify-between gap-4 animate-fade-in mb-6">
+          <div className="flex items-start gap-3">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-white/10 border border-white/20">
+              <ShieldCheck className="h-5 w-5 text-amber-300 animate-pulse" />
+            </span>
+            <div>
+              <h2 className="text-sm font-black tracking-wide font-display flex items-center gap-1.5 flex-wrap">
+                🎉 Active Plan: {subscriptionPlan.slug === 'growth' ? 'PRO RECRUITER (GROWTH)' : subscriptionPlan.name?.toUpperCase() || 'PAID'}
+              </h2>
+              <p className="text-[11px] text-emerald-100 font-medium mt-0.5 leading-relaxed">
+                Your one-month premium plan is active. Once expired, you will need to repurchase the plan to continue using your recruitment portal.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-4 shrink-0">
+            <div className="text-right">
+              <div className="text-[10px] text-emerald-200 uppercase font-bold tracking-wider font-mono">Plan Ends</div>
+              <div className="text-xs font-black font-mono mt-0.5">
+                {new Date(subscriptionPlan.renewalDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}
+              </div>
+            </div>
+            <div className="h-8 w-[1px] bg-white/20 hidden md:block" />
+            <div className="text-right">
+              <div className="text-[10px] text-emerald-200 uppercase font-bold tracking-wider font-mono">Time Left</div>
+              <div className="text-xs font-black font-mono mt-0.5 text-amber-300">
+                {paidDaysRemaining} Days Remaining
+              </div>
+            </div>
+            <button
+              onClick={() => setIsPricingModalOpen(true)}
+              className="flex items-center gap-1.5 px-4.5 py-2.5 bg-white text-emerald-700 hover:bg-emerald-50 rounded-2xl text-xs font-extrabold transition-all cursor-pointer shadow-sm hover:scale-[1.02]"
+            >
+              <span>Renew / Repurchase</span>
             </button>
           </div>
         </div>
@@ -726,7 +769,7 @@ export default function DashboardView({
                     </div>
                     <h4 className="text-sm font-bold text-slate-800 font-sans">Growth Plan</h4>
                     <div className="mt-2 mb-4 flex items-baseline">
-                      <span className="text-xl font-bold text-slate-900">₹2,499</span>
+                      <span className="text-xl font-bold text-slate-900">₹2,000</span>
                       <span className="text-xs text-slate-400 font-semibold font-sans ml-1">/ month</span>
                     </div>
                     <ul className="space-y-2 text-xs text-slate-600 font-sans border-t border-blue-100 pt-4">
@@ -761,7 +804,7 @@ export default function DashboardView({
 
                         // 2. Configure Razorpay Standard Modal options
                         const options = {
-                          key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || 'rzp_test_TBpe5QK85Qnpak',
+                          key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || 'rzp_test_TCVTzrCeGHT0sg',
                           amount: orderData.amount,
                           currency: orderData.currency,
                           name: "Hirely AI Platform",
@@ -825,7 +868,7 @@ export default function DashboardView({
                       isUpgrading ? 'opacity-50 cursor-not-allowed' : ''
                     }`}
                   >
-                    {isUpgrading ? 'Launching Checkout...' : 'Upgrade Workspace to Pro'}
+                    {isUpgrading ? 'Launching Checkout...' : subscriptionPlan?.slug === 'growth' ? 'Repurchase / Renew Plan' : 'Upgrade Workspace to Pro'}
                   </button>
                 </div>
               </div>

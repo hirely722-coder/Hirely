@@ -628,11 +628,18 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   const isTrialExpired = (): boolean => {
-    return !!(
+    const trialExpired = !!(
       subscriptionPlan?.isTrial &&
       (subscriptionPlan?.status === 'expired' ||
         (subscriptionPlan?.trialEndDate && new Date(subscriptionPlan.trialEndDate) < new Date()))
     );
+    const paidExpired = !!(
+      !subscriptionPlan?.isTrial &&
+      subscriptionPlan?.status === 'active' &&
+      subscriptionPlan?.renewalDate &&
+      new Date(subscriptionPlan.renewalDate) < new Date()
+    );
+    return trialExpired || paidExpired;
   };
 
   const getTrialDaysRemaining = (): number => {
@@ -673,6 +680,7 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const hasAccess = (featureKey: string): boolean => {
     if (isSuperAdmin) return true;
+    if (isTrialExpired()) return false;
     if (isTrialActive()) return true;
     if (!subscriptionPlan || !subscriptionPlan.features) return true;
     return !!subscriptionPlan.features[featureKey];
@@ -680,6 +688,7 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const hasReachedLimit = (limitKey: string): boolean => {
     if (isSuperAdmin) return false;
+    if (isTrialExpired()) return true;
     if (isTrialActive()) return false;
     if (!subscriptionPlan || !subscriptionPlan.limits || !subscriptionUsage) return false;
     
@@ -890,7 +899,13 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const handleToggleTaskStatus = async (id: string) => {
     const task = tasks.find(t => t.id === id);
     if (!task) return;
-    const updatedStatus = task.status === 'Completed' ? 'Pending' : 'Completed';
+    const originalStatus = task.status;
+    const updatedStatus = originalStatus === 'Completed' ? 'Pending' : 'Completed';
+    
+    // 1. Optimistic Update
+    setTasks(prev => prev.map(t => t.id === id ? { ...t, status: updatedStatus } : t));
+
+    // 2. Network Request
     try {
       const res = await fetchWithAuth(`${API_URL}/api/tasks/${id}`, {
         method: 'PUT',
@@ -898,9 +913,14 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         body: JSON.stringify({ ...task, status: updatedStatus })
       });
       const data = await res.json();
+      if (!res.ok || (data && data.error)) {
+        throw new Error(data?.error || 'Failed to update task status on server');
+      }
       setTasks(prev => prev.map(t => t.id === id ? data : t));
-    } catch (err) {
-      showToast('Failed to update task status', 'error');
+    } catch (err: any) {
+      console.error('Failed to toggle task status, reverting:', err);
+      setTasks(prev => prev.map(t => t.id === id ? { ...t, status: originalStatus } : t));
+      showToast(err.message || 'Failed to update task status', 'error');
     }
   };
 
@@ -976,7 +996,7 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         timestamp: new Date().toISOString(),
         type,
         description,
-        user: 'Sarah Jenkins'
+        userName: user?.name || user?.email || 'System'
       };
       const res = await fetchWithAuth(`${API_URL}/api/activity_logs`, {
         method: 'POST',
@@ -1385,7 +1405,7 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
               companySize: record.companySize || undefined,
               foundedYear: record.foundedYear || undefined,
               tier: record.tier || undefined,
-              linkedInUrl: record.linkedInUrl || undefined,
+              linkedinUrl: record.linkedinUrl || undefined,
               importId: task.id
             });
             imported++;

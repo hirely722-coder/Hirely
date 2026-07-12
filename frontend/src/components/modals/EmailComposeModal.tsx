@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { X, Mail, Send, AlertCircle, HelpCircle, Sparkles, Plus } from 'lucide-react';
 import { Candidate, Job, EmailTemplate, EmailConfig, CommunicationLog } from '../../types';
 import AnimatedModal from '../AnimatedModal';
+import { useApp } from '../../context/AppContext';
 
 interface EmailComposeModalProps {
   candidate: Candidate;
@@ -120,14 +121,46 @@ export function EmailComposeModal({
     }
   }, [selectedTemplateId, selectedJobId, candidate, templates, jobs, recipientAudience]);
 
-  const handleSend = () => {
+  const { token } = useApp();
+
+  const handleSend = async () => {
     setIsSending(true);
-    setTimeout(() => {
-      setIsSending(false);
+    try {
       if (!emailConfig.isConnected) {
-        showToast('❌ Email failed to send: SMTP Configuration is not verified!', 'error');
+        showToast('❌ Email failed: SMTP not verified. Go to Settings → Email Setup Wizard.', 'error');
+        setIsSending(false);
         handleClose();
         return;
+      }
+
+      const recipientEmail = candidate.email || '';
+      if (!recipientEmail) {
+        showToast('❌ Candidate has no email address on file.', 'error');
+        setIsSending(false);
+        return;
+      }
+
+      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_API_URL || '';
+
+      // Send email directly via backend SMTP
+      const res = await fetch(`${backendUrl}/api/send-email`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify({
+          to: recipientEmail,
+          subject,
+          body,
+          candidateName: candidate.name
+        })
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Unknown error from server');
       }
 
       const log: CommunicationLog = {
@@ -137,14 +170,19 @@ export function EmailComposeModal({
         date: new Date().toISOString().replace('T', ' ').substring(0, 16),
         status: 'Sent',
         sentBy: 'Sarah Jenkins',
-        subject: subject,
-        message: body
+        subject,
+        message: body,
+        recipient: recipientEmail
       };
 
       onSend(log, true);
-      showToast('✓ Email Sent Successfully!', 'success');
+      showToast(`✓ Email sent to ${recipientEmail}!`, 'success');
       handleClose();
-    }, 1000);
+    } catch (err: any) {
+      showToast(`❌ Failed to send: ${err.message}`, 'error');
+    } finally {
+      setIsSending(false);
+    }
   };
 
   return (

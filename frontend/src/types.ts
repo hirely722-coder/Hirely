@@ -14,7 +14,7 @@ export interface Company {
   companySize?: '1-10' | '11-50' | '51-200' | '201-500' | '500+';
   foundedYear?: string;
   tier?: 'Tier 1' | 'Tier 2' | 'Tier 3';
-  linkedInUrl?: string;
+  linkedinUrl?: string;
   importId?: string;
 }
 
@@ -135,7 +135,7 @@ export interface TeamMember {
 }
 
 export interface EmailConfig {
-  provider: 'Gmail' | 'Outlook' | 'SMTP' | 'Microsoft 365';
+  provider: 'Gmail' | 'Outlook' | 'SMTP';
   smtpHost?: string;
   port?: string;
   username?: string;

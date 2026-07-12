@@ -52,7 +52,8 @@ export default function SettingsView({
     setEmailConfig,
     addActivityLog,
     setNotifications,
-    showToast
+    showToast,
+    token
   });
 
   return (
@@ -456,7 +457,7 @@ export default function SettingsView({
                             const orderData = await orderRes.json();
 
                             const options = {
-                              key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || 'rzp_test_TBpe5QK85Qnpak',
+                              key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || 'rzp_test_TCVTzrCeGHT0sg',
                               amount: orderData.amount,
                               currency: orderData.currency,
                               name: "Hirely AI Platform",
@@ -518,7 +519,7 @@ export default function SettingsView({
                           isUpgrading ? 'opacity-50 cursor-not-allowed' : ''
                         }`}
                       >
-                        {isUpgrading ? 'Loading...' : 'Choose Standard'}
+                        {isUpgrading ? 'Loading...' : subscriptionPlan?.slug === 'starter' ? 'Repurchase Standard' : 'Choose Standard'}
                       </button>
                     </div>
 
@@ -557,7 +558,7 @@ export default function SettingsView({
                             const orderData = await orderRes.json();
 
                             const options = {
-                              key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || 'rzp_test_TBpe5QK85Qnpak',
+                              key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || 'rzp_test_TCVTzrCeGHT0sg',
                               amount: orderData.amount,
                               currency: orderData.currency,
                               name: "Hirely AI Platform",
@@ -619,7 +620,7 @@ export default function SettingsView({
                           isUpgrading ? 'opacity-50 cursor-not-allowed' : ''
                         }`}
                       >
-                        {isUpgrading ? 'Loading...' : 'Choose AI Pro'}
+                        {isUpgrading ? 'Loading...' : subscriptionPlan?.slug === 'growth' ? 'Repurchase AI Pro' : 'Choose AI Pro'}
                       </button>
                     </div>
                   </div>

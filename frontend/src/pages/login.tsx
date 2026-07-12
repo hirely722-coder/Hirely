@@ -20,7 +20,8 @@ export default function Login() {
   const router = useRouter();
   const { user, showToast } = useApp();
   
-  const [isSignUp, setIsSignUp] = useState(false);
+  const [authMode, setAuthMode] = useState<'signin' | 'signup' | 'forgot' | 'reset'>('signin');
+  const isSignUp = authMode === 'signup';
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -31,25 +32,83 @@ export default function Login() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
-  // If session already exists, redirect to dashboard
+  // If session already exists, redirect to dashboard (except during password reset)
   useEffect(() => {
-    if (user) {
+    if (user && authMode !== 'reset') {
       router.replace('/');
     }
-  }, [user]);
+  }, [user, authMode]);
+
+  // Handle recovery link events
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        setAuthMode('reset');
+      }
+    });
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, []);
 
   // Cache signup query parameters in localStorage for onboarding step
   useEffect(() => {
-    const { plan, cycle, trial } = router.query;
+    const { plan, cycle, trial, mode } = router.query;
     if (plan) localStorage.setItem('hirely_setup_plan', plan as string);
     if (cycle) localStorage.setItem('hirely_setup_cycle', cycle as string);
     if (trial) localStorage.setItem('hirely_setup_trial', trial as string);
+    if (mode === 'reset') {
+      setAuthMode('reset');
+    }
   }, [router.query]);
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setIsLoading(true);
+
+    if (authMode === 'forgot') {
+      if (!email.trim()) {
+        setError('Please enter your email address');
+        setIsLoading(false);
+        return;
+      }
+      const { error: forgotErr } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: window.location.origin + '/login?mode=reset'
+      });
+      if (forgotErr) {
+        setError(forgotErr.message);
+      } else {
+        showToast('Password reset link sent successfully! Check your inbox.');
+        setAuthMode('signin');
+      }
+      setIsLoading(false);
+      return;
+    }
+
+    if (authMode === 'reset') {
+      if (password !== confirmPassword) {
+        setError('Passwords do not match');
+        setIsLoading(false);
+        return;
+      }
+      if (password.length < 6) {
+        setError('Password must be at least 6 characters');
+        setIsLoading(false);
+        return;
+      }
+      const { error: resetErr } = await supabase.auth.updateUser({
+        password: password
+      });
+      if (resetErr) {
+        setError(resetErr.message);
+      } else {
+        showToast('Password updated successfully! Welcome to Hirly.');
+        router.replace('/');
+      }
+      setIsLoading(false);
+      return;
+    }
 
     if (isSignUp) {
       if (!fullName.trim()) {
@@ -155,41 +214,57 @@ export default function Login() {
           </div>
           
           <p className="text-slate-400 text-xs mt-2 font-medium">
-            {isSignUp ? 'Create your agency account to get started' : 'Sign in to access your recruitment pipeline'}
+            {authMode === 'signup' 
+              ? 'Create your agency account to get started' 
+              : authMode === 'forgot'
+              ? 'Enter your email to reset your password'
+              : authMode === 'reset'
+              ? 'Choose a new password for your account'
+              : 'Sign in to access your recruitment pipeline'}
           </p>
         </div>
 
-        {/* Tab switcher */}
-        <div className="grid grid-cols-2 p-1 bg-slate-950 rounded-2xl border border-slate-800 mb-6 shrink-0">
-          <button
-            type="button"
-            onClick={() => {
-              setIsSignUp(false);
-              setError(null);
-            }}
-            className={`py-2 text-xs font-bold rounded-xl transition-all ${
-              !isSignUp 
-                ? 'bg-gradient-to-br from-indigo-500 via-violet-500 to-blue-500 text-white shadow-md shadow-indigo-500/25' 
-                : 'text-slate-400 hover:text-white font-semibold'
-            }`}
-          >
-            Sign In
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setIsSignUp(true);
-              setError(null);
-            }}
-            className={`py-2 text-xs font-bold rounded-xl transition-all ${
-              isSignUp 
-                ? 'bg-gradient-to-br from-indigo-500 via-violet-500 to-blue-500 text-white shadow-md shadow-indigo-500/25' 
-                : 'text-slate-400 hover:text-white font-semibold'
-            }`}
-          >
-            Create Account
-          </button>
-        </div>
+        {/* Tab switcher / Mode header */}
+        {authMode === 'forgot' ? (
+          <div className="text-center mb-6 shrink-0">
+            <h2 className="text-sm font-bold text-white font-display uppercase tracking-wider">Forgot Password</h2>
+          </div>
+        ) : authMode === 'reset' ? (
+          <div className="text-center mb-6 shrink-0">
+            <h2 className="text-sm font-bold text-white font-display uppercase tracking-wider">Reset Password</h2>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 p-1 bg-slate-950 rounded-2xl border border-slate-800 mb-6 shrink-0">
+            <button
+              type="button"
+              onClick={() => {
+                setAuthMode('signin');
+                setError(null);
+              }}
+              className={`py-2 text-xs font-bold rounded-xl transition-all cursor-pointer ${
+                authMode === 'signin' 
+                  ? 'bg-gradient-to-br from-indigo-500 via-violet-500 to-blue-500 text-white shadow-md shadow-indigo-500/25' 
+                  : 'text-slate-400 hover:text-white font-semibold'
+              }`}
+            >
+              Sign In
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setAuthMode('signup');
+                setError(null);
+              }}
+              className={`py-2 text-xs font-bold rounded-xl transition-all cursor-pointer ${
+                authMode === 'signup' 
+                  ? 'bg-gradient-to-br from-indigo-500 via-violet-500 to-blue-500 text-white shadow-md shadow-indigo-500/25' 
+                  : 'text-slate-400 hover:text-white font-semibold'
+              }`}
+            >
+              Create Account
+            </button>
+          </div>
+        )}
 
         {/* Error Alert Panel */}
         {error && (
@@ -201,7 +276,7 @@ export default function Login() {
 
         {/* Auth form */}
         <form onSubmit={handleAuth} className="space-y-4">
-          {isSignUp && (
+          {authMode === 'signup' && (
             <div className="space-y-1.5">
               <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Full Name</label>
               <div className="relative">
@@ -218,46 +293,68 @@ export default function Login() {
             </div>
           )}
 
-          <div className="space-y-1.5">
-            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Email Address</label>
-            <div className="relative">
-              <Mail className="absolute left-4 top-3.5 h-4 w-4 text-slate-400" />
-              <input
-                type="email"
-                required
-                placeholder="you@company.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-800 rounded-2xl pl-11 pr-4 py-3 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all font-medium"
-              />
-            </div>
-          </div>
-
-          <div className="space-y-1.5">
-            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Password</label>
-            <div className="relative">
-              <Lock className="absolute left-4 top-3.5 h-4 w-4 text-slate-400" />
-              <input
-                type={showPassword ? 'text' : 'password'}
-                required
-                placeholder="••••••••"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-800 rounded-2xl pl-11 pr-11 py-3 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all font-medium"
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-4 top-3 text-slate-400 hover:text-slate-200 focus:outline-none"
-              >
-                {showPassword ? <EyeOff className="h-4.5 w-4.5" /> : <Eye className="h-4.5 w-4.5" />}
-              </button>
-            </div>
-          </div>
-
-          {isSignUp && (
+          {authMode !== 'reset' && (
             <div className="space-y-1.5">
-              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Confirm Password</label>
+              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Email Address</label>
+              <div className="relative">
+                <Mail className="absolute left-4 top-3.5 h-4 w-4 text-slate-400" />
+                <input
+                  type="email"
+                  required
+                  placeholder="you@company.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-2xl pl-11 pr-4 py-3 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all font-medium"
+                />
+              </div>
+            </div>
+          )}
+
+          {authMode !== 'forgot' && (
+            <div className="space-y-1.5">
+              <div className="flex justify-between items-center">
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                  {authMode === 'reset' ? 'New Password' : 'Password'}
+                </label>
+                {authMode === 'signin' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAuthMode('forgot');
+                      setError(null);
+                    }}
+                    className="text-[10px] font-semibold text-indigo-400 hover:text-indigo-300 cursor-pointer text-right"
+                  >
+                    Forgot Password?
+                  </button>
+                )}
+              </div>
+              <div className="relative">
+                <Lock className="absolute left-4 top-3.5 h-4 w-4 text-slate-400" />
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  required
+                  placeholder="••••••••"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-2xl pl-11 pr-11 py-3 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all font-medium"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-4 top-3 text-slate-400 hover:text-slate-200 focus:outline-none"
+                >
+                  {showPassword ? <EyeOff className="h-4.5 w-4.5" /> : <Eye className="h-4.5 w-4.5" />}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {(authMode === 'signup' || authMode === 'reset') && (
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                {authMode === 'reset' ? 'Confirm New Password' : 'Confirm Password'}
+              </label>
               <div className="relative">
                 <Lock className="absolute left-4 top-3.5 h-4 w-4 text-slate-400" />
                 <input
@@ -286,29 +383,52 @@ export default function Login() {
           >
             {isLoading ? (
               <span className="h-4 w-4 rounded-full border-2 border-white border-t-transparent animate-spin" />
-            ) : isSignUp ? (
+            ) : authMode === 'signup' ? (
               'Create Account'
+            ) : authMode === 'forgot' ? (
+              'Send Reset Link'
+            ) : authMode === 'reset' ? (
+              'Update Password'
             ) : (
               'Sign In'
             )}
           </button>
         </form>
 
-        {/* Divider */}
-        <div className="relative my-6 flex items-center justify-center text-[10px] uppercase font-bold text-slate-500 tracking-wider">
-          <div className="absolute inset-x-0 h-px bg-slate-800" />
-          <span className="bg-[#07070d] px-3 relative z-10">Or continue with</span>
-        </div>
+        {/* Back to Sign In Link for Forgot Password */}
+        {authMode === 'forgot' && (
+          <div className="text-center mt-4">
+            <button
+              type="button"
+              onClick={() => {
+                setAuthMode('signin');
+                setError(null);
+              }}
+              className="text-xs font-semibold text-slate-400 hover:text-white transition-all cursor-pointer bg-transparent border-none"
+            >
+              Back to Sign In
+            </button>
+          </div>
+        )}
 
-        {/* Google OAuth Login Button */}
-        <button
-          type="button"
-          onClick={handleGoogleLogin}
-          className="w-full flex items-center justify-center gap-3 bg-white/5 hover:bg-white/10 border border-white/10 text-white font-bold py-3 px-4 rounded-2xl text-xs transition-all cursor-pointer shadow-sm hover:scale-[1.01]"
-        >
-          <GoogleLogo size={18} />
-          <span>Continue with Google</span>
-        </button>
+        {/* Divider & Google OAuth Button */}
+        {(authMode === 'signin' || authMode === 'signup') && (
+          <>
+            <div className="relative my-6 flex items-center justify-center text-[10px] uppercase font-bold text-slate-500 tracking-wider">
+              <div className="absolute inset-x-0 h-px bg-slate-800" />
+              <span className="bg-[#07070d] px-3 relative z-10">Or continue with</span>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleGoogleLogin}
+              className="w-full flex items-center justify-center gap-3 bg-white/5 hover:bg-white/10 border border-white/10 text-white font-bold py-3 px-4 rounded-2xl text-xs transition-all cursor-pointer shadow-sm hover:scale-[1.01]"
+            >
+              <GoogleLogo size={18} />
+              <span>Continue with Google</span>
+            </button>
+          </>
+        )}
 
         {/* Back to Home Button */}
         <div className="text-center mt-6">

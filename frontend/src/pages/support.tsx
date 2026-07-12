@@ -13,6 +13,7 @@ interface Ticket {
   priority: 'Low' | 'Medium' | 'High';
   status: 'Open' | 'In Progress' | 'Resolved' | 'Closed';
   createdAt: string;
+  attachment?: string;
 }
 
 export default function SupportPage() {
@@ -26,6 +27,18 @@ export default function SupportPage() {
   const [description, setDescription] = useState('');
   const [priority, setPriority] = useState<'Low' | 'Medium' | 'High'>('Medium');
   const [submitting, setSubmitting] = useState(false);
+  const [attachment, setAttachment] = useState<string>('');
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setAttachment(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
 
   // Ticket Inspection Modal State
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
@@ -64,7 +77,7 @@ export default function SupportPage() {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ subject, description, priority })
+        body: JSON.stringify({ subject, description, priority, attachment })
       });
       if (!res.ok) throw new Error('Failed to submit support ticket');
       const newTicket = await res.json();
@@ -75,6 +88,7 @@ export default function SupportPage() {
       setSubject('');
       setDescription('');
       setPriority('Medium');
+      setAttachment('');
       setIsSubmitOpen(false);
     } catch (err: any) {
       showToast(err.message || 'Submission failed', 'error');
@@ -285,6 +299,21 @@ export default function SupportPage() {
                     className="w-full p-3 text-xs border border-slate-200 rounded-lg focus:ring-1 focus:ring-blue-500 bg-slate-50/50 font-sans resize-none leading-relaxed"
                   />
                 </div>
+
+                <div>
+                  <label className="block text-[10px] font-mono text-slate-400 uppercase mb-1 font-bold">Screenshot Attachment (Optional)</label>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleFileChange}
+                    className="w-full text-xs text-slate-500 file:mr-3 file:py-1 file:px-2 file:rounded-md file:border-0 file:text-[10px] file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer"
+                  />
+                  {attachment && (
+                    <div className="mt-2 text-[10px] text-emerald-600 flex items-center gap-1 font-bold">
+                      <span>✓ Image attached successfully</span>
+                    </div>
+                  )}
+                </div>
               </div>
 
               <div className="px-5 py-3.5 border-t border-slate-100 flex justify-end gap-2 bg-slate-50">
@@ -367,6 +396,19 @@ export default function SupportPage() {
                       {selectedTicket.description}
                     </div>
                   </div>
+
+                  {selectedTicket.attachment && (
+                    <div>
+                      <span className="block text-[10px] font-mono text-slate-400 uppercase mb-1 font-bold">Screenshot Attachment</span>
+                      <div className="mt-1 border border-slate-200 rounded-lg overflow-hidden max-h-[220px]">
+                        <img 
+                          src={selectedTicket.attachment} 
+                          alt="Screenshot Attachment" 
+                          className="w-full h-auto object-contain bg-slate-50"
+                        />
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 <div className="px-5 py-3.5 border-t border-slate-100 flex justify-end bg-slate-50">
