@@ -63,6 +63,18 @@ function cleanJsonResponse(rawText: string): any {
 
 async function sanitizeJobData(data: any, user: any) {
   if (!data) return data;
+
+  // Map job status values to match check constraints ('Open' | 'Closed')
+  if (data.status) {
+    const statusLower = data.status.toLowerCase();
+    if (statusLower === 'active' || statusLower === 'open') {
+      data.status = 'Open';
+    } else {
+      data.status = 'Closed';
+    }
+  } else {
+    data.status = 'Open'; // default fallback
+  }
   
   // Only sanitize if companyName or companyId are explicitly passed
   if ('companyId' in data || 'companyName' in data) {
@@ -1675,7 +1687,7 @@ Action formats:
     "experience": "e.g. 2-5 years",
     "requiredSkills": ["Skill1", "Skill2"],
     "description": "Job details",
-    "status": "Active"
+    "status": "Open"
   }
 }
 </action>
