@@ -350,11 +350,22 @@ async function* callLLMStream(
 
 async function callEdenAIWithTools(
   messages: any[],
-  tools: any[]
+  tools: any[],
+  useThinking: boolean = true
 ): Promise<any> {
   const edenKey = process.env.EDENAI_API_KEY;
   if (!edenKey) {
     throw new Error('EDENAI_API_KEY is missing or invalid.');
+  }
+
+  const body: any = {
+    model: 'google/gemma-4-31b-it',
+    messages,
+    tools,
+    temperature: 0.7,
+  };
+  if (useThinking) {
+    body.reasoning_effort = 'high';
   }
 
   const response = await fetch('https://api.edenai.run/v3/chat/completions', {
@@ -363,13 +374,7 @@ async function callEdenAIWithTools(
       'Authorization': `Bearer ${edenKey}`,
       'Content-Type': 'application/json'
     },
-    body: JSON.stringify({
-      model: 'google/gemma-4-31b-it',
-      messages,
-      tools,
-      temperature: 0.7,
-      reasoning_effort: 'high'
-    })
+    body: JSON.stringify(body)
   });
 
   if (!response.ok) {
@@ -1051,7 +1056,8 @@ export async function runCopilotAgent(
   autoExecute: boolean,
   user: any,
   systemInstruction: string,
-  tools: any[]
+  tools: any[],
+  useThinking: boolean = true
 ) {
   const transformMessagesForLLM = (msgs: any[]) => {
     return msgs.map(msg => {
@@ -1374,7 +1380,7 @@ export async function runCopilotAgent(
         let subContent = '';
         
         while (subLoop < 2) {
-          const res = await callEdenAIWithTools(subMessages, activeTools);
+          const res = await callEdenAIWithTools(subMessages, activeTools, useThinking);
           const msg = res.choices?.[0]?.message;
           if (!msg) break;
 
@@ -1452,7 +1458,7 @@ export async function runCopilotAgent(
       let loopCount = 0;
       while (loopCount < 3) {
         console.log(`[Copilot Agent] Running standard ReAct iteration ${loopCount + 1}...`);
-        const result = await callEdenAIWithTools(transformMessagesForLLM(messagesForLLM), tools);
+        const result = await callEdenAIWithTools(transformMessagesForLLM(messagesForLLM), tools, useThinking);
         const rawMessage = result.choices?.[0]?.message;
 
         if (!rawMessage) {
@@ -1572,7 +1578,8 @@ export async function runCopilotAgent(
 
 app.post('/api/ai/copilot', requirePermission('copilot.open'), async (c) => {
   try {
-    const { messages, autoExecute } = await c.req.json();
+    const { messages, autoExecute, thinkingEnabled } = await c.req.json();
+    const useThinking = thinkingEnabled !== false; // default true
     if (!messages || !Array.isArray(messages)) {
       return c.json({ error: 'messages array is required' }, 400);
     }
@@ -1879,9 +1886,9 @@ Only generate ONE action block at the very end of your message. Ensure the JSON 
     }
 
     if (hasExecutionCtx) {
-      c.executionCtx.waitUntil(runCopilotAgent(taskId, messages, autoExecute, user, systemInstruction, tools));
+      c.executionCtx.waitUntil(runCopilotAgent(taskId, messages, autoExecute, user, systemInstruction, tools, useThinking));
     } else {
-      runCopilotAgent(taskId, messages, autoExecute, user, systemInstruction, tools);
+      runCopilotAgent(taskId, messages, autoExecute, user, systemInstruction, tools, useThinking);
     }
 
     return c.json({
