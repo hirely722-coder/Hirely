@@ -199,10 +199,18 @@ export default function DashboardView({
             Active Workspace
           </span>
           {subscriptionPlan?.slug === 'growth' ? (
-            <span className="text-xs font-mono px-2.5 py-1 bg-amber-50 text-amber-700 border border-amber-200 rounded-lg font-bold flex items-center gap-1 shadow-2xs">
+            <button
+              onClick={() => {
+                setShowUpgradeSuccess(true);
+                setTimeout(() => {
+                  setShowUpgradeSuccess(false);
+                }, 5000);
+              }}
+              className="text-xs font-mono px-2.5 py-1 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 rounded-lg font-bold flex items-center gap-1 shadow-2xs cursor-pointer transition-all hover:scale-[1.02]"
+            >
               <ShieldCheck className="h-3.5 w-3.5 text-amber-500" />
               Pro Recruiter
-            </span>
+            </button>
           ) : (
             <div className="flex items-center gap-2 animate-fade-in">
               <span className="text-xs font-mono px-2.5 py-1 bg-blue-50 text-blue-700 border border-blue-100 rounded-lg font-medium uppercase">

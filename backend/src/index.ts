@@ -1040,6 +1040,7 @@ export async function runCopilotAgent(
 ) {
   const transformMessagesForLLM = (msgs: any[]) => {
     return msgs.map(msg => {
+      // 1. Handle custom system actions (pending approval)
       if (msg.role === 'assistant' && msg.pendingAction) {
         const desc = msg.pendingAction.command;
         return {
@@ -1047,12 +1048,39 @@ export async function runCopilotAgent(
           content: `[System Action: Invoked tools: ${desc}]`
         };
       }
-      if (msg.role === 'tool') {
+      
+      // 2. Handle assistant messages with active tool calls
+      if (msg.role === 'assistant' && msg.tool_calls && msg.tool_calls.length > 0) {
+        const callsDesc = msg.tool_calls.map((c: any) => {
+          let argsStr = '';
+          try {
+            argsStr = typeof c.function.arguments === 'string' 
+              ? c.function.arguments 
+              : JSON.stringify(c.function.arguments);
+          } catch (e) {}
+          return `${c.function.name}(${argsStr})`;
+        }).join(', ');
+        
         return {
-          role: 'user',
-          content: `[System Output for tool '${msg.name}': ${msg.content}]`
+          role: 'assistant',
+          content: msg.content 
+            ? `${msg.content}\n[System Action: Requested tool execution: ${callsDesc}]` 
+            : `[System Action: Requested tool execution: ${callsDesc}]`,
+          tool_calls: msg.tool_calls
         };
       }
+      
+      // 3. Handle tool outputs
+      if (msg.role === 'tool') {
+        return {
+          role: 'tool',
+          tool_call_id: msg.tool_call_id,
+          name: msg.name,
+          content: msg.content
+        };
+      }
+      
+      // 4. Default fallback
       return {
         role: msg.role,
         content: msg.content
