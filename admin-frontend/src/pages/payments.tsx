@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { fetchAdminApi } from '@/utils/adminApi';
 import { 
-  CreditCard, DollarSign, Calendar, AlertCircle, RefreshCw, 
+  CreditCard, IndianRupee, Calendar, AlertCircle, RefreshCw, 
   ArrowUpRight, ArrowDownRight, CheckCircle2, RefreshCcw, Download
 } from 'lucide-react';
 import { useApp } from '@/context/AdminAppContext';
@@ -29,11 +29,11 @@ export default function AdminPayments() {
   }, []);
 
   const handleRefund = async (payment: any) => {
-    if (!window.confirm(`Are you sure you want to refund this payment of $${payment.amount} to ${payment.agencyName}?`)) return;
+    if (!window.confirm(`Are you sure you want to refund this payment of ₹${payment.amount} to ${payment.agencyName}?`)) return;
     try {
       const updated = await fetchAdminApi(`/api/superadmin/payments/${payment.id}/refund`, { method: 'POST' });
       setPayments(prev => prev.map(p => p.id === payment.id ? { ...p, ...updated } : p));
-      showToast(`✓ Payment of $${payment.amount} refunded successfully!`);
+      showToast(`✓ Payment of ₹${payment.amount} refunded successfully!`);
     } catch (err: any) {
       showToast(err.message || 'Refund failed', 'error');
     }
@@ -87,13 +87,13 @@ export default function AdminPayments() {
         <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-2xs">
           <div className="flex items-center justify-between">
             <div className="p-2.5 rounded-xl bg-emerald-50 text-emerald-600 shrink-0">
-              <DollarSign className="h-4.5 w-4.5" />
+              <IndianRupee className="h-4.5 w-4.5" />
             </div>
             <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100/50">Active Revenue</span>
           </div>
           <div className="mt-4">
             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total Received Revenue</p>
-            <h3 className="text-xl font-black text-slate-900 mt-1 tracking-tight">${totalPaid.toFixed(2)}</h3>
+            <h3 className="text-xl font-black text-slate-900 mt-1 tracking-tight">₹{totalPaid.toFixed(2)}</h3>
           </div>
         </div>
 
@@ -107,7 +107,7 @@ export default function AdminPayments() {
           </div>
           <div className="mt-4">
             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total Refunded</p>
-            <h3 className="text-xl font-black text-slate-900 mt-1 tracking-tight">${totalRefunded.toFixed(2)}</h3>
+            <h3 className="text-xl font-black text-slate-900 mt-1 tracking-tight">₹{totalRefunded.toFixed(2)}</h3>
           </div>
         </div>
 
@@ -121,7 +121,7 @@ export default function AdminPayments() {
           </div>
           <div className="mt-4">
             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Failed Transactions</p>
-            <h3 className="text-xl font-black text-slate-900 mt-1 tracking-tight">${totalFailed.toFixed(2)}</h3>
+            <h3 className="text-xl font-black text-slate-900 mt-1 tracking-tight">₹{totalFailed.toFixed(2)}</h3>
           </div>
         </div>
       </div>
@@ -195,7 +195,7 @@ export default function AdminPayments() {
                     <td className="px-6 py-4 font-bold text-slate-900 font-display">{pay.agencyName}</td>
                     <td className="px-6 py-4 font-semibold text-slate-600">{pay.planName}</td>
                     <td className="px-6 py-4 font-semibold text-slate-900">
-                      ${parseFloat(pay.amount).toFixed(2)} {pay.currency}
+                      ₹{parseFloat(pay.amount).toFixed(2)} {pay.currency}
                     </td>
                     <td className="px-6 py-4 font-mono font-semibold text-slate-400">
                       {new Date(pay.createdAt).toLocaleDateString()} {new Date(pay.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}

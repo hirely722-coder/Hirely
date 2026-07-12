@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { fetchAdminApi } from '@/utils/adminApi';
 import { 
-  Sparkles, RefreshCw, Cpu, DollarSign, Timer, 
+  Sparkles, RefreshCw, Cpu, IndianRupee, Timer, 
   BarChart2, Zap, AlertTriangle, CheckCircle2
 } from 'lucide-react';
 import { useApp } from '@/context/AdminAppContext';
@@ -33,7 +33,7 @@ export default function AdminAiAnalytics() {
 
   const kpis = [
     { name: 'Total Requests', value: data.totalRequests, sub: 'Last 30 days', icon: Cpu, color: 'bg-indigo-50 text-indigo-600' },
-    { name: 'Consumed Cost', value: `$${parseFloat(data.totalCost).toFixed(4)}`, sub: 'Direct Eden AI charge', icon: DollarSign, color: 'bg-emerald-50 text-emerald-600' },
+    { name: 'Consumed Cost', value: `₹${parseFloat(data.totalCost).toFixed(4)}`, sub: 'Direct Eden AI charge', icon: IndianRupee, color: 'bg-emerald-50 text-emerald-600' },
     { name: 'Total Tokens Usage', value: data.totalTokens.toLocaleString(), sub: 'Prompt + Completion', icon: Zap, color: 'bg-amber-50 text-amber-600' },
     { name: 'Avg Latency', value: `${(data.averageResponseTime / 1000).toFixed(2)}s`, sub: 'Server round-trip time', icon: Timer, color: 'bg-blue-50 text-blue-600' }
   ];
@@ -183,7 +183,7 @@ export default function AdminAiAnalytics() {
                   <td className="px-6 py-4 text-slate-900 font-sans whitespace-nowrap">{log.feature}</td>
                   <td className="px-6 py-4 whitespace-nowrap">{log.provider}</td>
                   <td className="px-6 py-4 text-slate-800">{log.tokenUsage || '-'}</td>
-                  <td className="px-6 py-4 text-slate-950">${parseFloat(log.cost).toFixed(5)}</td>
+                  <td className="px-6 py-4 text-slate-950">₹{parseFloat(log.cost).toFixed(5)}</td>
                   <td className="px-6 py-4 text-slate-800">{log.responseTimeMs} ms</td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <span className={`inline-flex items-center gap-0.5 px-2 py-0.25 rounded text-[9px] font-sans font-bold border ${

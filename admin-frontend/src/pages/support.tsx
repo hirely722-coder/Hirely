@@ -237,6 +237,20 @@ export default function AdminSupport() {
                 </div>
               </div>
 
+              {selectedTicket.attachment && (
+                <div>
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Attached Screenshot</span>
+                  <div className="mt-1 border border-slate-200 rounded-2xl overflow-hidden max-h-[160px]">
+                    <img 
+                      src={selectedTicket.attachment} 
+                      alt="User Attached Screenshot" 
+                      className="w-full h-auto object-contain bg-slate-50 cursor-pointer"
+                      onClick={() => window.open(selectedTicket.attachment, '_blank')}
+                    />
+                  </div>
+                </div>
+              )}
+
               <form onSubmit={handleSendReply} className="space-y-3">
                 <div className="space-y-1.5">
                   <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Compose Support Response</label>

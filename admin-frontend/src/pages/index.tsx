@@ -308,9 +308,9 @@ export default function AdminDashboard() {
         <div className="relative border-l border-slate-100 pl-4 ml-2 space-y-5 py-2">
           {[
             { title: 'Agency Created', desc: 'Chal Chale\'s Workspace was successfully created.', time: '2 hours ago', badge: 'bg-blue-50 text-blue-700 border-blue-100/50' },
-            { title: 'Subscription Purchased', desc: 'Balal Valal\'s Workspace purchased the AI Pro Plan ($199/mo).', time: '1 day ago', badge: 'bg-emerald-50 text-emerald-700 border-emerald-100/50' },
+            { title: 'Subscription Purchased', desc: 'Balal Valal\'s Workspace purchased the AI Pro Plan (₹199/mo).', time: '1 day ago', badge: 'bg-emerald-50 text-emerald-700 border-emerald-100/50' },
             { title: 'User Invited', desc: 'HR Recruiter invited abc@gmail.com to join Chal Chale\'s Workspace.', time: '1 day ago', badge: 'bg-indigo-50 text-indigo-700 border-indigo-100/50' },
-            { title: 'Payment Failed', desc: 'Transaction of $199.00 failed for Sakuni\'s Workspace.', time: '2 days ago', badge: 'bg-rose-50 text-rose-700 border-rose-100/50' }
+            { title: 'Payment Failed', desc: 'Transaction of ₹199.00 failed for Sakuni\'s Workspace.', time: '2 days ago', badge: 'bg-rose-50 text-rose-700 border-rose-100/50' }
           ].map((act, i) => (
             <div key={i} className="relative">
               <span className="absolute -left-[21px] top-1.5 h-2.5 w-2.5 rounded-full bg-blue-600 ring-4 ring-white" />

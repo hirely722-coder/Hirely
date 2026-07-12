@@ -3,7 +3,7 @@ import { fetchAdminApi } from '@/utils/adminApi';
 import { useApp } from '@/context/AdminAppContext';
 import { 
   Briefcase, Search, Plus, Trash2, Edit2, Shield, Eye, Copy, Archive, 
-  RefreshCcw, DollarSign, Users, Award, ShieldAlert, Sparkles, Check, X, 
+  RefreshCcw, IndianRupee, Users, Award, ShieldAlert, Sparkles, Check, X, 
   ArrowLeft, ArrowUpRight, ArrowDownRight, Layers, Database, Sliders, Settings, History,
   CreditCard, AlertTriangle
 } from 'lucide-react';
@@ -118,12 +118,16 @@ export default function AdminSubscriptions() {
   const loadPlans = async () => {
     setLoading(true);
     try {
-      const [plansData, analyticsData] = await Promise.all([
+      const [plansData, analyticsData, billingOps] = await Promise.all([
         fetchAdminApi('/api/superadmin/plans'),
-        fetchAdminApi('/api/superadmin/trial-analytics')
+        fetchAdminApi('/api/superadmin/trial-analytics'),
+        fetchAdminApi('/api/admin/billing/subscriptions')
       ]);
       setPlans(Array.isArray(plansData) ? plansData : []);
       setTrialAnalytics(analyticsData);
+      setWorkspaces(billingOps.workspaces || []);
+      setTransactions(billingOps.transactions || []);
+      setDisputes(billingOps.disputes || []);
     } catch (err: any) {
       showToast(err.message || 'Failed to load plans', 'error');
     } finally {
@@ -269,9 +273,14 @@ export default function AdminSubscriptions() {
     return matchesSearch && matchesStatus;
   });
 
-  const activeSubscribers = workspaces.filter(w => w.subscriptionStatus === 'active').length || 142; 
-  const monthlyRevenue = transactions.filter(t => t.status === 'captured').reduce((acc, t) => acc + t.amount, 0) / 100 || 324000;
-  const trialUsers = trialAnalytics?.activeTrials ?? 38;
+  const activeSubscribers = workspaces.filter(w => w.subscriptionStatus === 'active').length; 
+  const monthlyRevenue = transactions.filter(t => t.status === 'captured').reduce((acc, t) => acc + t.amount, 0) / 100;
+  const trialUsers = trialAnalytics?.activeTrials ?? 0;
+
+  // Calculate dynamic churn rate
+  const totalWorkspaces = workspaces.length;
+  const churnedCount = workspaces.filter(w => w.subscriptionStatus === 'cancelled' || w.subscriptionStatus === 'expired').length;
+  const churnRate = totalWorkspaces > 0 ? ((churnedCount / totalWorkspaces) * 100).toFixed(1) : '0';
 
   // Filter operations list
   const getFilteredOpsData = () => {
@@ -369,7 +378,7 @@ export default function AdminSubscriptions() {
                     { id: 'general', name: 'General', icon: Sliders },
                     { id: 'features', name: 'Features Access', icon: Sparkles },
                     { id: 'limits', name: 'Usage Limits', icon: Database },
-                    { id: 'billing', name: 'Billing & Visibility', icon: DollarSign },
+                    { id: 'billing', name: 'Billing & Visibility', icon: IndianRupee },
                     ...(editingPlan.id ? [{ id: 'version', name: 'Version History', icon: History }] : [])
                   ].map(t => (
                     <button
@@ -743,10 +752,10 @@ export default function AdminSubscriptions() {
               {/* Subscriptions Metrics Dash */}
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 {[
-                  { name: 'Active Subscribers', value: activeSubscribers, change: '+12%', isUp: true, icon: Users, color: 'text-emerald-500 bg-emerald-50 dark:bg-emerald-500/10' },
-                  { name: 'Monthly Revenue', value: `₹${(monthlyRevenue / 1000).toFixed(0)}K`, change: '+8.4%', isUp: true, icon: DollarSign, color: 'text-blue-500 bg-blue-50 dark:bg-blue-500/10' },
-                  { name: 'Trialing Accounts', value: trialUsers, change: '+22%', isUp: true, icon: Sparkles, color: 'text-amber-500 bg-amber-50 dark:bg-amber-500/10' },
-                  { name: 'Churn Rate', value: '2.4%', change: '-0.3%', isUp: false, icon: ShieldAlert, color: 'text-rose-500 bg-rose-50 dark:bg-rose-500/10' }
+                  { name: 'Active Subscribers', value: activeSubscribers, change: '+0%', isUp: true, icon: Users, color: 'text-emerald-500 bg-emerald-50 dark:bg-emerald-500/10' },
+                  { name: 'Monthly Revenue', value: monthlyRevenue > 0 ? `₹${(monthlyRevenue / 1000).toFixed(0)}K` : '₹0', change: '+0%', isUp: true, icon: IndianRupee, color: 'text-blue-500 bg-blue-50 dark:bg-blue-500/10' },
+                  { name: 'Trialing Accounts', value: trialUsers, change: '+0%', isUp: true, icon: Sparkles, color: 'text-amber-500 bg-amber-50 dark:bg-amber-500/10' },
+                  { name: 'Churn Rate', value: `${churnRate}%`, change: '0%', isUp: false, icon: ShieldAlert, color: 'text-rose-500 bg-rose-50 dark:bg-rose-500/10' }
                 ].map(card => (
                   <div key={card.name} className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl p-5 shadow-xs flex items-center justify-between">
                     <div className="space-y-2 min-w-0">
