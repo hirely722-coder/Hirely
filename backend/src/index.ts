@@ -461,7 +461,7 @@ app.get('/api/ai/task-status/:id/stream', async (c) => {
   c.header('Cache-Control', 'no-cache');
   c.header('Connection', 'keep-alive');
 
-  return streamText(c, async (stream) => {
+  return stream(c, async (stream) => {
     const onEvent = async (data: any) => {
       try {
         await stream.write(`event: ${data.event}\ndata: ${JSON.stringify(data.data)}\n\n`);
