@@ -1335,7 +1335,7 @@ export async function runCopilotAgent(
         }
 
         // Run sub-agent ReAct loop
-        let subMessages = [
+        let subMessages: any[] = [
           { role: 'system', content: agentSystemInstruction },
           { role: 'user', content: task.query }
         ];
