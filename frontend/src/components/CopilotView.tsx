@@ -181,7 +181,9 @@ const Composer = ({
   handleRemoveFile,
   handleSend,
   autoExecute,
-  setAutoExecute
+  setAutoExecute,
+  thinkingEnabled,
+  setThinkingEnabled
 }: { 
   placeholder: string;
   input: string;
@@ -195,6 +197,8 @@ const Composer = ({
   handleSend: (text: string) => void;
   autoExecute: boolean;
   setAutoExecute: (v: boolean) => void;
+  thinkingEnabled: boolean;
+  setThinkingEnabled: (v: boolean) => void;
 }) => (
   <div className="w-full max-w-2xl mx-auto space-y-3">
     <ComposerPrimitive.Root className="rounded-[28px] border border-[#e5e5e5] dark:border-[#2e2e2e] bg-white dark:bg-[#212121] p-3 shadow-sm flex flex-col w-full focus-within:shadow-md focus-within:border-slate-350 transition-all gap-2">
@@ -290,6 +294,25 @@ const Composer = ({
             <Zap className={`h-3 w-3 ${autoExecute ? 'fill-current animate-pulse' : ''}`} />
             <span>Auto-Run</span>
           </button>
+
+          {/* Sleek integrated pill toggle for Thinking Mode */}
+          <button
+            type="button"
+            onClick={() => {
+              const newVal = !thinkingEnabled;
+              setThinkingEnabled(newVal);
+              localStorage.setItem('hirely_copilot_thinking_enabled', String(newVal));
+            }}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold transition-all cursor-pointer border ${
+              thinkingEnabled 
+                ? 'bg-indigo-50 border-indigo-100 text-indigo-700 dark:bg-indigo-950/40 dark:border-indigo-900/60 dark:text-indigo-300 shadow-3xs border-indigo-200/50' 
+                : 'bg-transparent border-slate-200 dark:border-white/10 text-slate-500 hover:bg-slate-50 dark:hover:bg-white/5'
+            }`}
+            title="Toggle Gemma 4 reasoning mode"
+          >
+            <Brain className="h-3 w-3" />
+            <span>Thinking</span>
+          </button>
         </div>
         
         <PrimaryAction 
@@ -315,7 +338,9 @@ const EmptyState = ({
   handleRemoveFile,
   handleSend,
   autoExecute,
-  setAutoExecute
+  setAutoExecute,
+  thinkingEnabled,
+  setThinkingEnabled
 }: { 
   input: string;
   setInput: (v: string) => void;
@@ -328,6 +353,8 @@ const EmptyState = ({
   handleSend: (text: string) => void;
   autoExecute: boolean;
   setAutoExecute: (v: boolean) => void;
+  thinkingEnabled: boolean;
+  setThinkingEnabled: (v: boolean) => void;
 }) => (
   <div className="flex-1 flex flex-col justify-center items-center px-4 max-w-2xl mx-auto w-full text-center space-y-8 my-auto animate-fade-in">
     <div className="space-y-3">
@@ -349,6 +376,8 @@ const EmptyState = ({
       handleSend={handleSend}
       autoExecute={autoExecute}
       setAutoExecute={setAutoExecute}
+      thinkingEnabled={thinkingEnabled}
+      setThinkingEnabled={setThinkingEnabled}
     />
 
     {/* Grid of suggestions */}
@@ -443,6 +472,10 @@ export default function CopilotView({
       const savedAuto = localStorage.getItem('hirely_copilot_auto_execute');
       if (savedAuto) {
         setAutoExecute(savedAuto === 'true');
+      }
+      const savedThinking = localStorage.getItem('hirely_copilot_thinking_enabled');
+      if (savedThinking) {
+        setThinkingEnabled(savedThinking === 'true');
       }
       setHasLoadedHistory(true);
     }
@@ -588,84 +621,45 @@ export default function CopilotView({
         ? {
             responseText: result.result.responseText,
             action: result.result.action,
-            pendingApproval: result.status === 'pending_approval',
-            reasoningText: undefined,
-            isLiveStreamed: false
+            pendingApproval: result.status === 'pending_approval'
           }
         : await new Promise<any>((resolve, reject) => {
-            // Append initial empty message for streaming
-            setMessages(prev => [
-              ...prev,
-              { role: 'assistant', content: '', reasoningText: '' }
-            ]);
-
-            const backendUrl = process.env.NEXT_PUBLIC_BACKEND_API_URL || 'https://hirely-backend.hirly-app.workers.dev';
-            const formattedBackendUrl = backendUrl.endsWith('/') ? backendUrl.slice(0, -1) : backendUrl;
-            const eventSource = new EventSource(`${formattedBackendUrl}/api/ai/task-status/${taskId}/stream?token=${encodeURIComponent(token || '')}`);
-            
-            eventSource.addEventListener('status', (e) => {
+            const checkStatus = async () => {
               try {
-                const data = JSON.parse(e.data);
-                if (data.currentStep) {
-                  setCurrentTool(data.currentStep.name);
-                }
-              } catch (err) {}
-            });
-
-            eventSource.addEventListener('thinking', (e) => {
-              try {
-                const data = JSON.parse(e.data);
-                setThinkingSteps(data);
-              } catch (err) {}
-            });
-
-            eventSource.addEventListener('token', (e) => {
-              try {
-                const token = JSON.parse(e.data);
-                setMessages(prev => {
-                  const next = [...prev];
-                  const lastIdx = next.length - 1;
-                  if (next[lastIdx] && next[lastIdx].role === 'assistant') {
-                    next[lastIdx] = {
-                      ...next[lastIdx],
-                      content: next[lastIdx].content + token
-                    };
+                const res = await fetch(`/api/ai/task-status/${taskId}`);
+                const data = await res.json();
+                if (data.status === 'completed' || data.status === 'pending_approval') {
+                  resolve({
+                    responseText: data.result?.responseText,
+                    action: data.result?.action,
+                    pendingApproval: data.status === 'pending_approval',
+                    reasoningText: data.thinkingSteps?.map((s: any) => s.reasoning).filter(Boolean).join('\n\n') || undefined
+                  });
+                } else if (data.status === 'failed') {
+                  reject(new Error(data.error || 'Task execution failed.'));
+                } else {
+                  // If running, set current tool label and thinking steps dynamically
+                  if (data.current_step) {
+                    setCurrentTool(data.current_step);
                   }
-                  return next;
-                });
-              } catch (err) {}
-            });
-
-            eventSource.addEventListener('complete', (e) => {
-              try {
-                const data = JSON.parse(e.data);
-                eventSource.close();
-                resolve({
-                  responseText: data.result?.responseText,
-                  action: data.result?.action,
-                  pendingApproval: data.status === 'pending_approval',
-                  reasoningText: data.thinkingSteps?.map((s: any) => s.reasoning).filter(Boolean).join('\n\n') || undefined,
-                  isLiveStreamed: true
-                });
-              } catch (err) {
-                eventSource.close();
-                reject(err);
+                  if (data.thinkingSteps && data.thinkingSteps.length > 0) {
+                    setThinkingSteps(data.thinkingSteps);
+                  }
+                  setTimeout(checkStatus, 800);
+                }
+              } catch (e) {
+                reject(e);
               }
-            });
-
-            eventSource.onerror = () => {
-              eventSource.close();
-              reject(new Error('Streaming connection lost.'));
             };
+            checkStatus();
           });
 
       if (finalResult.pendingApproval) {
-        setMessages(prev => {
-          const next = [...prev];
-          const payload = { 
+        setMessages(prev => [
+          ...prev,
+          { 
             role: 'assistant' as const, 
             content: finalResult.responseText || 'Sorry, I couldn\'t formulate an answer.',
-            reasoningText: finalResult.reasoningText,
             pendingAction: {
               taskId,
               command: finalResult.action.command,
@@ -673,38 +667,22 @@ export default function CopilotView({
               id: finalResult.action.id,
               status: 'pending' as const
             }
-          };
-          if (finalResult.isLiveStreamed) {
-            const lastIdx = next.length - 1;
-            if (next[lastIdx] && next[lastIdx].role === 'assistant') {
-              next[lastIdx] = payload;
-              return next;
-            }
           }
-          return [...next, payload];
-        });
+        ]);
         await fetchData();
         return;
       }
 
       setIsLoading(false);
-      setMessages(prev => {
-        const next = [...prev];
-        const payload = { 
+      setMessages(prev => [
+        ...prev,
+        { 
           role: 'assistant' as const, 
           content: finalResult.responseText || 'Sorry, I couldn\'t formulate an answer.',
           reasoningText: finalResult.reasoningText,
-          isStreaming: finalResult.isLiveStreamed ? false : true
-        };
-        if (finalResult.isLiveStreamed) {
-          const lastIdx = next.length - 1;
-          if (next[lastIdx] && next[lastIdx].role === 'assistant') {
-            next[lastIdx] = payload;
-            return next;
-          }
+          isStreaming: true
         }
-        return [...next, payload];
-      });
+      ]);
 
       await fetchData();
 
@@ -834,6 +812,8 @@ export default function CopilotView({
               handleSend={handleSend}
               autoExecute={autoExecute}
               setAutoExecute={setAutoExecute}
+              thinkingEnabled={thinkingEnabled}
+              setThinkingEnabled={setThinkingEnabled}
             />
           ) : (
             <div className="flex-1 flex flex-col min-h-0">
@@ -1092,6 +1072,8 @@ export default function CopilotView({
                     handleSend={handleSend}
                     autoExecute={autoExecute}
                     setAutoExecute={setAutoExecute}
+                    thinkingEnabled={thinkingEnabled}
+                    setThinkingEnabled={setThinkingEnabled}
                   />
                   <p className="text-[10px] text-center text-slate-400 dark:text-slate-500 mt-1 font-medium">
                     Forge can make mistakes. Verify important information.
