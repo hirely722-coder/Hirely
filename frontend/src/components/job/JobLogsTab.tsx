@@ -1,7 +1,6 @@
 import React from 'react';
 import { Plus, Edit2, Trash2, Mail, Phone, CheckCircle2 } from 'lucide-react';
-import { Candidate, EmailTemplate } from '../../types';
-import { JobNote, JobCommunication, JobActivity } from '../../utils/jobMockData';
+import { Candidate, EmailTemplate, JobNote, JobCommunication, JobActivity } from '../../types';
 
 interface JobLogsTabProps {
   activeTab: 'notes' | 'communication' | 'activity';

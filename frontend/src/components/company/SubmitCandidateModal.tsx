@@ -3,7 +3,7 @@ import {
   X, Briefcase, Sparkles, Check, CheckCircle2, ChevronRight, Mail, AlertCircle, Eye, User, FileText 
 } from 'lucide-react';
 import { Company, Job, Candidate } from '../../types';
-import { getAIMatchScore } from '../../utils/companyMockData';
+import { calculateMatchScore as getAIMatchScore } from '../../utils/matching';
 import Portal from '../Portal';
 
 interface SubmitCandidateModalProps {

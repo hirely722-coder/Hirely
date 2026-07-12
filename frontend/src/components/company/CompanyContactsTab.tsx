@@ -1,6 +1,6 @@
 import React from 'react';
 import { Plus, Mail, Phone, MessageSquare, Trash } from 'lucide-react';
-import { Contact } from '../../utils/companyMockData';
+import { Contact } from '../../types';
 
 interface CompanyContactsTabProps {
   filteredContacts: Contact[];

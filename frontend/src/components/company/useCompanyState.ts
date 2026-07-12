@@ -1,10 +1,6 @@
-import React, { useState, useMemo } from 'react';
-import { Company, Job, Candidate } from '../../types';
-import { 
-  Contact, CompanyDocument, Note, CommunicationLog, CompanyActivity,
-  generateInitialContacts, generateInitialDocuments, generateInitialNotes,
-  generateInitialCommunications, generateInitialActivities
-} from '../../utils/companyMockData';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import { Company, Job, Candidate, Contact, CompanyDocument, Note, CompanyActivity, CommunicationLog, ActivityLog } from '../../types';
+import { supabase } from '../../utils/supabase';
 
 interface UseCompanyStateProps {
   company: Company;
@@ -37,12 +33,12 @@ export function useCompanyState({
   // Local Workspace Search Query
   const [workspaceSearch, setWorkspaceSearch] = useState('');
 
-  // Local state for client-specific lists
-  const [contacts, setContacts] = useState<Contact[]>(() => generateInitialContacts(company));
-  const [documents, setDocuments] = useState<CompanyDocument[]>(() => generateInitialDocuments(company));
-  const [notes, setNotes] = useState<Note[]>(() => generateInitialNotes(company));
-  const [communications, setCommunications] = useState<CommunicationLog[]>(() => generateInitialCommunications(company));
-  const [activities, setActivities] = useState<CompanyActivity[]>(() => generateInitialActivities(company));
+  // Local state for client-specific lists synced with the database
+  const [contacts, setContacts] = useState<Contact[]>([]);
+  const [documents, setDocuments] = useState<CompanyDocument[]>([]);
+  const [notes, setNotes] = useState<Note[]>([]);
+  const [communications, setCommunications] = useState<CommunicationLog[]>([]);
+  const [activities, setActivities] = useState<CompanyActivity[]>([]);
 
   // Modals visibility
   const [showSubmitModal, setShowSubmitModal] = useState(false);
@@ -83,6 +79,121 @@ export function useCompanyState({
   // Bulk Candidates select list
   const [selectedCandidateIds, setSelectedCandidateIds] = useState<string[]>([]);
 
+  // Toast Notification state
+  const [toast, setToast] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+  
+  const showLocalToast = (text: string, type: 'success' | 'error' = 'success') => {
+    setToast({ text, type });
+    setTimeout(() => setToast(null), 3000);
+  };
+
+  // --- Fetching Functions ---
+  const fetchContacts = useCallback(async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      const res = await fetch(`/api/company_contacts`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setContacts(Array.isArray(data) ? data.filter((item: any) => item.companyId === company.id) : []);
+      }
+    } catch (err) {
+      console.error('Failed to fetch contacts:', err);
+    }
+  }, [company.id]);
+
+  const fetchDocuments = useCallback(async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      const res = await fetch(`/api/company_documents`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const filtered = Array.isArray(data) ? data.filter((item: any) => item.companyId === company.id) : [];
+        const mapped = filtered.map((doc: any) => ({
+          ...doc,
+          dateAdded: doc.createdAt ? new Date(doc.createdAt).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]
+        }));
+        setDocuments(mapped);
+      }
+    } catch (err) {
+      console.error('Failed to fetch documents:', err);
+    }
+  }, [company.id]);
+
+  const fetchNotes = useCallback(async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      const res = await fetch(`/api/company_notes`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setNotes(Array.isArray(data) ? data.filter((item: any) => item.companyId === company.id) : []);
+      }
+    } catch (err) {
+      console.error('Failed to fetch notes:', err);
+    }
+  }, [company.id]);
+
+  const fetchCommunications = useCallback(async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      const res = await fetch(`/api/communication_logs`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const filtered = Array.isArray(data) ? data.filter((item: any) => item.companyId === company.id) : [];
+        const mapped = filtered.map((comm: any) => ({
+          ...comm,
+          body: comm.message || comm.body || ''
+        }));
+        setCommunications(mapped);
+      }
+    } catch (err) {
+      console.error('Failed to fetch communications:', err);
+    }
+  }, [company.id]);
+
+  const fetchActivities = useCallback(async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      const res = await fetch(`/api/activity_logs`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const filtered = Array.isArray(data) ? data.filter((item: any) => item.companyId === company.id) : [];
+        const mapped = filtered.map((act: any) => ({
+          id: act.id,
+          type: act.type,
+          description: act.description,
+          date: act.timestamp ? new Date(act.timestamp).toISOString().replace('T', ' ').slice(0, 16) : new Date().toISOString().replace('T', ' ').slice(0, 16),
+          user: act.userName || act.user || 'Sarah Jenkins'
+        }));
+        setActivities(mapped);
+      }
+    } catch (err) {
+      console.error('Failed to fetch activities:', err);
+    }
+  }, [company.id]);
+
+  useEffect(() => {
+    fetchContacts();
+    fetchDocuments();
+    fetchNotes();
+    fetchCommunications();
+    fetchActivities();
+  }, [fetchContacts, fetchDocuments, fetchNotes, fetchCommunications, fetchActivities]);
+
   // Find primary email contact
   const primaryContact = useMemo(() => {
     return contacts.find(c => c.isPrimary) || contacts[0] || { name: company.contactPerson, email: company.email, phone: company.phone };
@@ -100,14 +211,6 @@ export function useCompanyState({
     });
   }, [candidates]);
 
-  // Toast Notification state
-  const [toast, setToast] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
-  
-  const showLocalToast = (text: string, type: 'success' | 'error' = 'success') => {
-    setToast({ text, type });
-    setTimeout(() => setToast(null), 3000);
-  };
-
   // Drag and drop handlers
   const handleDrag = (e: React.DragEvent) => {
     e.preventDefault();
@@ -119,61 +222,119 @@ export function useCompanyState({
     }
   };
 
+  const uploadDocument = async (file: File) => {
+    try {
+      const filePath = `${company.id}/${Date.now()}_${file.name}`;
+      
+      // Upload to Supabase Storage Bucket (requires bucket: company-documents)
+      const { data, error } = await supabase.storage
+        .from('company-documents')
+        .upload(filePath, file);
+
+      if (error) throw error;
+
+      // Save Metadata to public.company_documents
+      const newDoc = {
+        companyId: company.id,
+        title: file.name,
+        type: file.name.endsWith('.pdf') ? 'Agreement' : 'JD',
+        size: `${(file.size / (1024 * 1024)).toFixed(1)} MB`,
+        filePath: data.path
+      };
+
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      const res = await fetch('/api/company_documents', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify(newDoc)
+      });
+
+      if (!res.ok) throw new Error('Failed to save document metadata');
+
+      showLocalToast(`✓ Uploaded "${file.name}" successfully!`, 'success');
+      await fetchDocuments();
+      await addActivity(`Uploaded document: ${file.name}`);
+    } catch (err: any) {
+      console.error(err);
+      showLocalToast(`Failed to upload document: ${err.message}`, 'error');
+    }
+  };
+
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
     setDragActive(false);
     
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      const file = e.dataTransfer.files[0];
-      const newDoc: CompanyDocument = {
-        id: `doc_${Date.now()}`,
-        title: file.name,
-        type: file.name.endsWith('.pdf') ? 'Agreement' : 'JD',
-        dateAdded: new Date().toISOString().split('T')[0],
-        size: `${(file.size / (1024 * 1024)).toFixed(1)} MB`
-      };
-      setDocuments(prev => [newDoc, ...prev]);
-      
-      // Log Activity
-      addActivity(`Uploaded document: ${file.name}`, 'Sarah Jenkins');
-      showLocalToast(`✓ Uploaded "${file.name}" successfully via mock Supabase Storage!`, 'success');
+      uploadDocument(e.dataTransfer.files[0]);
     }
   };
 
-  // Helper loggers
-  const addActivity = (desc: string, user: string = 'Sarah Jenkins') => {
-    const newAct: CompanyActivity = {
-      id: `act_${Date.now()}`,
+  // Helper loggers (Write audit trails to database)
+  const addActivity = async (desc: string, user: string = 'Sarah Jenkins') => {
+    const newAct = {
+      companyId: company.id,
       type: 'Update',
       description: desc,
-      date: new Date().toISOString().replace('T', ' ').slice(0, 16),
-      user
+      userName: user,
+      timestamp: new Date().toISOString()
     };
-    setActivities(prev => [newAct, ...prev]);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      await fetch('/api/activity_logs', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify(newAct)
+      });
+      await fetchActivities();
+    } catch (err) {
+      console.error('Failed to log activity:', err);
+    }
   };
 
-  const addCommunication = (type: CommunicationLog['type'], status: CommunicationLog['status'], recipient: string, subject: string, body?: string) => {
-    const newComm: CommunicationLog = {
-      id: `comm_${Date.now()}`,
+  const addCommunication = async (type: CommunicationLog['type'], status: CommunicationLog['status'], recipient: string, subject: string, body?: string) => {
+    const newComm = {
+      companyId: company.id,
       type,
       status,
       sentBy: 'Sarah Jenkins',
       recipient,
       subject,
-      date: new Date().toISOString().replace('T', ' ').slice(0, 16),
-      body
+      message: body || '',
+      date: new Date().toLocaleDateString() + ' ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
-    setCommunications(prev => [newComm, ...prev]);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      await fetch('/api/communication_logs', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify(newComm)
+      });
+      await fetchCommunications();
+    } catch (err) {
+      console.error('Failed to log communication:', err);
+    }
   };
 
   // Add Contact Form Handler
-  const handleAddContactSubmit = (e: React.FormEvent) => {
+  const handleAddContactSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newContactName || !newContactEmail) return;
 
-    const newCon: Contact = {
-      id: `con_${Date.now()}`,
+    const newCon = {
+      companyId: company.id,
       name: newContactName,
       designation: newContactRole || 'HR Consultant',
       department: newContactDept,
@@ -182,14 +343,43 @@ export function useCompanyState({
       isPrimary: newContactIsPrimary
     };
 
-    if (newContactIsPrimary) {
-      setContacts(prev => prev.map(c => ({ ...c, isPrimary: false })).concat(newCon));
-    } else {
-      setContacts(prev => [...prev, newCon]);
-    }
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      
+      // If we mark this contact as primary, we must first unmark any existing primary contacts
+      if (newContactIsPrimary) {
+        const primaries = contacts.filter(c => c.isPrimary);
+        for (const prim of primaries) {
+          await fetch(`/api/company_contacts/${prim.id}`, {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(token ? { Authorization: `Bearer ${token}` } : {})
+            },
+            body: JSON.stringify({ ...prim, isPrimary: false })
+          });
+        }
+      }
 
-    addActivity(`Added client contact: ${newContactName} (${newContactRole})`);
-    showLocalToast(`✓ Added contact ${newContactName}!`, 'success');
+      const res = await fetch('/api/company_contacts', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify(newCon)
+      });
+
+      if (!res.ok) throw new Error('Failed to create contact');
+
+      showLocalToast(`✓ Added contact ${newContactName}!`, 'success');
+      await fetchContacts();
+      await addActivity(`Added client contact: ${newContactName} (${newContactRole})`);
+    } catch (err: any) {
+      console.error(err);
+      showLocalToast('Failed to add contact', 'error');
+    }
     
     // Reset Form
     setNewContactName('');
@@ -231,20 +421,38 @@ export function useCompanyState({
   };
 
   // Add Note Handler
-  const handleAddNoteSubmit = (e: React.FormEvent) => {
+  const handleAddNoteSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newNoteContent) return;
 
-    const newN: Note = {
-      id: `note_${Date.now()}`,
+    const newN = {
+      companyId: company.id,
       content: newNoteContent,
       author: 'Sarah Jenkins',
-      timestamp: new Date().toISOString().replace('T', ' ').slice(0, 16)
+      timestamp: new Date().toLocaleDateString() + ' ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
 
-    setNotes(prev => [newN, ...prev]);
-    addActivity(`Added private note: "${newNoteContent.slice(0, 30)}..."`);
-    showLocalToast('✓ Added private recruitment note!', 'success');
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      const res = await fetch('/api/company_notes', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify(newN)
+      });
+
+      if (!res.ok) throw new Error('Failed to create note');
+
+      showLocalToast('✓ Added private recruitment note!', 'success');
+      await fetchNotes();
+      await addActivity(`Added private note: "${newNoteContent.slice(0, 30)}..."`);
+    } catch (err: any) {
+      console.error(err);
+      showLocalToast('Failed to add note', 'error');
+    }
 
     setNewNoteContent('');
     setShowAddNoteModal(false);
@@ -253,17 +461,7 @@ export function useCompanyState({
   // Manual File Upload handler
   const handleManualUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0];
-      const newDoc: CompanyDocument = {
-        id: `doc_${Date.now()}`,
-        title: file.name,
-        type: 'Agreement',
-        dateAdded: new Date().toISOString().split('T')[0],
-        size: '1.4 MB'
-      };
-      setDocuments(prev => [newDoc, ...prev]);
-      addActivity(`Uploaded file: ${file.name}`);
-      showLocalToast(`✓ Uploaded document "${file.name}"!`, 'success');
+      uploadDocument(e.target.files[0]);
       setShowUploadDocModal(false);
     }
   };

@@ -1,5 +1,5 @@
 import React from 'react';
-import { CompanyActivity } from '../../utils/companyMockData';
+import { CompanyActivity } from '../../types';
 
 interface CompanyActivityTabProps {
   activities: CompanyActivity[];

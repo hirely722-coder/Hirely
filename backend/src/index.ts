@@ -2178,7 +2178,10 @@ const tablePermissions: Record<string, { read: string; write: string; update: st
   communication_logs: { read: 'candidates.view', write: 'candidates.view', update: 'candidates.view', delete: 'candidates.view' },
   custom_field_definitions: { read: 'settings.view', write: 'settings.view', update: 'settings.view', delete: 'settings.view' },
   interviews: { read: 'tasks.view', write: 'tasks.create', update: 'tasks.complete', delete: 'tasks.delete' },
-  job_notes: { read: 'jobs.view', write: 'jobs.edit', update: 'jobs.edit', delete: 'jobs.edit' }
+  job_notes: { read: 'jobs.view', write: 'jobs.edit', update: 'jobs.edit', delete: 'jobs.edit' },
+  company_contacts: { read: 'companies.view', write: 'companies.edit', update: 'companies.edit', delete: 'companies.edit' },
+  company_documents: { read: 'companies.view', write: 'companies.edit', update: 'companies.edit', delete: 'companies.edit' },
+  company_notes: { read: 'companies.view', write: 'companies.edit', update: 'companies.edit', delete: 'companies.edit' }
 };
 
 // Helper: Generic table routing
@@ -2404,6 +2407,9 @@ createCRUD('communication_logs');
 createCRUD('custom_field_definitions');
 createCRUD('interviews');
 createCRUD('job_notes');
+createCRUD('company_contacts');
+createCRUD('company_documents');
+createCRUD('company_notes');
 
 // Unified Ingestion Bootstrapping
 async function fetchAllTableData(tableName: string, workspaceId: string) {
@@ -2454,7 +2460,10 @@ app.get('/api/bootstrap', async (c) => {
       customFieldDefinitions,
       workspaceRoles,
       workspaceData,
-      rbacAuditLogs
+      rbacAuditLogs,
+      companyContacts,
+      companyDocuments,
+      companyNotes
     ] = await Promise.all([
       fetchAllTableData('companies', user.workspace_id),
       fetchAllTableData('jobs', user.workspace_id),
@@ -2474,7 +2483,10 @@ app.get('/api/bootstrap', async (c) => {
       fetchAllTableData('custom_field_definitions', user.workspace_id),
       supabase.from('workspace_roles').select('*').eq('workspace_id', user.workspace_id).then(({ data }) => keysToCamel(data || [])),
       supabase.from('workspaces').select('locked_features').eq('id', user.workspace_id).single().then(({ data }) => keysToCamel(data || {})),
-      supabase.from('rbac_audit_logs').select('*').eq('workspace_id', user.workspace_id).order('timestamp', { ascending: false }).then(({ data }) => keysToCamel(data || []))
+      supabase.from('rbac_audit_logs').select('*').eq('workspace_id', user.workspace_id).order('timestamp', { ascending: false }).then(({ data }) => keysToCamel(data || [])),
+      fetchAllTableData('company_contacts', user.workspace_id),
+      fetchAllTableData('company_documents', user.workspace_id),
+      fetchAllTableData('company_notes', user.workspace_id)
     ]);
 
     // If the workspace has zero email templates, auto-seed them from the default system templates (workspace_id = '00000000-0000-0000-0000-000000000000')
@@ -2606,6 +2618,9 @@ app.get('/api/bootstrap', async (c) => {
       rbacAuditLogs,
       subscriptionPlan,
       subscriptionUsage,
+      companyContacts,
+      companyDocuments,
+      companyNotes,
       currentUser: {
         role: user.role,
         permissions: user.permissions,

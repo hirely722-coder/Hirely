@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
-import { Company, Job, Candidate, Task, EmailTemplate, ActivityLog, TeamMember, CommunicationLog, EmailConfig, CustomFieldDefinition, WorkspaceRole, RbacAuditLog } from '../types';
+import { Company, Job, Candidate, Task, EmailTemplate, ActivityLog, TeamMember, CommunicationLog, EmailConfig, CustomFieldDefinition, WorkspaceRole, RbacAuditLog, Contact, CompanyDocument, Note } from '../types';
 import { ImportTask, ImportHistoryItem, cleanEmail, cleanPhone, cleanName, cleanSkills, cleanExperience, cleanSalary, validateRecord, addImportHistoryItem } from '../utils/importEngine';
 import { supabase } from '../utils/supabase';
 
@@ -14,6 +14,9 @@ interface AppContextType {
   communicationLogs: CommunicationLog[];
   emailConfig: EmailConfig;
   isLoading: boolean;
+  companyContacts: Contact[];
+  companyDocuments: CompanyDocument[];
+  companyNotes: Note[];
   
   // CSV Import State & Controls
   activeImportTask: ImportTask | null;
@@ -156,6 +159,10 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [isLoading, setIsLoading] = useState(true);
   const [toast, setToast] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
   const [showUpgradeSuccess, setShowUpgradeSuccess] = useState(false);
+
+  const [companyContacts, setCompanyContacts] = useState<Contact[]>([]);
+  const [companyDocuments, setCompanyDocuments] = useState<CompanyDocument[]>([]);
+  const [companyNotes, setCompanyNotes] = useState<Note[]>([]);
 
   const [notifications, setNotifications] = useState<Array<{ id: string; text: string; time: string; read: boolean }>>([]);
   const notificationsLoadedRef = useRef(false);
@@ -330,6 +337,9 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       localStorage.removeItem('hirely_cache_is_super_admin');
       localStorage.removeItem('hirely_cache_subscription_plan');
       localStorage.removeItem('hirely_cache_subscription_usage');
+      localStorage.removeItem('hirely_cache_company_contacts');
+      localStorage.removeItem('hirely_cache_company_documents');
+      localStorage.removeItem('hirely_cache_company_notes');
       localStorage.removeItem('hirely_cache_user_id');
 
       showToast('Successfully logged out');
@@ -373,6 +383,9 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         localStorage.removeItem('hirely_cache_current_user_restricted_features');
         localStorage.removeItem('hirely_cache_subscription_plan');
         localStorage.removeItem('hirely_cache_subscription_usage');
+        localStorage.removeItem('hirely_cache_company_contacts');
+        localStorage.removeItem('hirely_cache_company_documents');
+        localStorage.removeItem('hirely_cache_company_notes');
         localStorage.removeItem('hirely_cache_user_id');
         
         // Reset states
@@ -389,6 +402,9 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         setWorkspaceRoles([]);
         setLockedFeatures([]);
         setRbacAuditLogs([]);
+        setCompanyContacts([]);
+        setCompanyDocuments([]);
+        setCompanyNotes([]);
         setCurrentUserRole('');
         setCurrentUserPermissions([]);
         setCurrentUserRestrictedFeatures([]);
@@ -420,8 +436,14 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       const cachedIsSuperAdmin = localStorage.getItem('hirely_cache_is_super_admin');
       const cachedSubPlan = localStorage.getItem('hirely_cache_subscription_plan');
       const cachedSubUsage = localStorage.getItem('hirely_cache_subscription_usage');
+      const cachedCompanyContacts = localStorage.getItem('hirely_cache_company_contacts');
+      const cachedCompanyDocuments = localStorage.getItem('hirely_cache_company_documents');
+      const cachedCompanyNotes = localStorage.getItem('hirely_cache_company_notes');
 
       if (cachedCompanies || cachedJobs || cachedCandidates) {
+        if (cachedCompanyContacts) setCompanyContacts(JSON.parse(cachedCompanyContacts));
+        if (cachedCompanyDocuments) setCompanyDocuments(JSON.parse(cachedCompanyDocuments));
+        if (cachedCompanyNotes) setCompanyNotes(JSON.parse(cachedCompanyNotes));
         if (cachedCompanies) setCompanies(JSON.parse(cachedCompanies));
         if (cachedJobs) setJobs(JSON.parse(cachedJobs));
         if (cachedCandidates) setCandidates(JSON.parse(cachedCandidates));
@@ -502,6 +524,10 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       const restrictedFeaturesData = Array.isArray(payload.currentUser?.restrictedFeatures) ? payload.currentUser.restrictedFeatures : [];
       const isSuperAdminData = payload.currentUser?.isSuperAdmin || false;
 
+      const companyContactsData = Array.isArray(payload.companyContacts) ? payload.companyContacts : [];
+      const companyDocumentsData = Array.isArray(payload.companyDocuments) ? payload.companyDocuments : [];
+      const companyNotesData = Array.isArray(payload.companyNotes) ? payload.companyNotes : [];
+
       setCompanies(companiesData);
       setJobs(jobsData);
       setCandidates(candidatesData);
@@ -519,6 +545,9 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       setCurrentUserPermissions(permissionsData);
       setCurrentUserRestrictedFeatures(restrictedFeaturesData);
       setIsSuperAdmin(isSuperAdminData);
+      setCompanyContacts(companyContactsData);
+      setCompanyDocuments(companyDocumentsData);
+      setCompanyNotes(companyNotesData);
 
       // Save to localStorage cache
       localStorage.setItem('hirely_cache_companies', JSON.stringify(companiesData));
@@ -538,6 +567,9 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       localStorage.setItem('hirely_cache_current_user_permissions', JSON.stringify(permissionsData));
       localStorage.setItem('hirely_cache_current_user_restricted_features', JSON.stringify(restrictedFeaturesData));
       localStorage.setItem('hirely_cache_is_super_admin', JSON.stringify(isSuperAdminData));
+      localStorage.setItem('hirely_cache_company_contacts', JSON.stringify(companyContactsData));
+      localStorage.setItem('hirely_cache_company_documents', JSON.stringify(companyDocumentsData));
+      localStorage.setItem('hirely_cache_company_notes', JSON.stringify(companyNotesData));
 
       const subPlanData = payload.subscriptionPlan || null;
       const subUsageData = payload.subscriptionUsage || null;
@@ -576,6 +608,9 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       setCurrentUserRestrictedFeatures([]);
       setIsSuperAdmin(false);
       setSubscriptionPlan(null);
+      setCompanyContacts([]);
+      setCompanyDocuments([]);
+      setCompanyNotes([]);
       setSubscriptionUsage(null);
       if (authInitialized) {
         setIsLoading(false);
@@ -1596,6 +1631,9 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       communicationLogs,
       emailConfig,
       isLoading,
+      companyContacts,
+      companyDocuments,
+      companyNotes,
       
       // Compose Modal states
       emailComposeCandidate,

@@ -1,7 +1,6 @@
 import React from 'react';
 import { Info, Users, Mail, MessageSquare, ExternalLink } from 'lucide-react';
-import { Company, Job, Candidate } from '../../types';
-import { CommunicationLog } from '../../utils/companyMockData';
+import { Company, Job, Candidate, CommunicationLog } from '../../types';
 
 interface CompanyOverviewTabProps {
   company: Company;

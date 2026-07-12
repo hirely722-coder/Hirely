@@ -1,6 +1,6 @@
 import React from 'react';
 import { Plus, Upload, Download, Trash } from 'lucide-react';
-import { CompanyDocument } from '../../utils/companyMockData';
+import { CompanyDocument } from '../../types';
 
 interface CompanyDocumentsTabProps {
   filteredDocuments: CompanyDocument[];

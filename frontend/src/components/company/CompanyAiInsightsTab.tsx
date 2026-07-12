@@ -1,7 +1,7 @@
 import React from 'react';
 import { Sparkles, AlertCircle } from 'lucide-react';
 import { Company } from '../../types';
-import { Note } from '../../utils/companyMockData';
+import { Note } from '../../types';
 
 interface CompanyAiInsightsTabProps {
   company: Company;

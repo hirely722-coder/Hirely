@@ -215,8 +215,8 @@ export function useCandidatesState({
     e.preventDefault();
     if (!formName) return;
 
-    // Generate random AI score if not pre-parsed (e.g. 70 - 95)
-    const mockScore = Math.floor(Math.random() * 25) + 70;
+    // Candidates start with a 0 base match score until scanned
+    const mockScore = 0;
 
     const newCandidate: Candidate = {
       id: 'can_' + Date.now(),
@@ -437,7 +437,7 @@ export function useCandidatesState({
     let importCount = 0;
     successItems.forEach((item, idx) => {
       const data = item.extractedData!;
-      const mockScore = Math.floor(Math.random() * 20) + 75;
+      const mockScore = 0;
       
       const newCandidate: Candidate = {
         id: 'can_' + (Date.now() + idx + Math.floor(Math.random() * 1000)),

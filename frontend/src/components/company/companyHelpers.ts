@@ -1,5 +1,4 @@
-import { Company, Job, Candidate } from '../../types';
-import { Contact, CompanyDocument, Note, CommunicationLog, CompanyActivity } from '../../utils/companyMockData';
+import { Company, Job, Candidate, Contact, CompanyDocument, Note, CommunicationLog, CompanyActivity } from '../../types';
 
 export function filterJobsBySearch(companyJobs: Job[], search: string): Job[] {
   if (!search) return companyJobs;
@@ -46,6 +45,6 @@ export function filterCommunicationsBySearch(communications: CommunicationLog[],
   const term = search.toLowerCase();
   return communications.filter(c => 
     (c.subject && c.subject.toLowerCase().includes(term)) || 
-    c.recipient.toLowerCase().includes(term)
+    (c.recipient && c.recipient.toLowerCase().includes(term))
   );
 }

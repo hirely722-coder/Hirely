@@ -1,10 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Job, Candidate, EmailTemplate, JobCandidate } from '../../types';
-import { 
-  JobNote, JobInterview, JobCommunication, JobActivity,
-  generateInitialNotes, 
-  generateInitialCommunications, generateInitialActivities 
-} from '../../utils/jobMockData';
+import { Job, Candidate, EmailTemplate, JobCandidate, JobNote, JobInterview, JobCommunication, JobActivity } from '../../types';
 import { supabase } from '../../utils/supabase';
 import { computeCandidateMatchData } from './jobMatchHelpers';
 

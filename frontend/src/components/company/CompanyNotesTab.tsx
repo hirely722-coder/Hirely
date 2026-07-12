@@ -1,6 +1,6 @@
 import React from 'react';
 import { Plus } from 'lucide-react';
-import { Note } from '../../utils/companyMockData';
+import { Note } from '../../types';
 
 interface CompanyNotesTabProps {
   filteredNotes: Note[];

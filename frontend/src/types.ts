@@ -151,13 +151,16 @@ export interface EmailConfig {
 
 export interface CommunicationLog {
   id: string;
-  candidateId: string;
-  type: 'Email' | 'WhatsApp' | 'Call' | 'Interview' | 'Follow-up';
+  candidateId?: string;
+  companyId?: string;
+  type: 'Email' | 'WhatsApp' | 'Call' | 'Interview' | 'Follow-up' | 'Meeting' | 'Submission';
   date: string;
   status: 'Sent' | 'Delivered' | 'Failed' | 'Completed';
   sentBy: string;
   subject: string;
   message: string;
+  recipient?: string;
+  body?: string;
 }
 
 export interface CustomTheme {
@@ -242,3 +245,86 @@ export interface RbacAuditLog {
   changedByName?: string;
   timestamp: string;
 }
+
+export interface Contact {
+  id: string;
+  companyId?: string;
+  name: string;
+  designation: string;
+  department: string;
+  email: string;
+  phone: string;
+  isPrimary: boolean;
+}
+
+export interface CompanyDocument {
+  id: string;
+  companyId?: string;
+  title: string;
+  type: 'JD' | 'Agreement' | 'NDA' | 'Invoice' | 'Offer';
+  size: string;
+  filePath?: string;
+  dateAdded?: string;
+}
+
+export interface Note {
+  id: string;
+  companyId?: string;
+  content: string;
+  author: string;
+  timestamp: string;
+}
+
+export interface CompanyActivity {
+  id: string;
+  type: string;
+  description: string;
+  date: string;
+  user: string;
+}
+
+export interface JobNote {
+  id: string;
+  jobId: string;
+  author: string;
+  timestamp: string;
+  text: string;
+}
+
+export interface JobInterview {
+  id: string;
+  jobId: string;
+  candidateId: string;
+  candidateName: string;
+  date: string;
+  time: string;
+  interviewer: string;
+  round: string;
+  status: 'Scheduled' | 'Rescheduled' | 'Completed' | 'Cancelled' | 'Feedback Pending';
+  feedback?: string;
+}
+
+export interface JobCommunication {
+  id: string;
+  jobId: string;
+  candidateId: string;
+  candidateName: string;
+  type: 'Email' | 'WhatsApp' | 'Call' | 'Interview' | 'Follow-up';
+  date: string;
+  status: 'Sent' | 'Delivered' | 'Failed' | 'Completed';
+  sentBy: string;
+  subject: string;
+  message: string;
+  recipient: string;
+}
+
+export interface JobActivity {
+  id: string;
+  jobId: string;
+  timestamp: string;
+  type: string;
+  description: string;
+  user: string;
+}
+
+

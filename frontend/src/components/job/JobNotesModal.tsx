@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X } from 'lucide-react';
-import { JobNote } from '../../utils/jobMockData';
+import { JobNote } from '../../types';
 import AnimatedModal from '../AnimatedModal';
 
 interface JobNotesModalProps {

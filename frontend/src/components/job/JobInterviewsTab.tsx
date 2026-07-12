@@ -1,7 +1,6 @@
 import React from 'react';
 import { Calendar, Clock, X, Plus } from 'lucide-react';
-import { Candidate } from '../../types';
-import { JobInterview } from '../../utils/jobMockData';
+import { Candidate, JobInterview } from '../../types';
 
 interface JobInterviewsTabProps {
   candidates: Candidate[];

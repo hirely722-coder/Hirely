@@ -1,6 +1,6 @@
 import React from 'react';
 import { Copy } from 'lucide-react';
-import { CommunicationLog } from '../../utils/companyMockData';
+import { CommunicationLog } from '../../types';
 
 interface CompanyCommunicationsTabProps {
   filteredCommunications: CommunicationLog[];
@@ -67,12 +67,12 @@ export function CompanyCommunicationsTab({
                 <button 
                   onClick={() => {
                     if (comm.type === 'Email') {
-                      setComposerEmailTo(comm.recipient);
+                      setComposerEmailTo(comm.recipient || '');
                       setComposerEmailSubject(comm.subject);
                       setComposerEmailBody(comm.body || '');
                       setShowEmailModal(true);
                     } else {
-                      setComposerWATo(comm.recipient);
+                      setComposerWATo(comm.recipient || '');
                       setComposerWABody(comm.body || '');
                       setShowWhatsAppModal(true);
                     }
