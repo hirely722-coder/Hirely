@@ -588,45 +588,82 @@ export default function CopilotView({
         ? {
             responseText: result.result.responseText,
             action: result.result.action,
-            pendingApproval: result.status === 'pending_approval'
+            pendingApproval: result.status === 'pending_approval',
+            reasoningText: undefined,
+            isLiveStreamed: false
           }
         : await new Promise<any>((resolve, reject) => {
-            const checkStatus = async () => {
+            // Append initial empty message for streaming
+            setMessages(prev => [
+              ...prev,
+              { role: 'assistant', content: '', reasoningText: '' }
+            ]);
+
+            const eventSource = new EventSource(`/api/ai/task-status/${taskId}/stream`);
+            
+            eventSource.addEventListener('status', (e) => {
               try {
-                const res = await fetch(`/api/ai/task-status/${taskId}`);
-                const data = await res.json();
-                if (data.status === 'completed' || data.status === 'pending_approval') {
-                  resolve({
-                    responseText: data.result?.responseText,
-                    action: data.result?.action,
-                    pendingApproval: data.status === 'pending_approval',
-                    reasoningText: data.thinkingSteps?.map((s: any) => s.reasoning).filter(Boolean).join('\n\n') || undefined
-                  });
-                } else if (data.status === 'failed') {
-                  reject(new Error(data.error || 'Task execution failed.'));
-                } else {
-                  // If running, set current tool label and thinking steps dynamically
-                  if (data.current_step) {
-                    setCurrentTool(data.current_step);
-                  }
-                  if (data.thinkingSteps && data.thinkingSteps.length > 0) {
-                    setThinkingSteps(data.thinkingSteps);
-                  }
-                  setTimeout(checkStatus, 800);
+                const data = JSON.parse(e.data);
+                if (data.currentStep) {
+                  setCurrentTool(data.currentStep.name);
                 }
-              } catch (e) {
-                reject(e);
+              } catch (err) {}
+            });
+
+            eventSource.addEventListener('thinking', (e) => {
+              try {
+                const data = JSON.parse(e.data);
+                setThinkingSteps(data);
+              } catch (err) {}
+            });
+
+            eventSource.addEventListener('token', (e) => {
+              try {
+                const token = JSON.parse(e.data);
+                setMessages(prev => {
+                  const next = [...prev];
+                  const lastIdx = next.length - 1;
+                  if (next[lastIdx] && next[lastIdx].role === 'assistant') {
+                    next[lastIdx] = {
+                      ...next[lastIdx],
+                      content: next[lastIdx].content + token
+                    };
+                  }
+                  return next;
+                });
+              } catch (err) {}
+            });
+
+            eventSource.addEventListener('complete', (e) => {
+              try {
+                const data = JSON.parse(e.data);
+                eventSource.close();
+                resolve({
+                  responseText: data.result?.responseText,
+                  action: data.result?.action,
+                  pendingApproval: data.status === 'pending_approval',
+                  reasoningText: data.thinkingSteps?.map((s: any) => s.reasoning).filter(Boolean).join('\n\n') || undefined,
+                  isLiveStreamed: true
+                });
+              } catch (err) {
+                eventSource.close();
+                reject(err);
               }
+            });
+
+            eventSource.onerror = () => {
+              eventSource.close();
+              reject(new Error('Streaming connection lost.'));
             };
-            checkStatus();
           });
 
       if (finalResult.pendingApproval) {
-        setMessages(prev => [
-          ...prev,
-          { 
+        setMessages(prev => {
+          const next = [...prev];
+          const payload = { 
             role: 'assistant' as const, 
             content: finalResult.responseText || 'Sorry, I couldn\'t formulate an answer.',
+            reasoningText: finalResult.reasoningText,
             pendingAction: {
               taskId,
               command: finalResult.action.command,
@@ -634,22 +671,38 @@ export default function CopilotView({
               id: finalResult.action.id,
               status: 'pending' as const
             }
+          };
+          if (finalResult.isLiveStreamed) {
+            const lastIdx = next.length - 1;
+            if (next[lastIdx] && next[lastIdx].role === 'assistant') {
+              next[lastIdx] = payload;
+              return next;
+            }
           }
-        ]);
+          return [...next, payload];
+        });
         await fetchData();
         return;
       }
 
       setIsLoading(false);
-      setMessages(prev => [
-        ...prev,
-        { 
+      setMessages(prev => {
+        const next = [...prev];
+        const payload = { 
           role: 'assistant' as const, 
           content: finalResult.responseText || 'Sorry, I couldn\'t formulate an answer.',
           reasoningText: finalResult.reasoningText,
-          isStreaming: true
+          isStreaming: finalResult.isLiveStreamed ? false : true
+        };
+        if (finalResult.isLiveStreamed) {
+          const lastIdx = next.length - 1;
+          if (next[lastIdx] && next[lastIdx].role === 'assistant') {
+            next[lastIdx] = payload;
+            return next;
+          }
         }
-      ]);
+        return [...next, payload];
+      });
 
       await fetchData();
 

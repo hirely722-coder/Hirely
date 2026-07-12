@@ -455,6 +455,41 @@ app.get('/api/ai/task-status/:id', async (c) => {
 });
 
 // Task stream endpoint
+app.get('/api/ai/task-status/:id/stream', async (c) => {
+  const taskId = c.req.param('id');
+  c.header('Content-Type', 'text/event-stream');
+  c.header('Cache-Control', 'no-cache');
+  c.header('Connection', 'keep-alive');
+
+  return streamText(c, async (stream) => {
+    const onEvent = async (data: any) => {
+      try {
+        await stream.write(`event: ${data.event}\ndata: ${JSON.stringify(data.data)}\n\n`);
+      } catch (err) {
+        // stream might be closed by client
+      }
+    };
+
+    streamEmitter.on(taskId, onEvent);
+
+    // Keep connection open by polling task state in memory
+    let count = 0;
+    while (count < 120) { // Max 2 minutes keep-alive
+      const task = backgroundTasks.get(taskId);
+      if (task) {
+        if (task.status === 'completed' || task.status === 'failed' || task.status === 'pending_approval') {
+          // Send final payload
+          await stream.write(`event: complete\ndata: ${JSON.stringify(task)}\n\n`);
+          break;
+        }
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      count++;
+    }
+
+    streamEmitter.off(taskId, onEvent);
+  });
+});
 
 
 // -------------------------------------------------------------
@@ -1095,9 +1130,10 @@ export async function runCopilotAgent(
       current_step: name
     }).eq('id', taskId);
 
-    const currentTask = backgroundTasks.get(taskId) || { status: 'pending' };
+    const currentTask = backgroundTasks.get(taskId) || { status: 'pending' as const };
     currentTask.currentStep = { name, args };
     backgroundTasks.set(taskId, currentTask);
+    streamEmitter.emit(taskId, { event: 'status', data: currentTask });
     
     if (name === 'search_candidates') {
       const repo = new WorkspaceRepository('candidates', user);
@@ -1395,6 +1431,7 @@ export async function runCopilotAgent(
                 completed: true
               });
               backgroundTasks.set(taskId, currentTask);
+              streamEmitter.emit(taskId, { event: 'thinking', data: currentTask.thinkingSteps });
             }
           }
           
@@ -1429,8 +1466,13 @@ export async function runCopilotAgent(
       
       const compilePrompt = `[System Orchestrator: Sub-agents have completed parallel execution. Here are their outputs:\n\n${subAgentOutputs.join('\n\n')}\n\nCombine these findings into a unified, supportive, friendly response. Keep your personality as Forge. If there are any proposed database actions (<action> blocks) in the sub-agent outputs, merge them and generate a single unified <action> block at the very end of your response.]`;
 
-      const finalAnswer = await callLLM(systemInstruction, compilePrompt, 0.7);
-      responseText = finalAnswer;
+      const streamGenerator = callLLMStream(systemInstruction, compilePrompt, 0.7);
+      let compiledResponse = '';
+      for await (const chunk of streamGenerator) {
+        compiledResponse += chunk;
+        streamEmitter.emit(taskId, { event: 'token', data: chunk });
+      }
+      responseText = compiledResponse;
       cleanedResponse = responseText;
 
       const actionMatch = responseText.match(/<action>([\s\S]*?)<\/action>/);
@@ -1476,6 +1518,7 @@ export async function runCopilotAgent(
               completed: true
             });
             backgroundTasks.set(taskId, currentTask);
+            streamEmitter.emit(taskId, { event: 'thinking', data: currentTask.thinkingSteps });
           }
         }
 
@@ -1505,6 +1548,7 @@ export async function runCopilotAgent(
         } else {
           responseText = rawMessage.content || '';
           cleanedResponse = responseText;
+          streamEmitter.emit(taskId, { event: 'token', data: responseText });
 
           const actionMatch = responseText.match(/<action>([\s\S]*?)<\/action>/);
           if (actionMatch) {
