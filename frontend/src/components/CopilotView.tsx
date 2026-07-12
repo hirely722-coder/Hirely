@@ -774,19 +774,6 @@ export default function CopilotView({
           </div>
           
           <div className="flex items-center gap-2.5">
-            {/* Thinking Mode Toggle */}
-            <button
-              onClick={() => setThinkingEnabled(e => !e)}
-              title={thinkingEnabled ? "Thinking mode ON — click to disable" : "Thinking mode OFF — click to enable"}
-              className={`flex items-center gap-1 px-2.5 py-1 text-[10px] font-bold border rounded-lg transition-colors uppercase tracking-wider cursor-pointer ${
-                thinkingEnabled
-                  ? 'border-indigo-400/40 text-indigo-500 bg-indigo-50 dark:bg-indigo-950/30 hover:bg-indigo-100 dark:hover:bg-indigo-900/40'
-                  : 'border-slate-200 dark:border-transparent text-slate-400 bg-white dark:bg-white/5 hover:bg-slate-50 dark:hover:bg-white/10'
-              }`}
-            >
-              <Brain className="h-3 w-3" />
-              {thinkingEnabled ? 'Thinking ON' : 'Thinking OFF'}
-            </button>
             <button 
               onClick={handleClear}
               className="flex items-center gap-1 px-2.5 py-1 text-[10px] font-bold border border-slate-200 dark:border-transparent text-slate-500 rounded-lg hover:bg-slate-50 dark:hover:bg-white/10 transition-colors bg-white dark:bg-white/5 cursor-pointer uppercase tracking-wider"
