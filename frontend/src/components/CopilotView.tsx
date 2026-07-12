@@ -599,7 +599,9 @@ export default function CopilotView({
               { role: 'assistant', content: '', reasoningText: '' }
             ]);
 
-            const eventSource = new EventSource(`/api/ai/task-status/${taskId}/stream?token=${encodeURIComponent(token || '')}`);
+            const backendUrl = process.env.NEXT_PUBLIC_BACKEND_API_URL || 'https://hirely-backend.hirly-app.workers.dev';
+            const formattedBackendUrl = backendUrl.endsWith('/') ? backendUrl.slice(0, -1) : backendUrl;
+            const eventSource = new EventSource(`${formattedBackendUrl}/api/ai/task-status/${taskId}/stream?token=${encodeURIComponent(token || '')}`);
             
             eventSource.addEventListener('status', (e) => {
               try {
