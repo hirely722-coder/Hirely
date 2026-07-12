@@ -197,8 +197,7 @@ async function callLLM(
     body: JSON.stringify({
       model: 'google/gemma-4-31b-it',
       messages: formattedMessages,
-      temperature,
-      reasoning_effort: 'high'
+      temperature
     })
   });
 
@@ -350,22 +349,11 @@ async function* callLLMStream(
 
 async function callEdenAIWithTools(
   messages: any[],
-  tools: any[],
-  useThinking: boolean = true
+  tools: any[]
 ): Promise<any> {
   const edenKey = process.env.EDENAI_API_KEY;
   if (!edenKey) {
     throw new Error('EDENAI_API_KEY is missing or invalid.');
-  }
-
-  const body: any = {
-    model: 'google/gemma-4-31b-it',
-    messages,
-    tools,
-    temperature: 0.7,
-  };
-  if (useThinking) {
-    body.reasoning_effort = 'high';
   }
 
   const response = await fetch('https://api.edenai.run/v3/chat/completions', {
@@ -374,7 +362,12 @@ async function callEdenAIWithTools(
       'Authorization': `Bearer ${edenKey}`,
       'Content-Type': 'application/json'
     },
-    body: JSON.stringify(body)
+    body: JSON.stringify({
+      model: 'google/gemma-4-31b-it',
+      messages,
+      tools,
+      temperature: 0.7
+    })
   });
 
   if (!response.ok) {
@@ -382,18 +375,7 @@ async function callEdenAIWithTools(
     throw new Error(`Eden AI API returned status ${response.status}: ${errorText}`);
   }
 
-  const json = await response.json() as any;
-
-  // Normalize reasoning_content onto the message object for downstream consumers
-  if (json?.choices?.[0]?.message) {
-    const reasoning = json.choices[0].message.reasoning_content ?? null;
-    json.choices[0].message.reasoning = reasoning;
-    if (reasoning) {
-      console.log(`[Copilot Thinking] Gemma 4 reasoning captured (${reasoning.length} chars)`);
-    }
-  }
-
-  return json;
+  return await response.json();
 }
 
 // Global event emitter for streaming response tokens to client SSE route
@@ -403,11 +385,6 @@ export const streamEmitter = new EventEmitter();
 export interface BackgroundTask {
   status: 'pending' | 'completed' | 'failed' | 'pending_approval' | 'streaming';
   currentStep?: { name: string; args: any };
-  thinkingSteps?: Array<{
-    label: string;      // e.g. "Reasoning (iteration 1)"
-    reasoning: string;  // raw reasoning_content from Gemma 4
-    completed: boolean;
-  }>;
   result?: any;
   error?: string;
   user?: any;
@@ -451,7 +428,10 @@ app.get('/api/ai/task-status/:id', async (c) => {
     return c.json({ error: 'Task not found' }, 404);
   }
   
-  return c.json(task);
+  return c.json({
+    ...task,
+    current_step: task.currentStep?.name || null
+  });
 });
 
 // Task stream endpoint
@@ -1056,8 +1036,7 @@ export async function runCopilotAgent(
   autoExecute: boolean,
   user: any,
   systemInstruction: string,
-  tools: any[],
-  useThinking: boolean = true
+  tools: any[]
 ) {
   const transformMessagesForLLM = (msgs: any[]) => {
     return msgs.map(msg => {
@@ -1380,23 +1359,9 @@ export async function runCopilotAgent(
         let subContent = '';
         
         while (subLoop < 2) {
-          const res = await callEdenAIWithTools(subMessages, activeTools, useThinking);
+          const res = await callEdenAIWithTools(subMessages, activeTools);
           const msg = res.choices?.[0]?.message;
           if (!msg) break;
-
-          // Capture Gemma 4 reasoning from sub-agent
-          if (msg.reasoning) {
-            const currentTask = backgroundTasks.get(taskId);
-            if (currentTask) {
-              currentTask.thinkingSteps = currentTask.thinkingSteps ?? [];
-              currentTask.thinkingSteps.push({
-                label: `${task.agent} reasoning (step ${subLoop + 1})`,
-                reasoning: msg.reasoning,
-                completed: true
-              });
-              backgroundTasks.set(taskId, currentTask);
-            }
-          }
           
           if (msg.tool_calls && msg.tool_calls.length > 0) {
             subMessages.push(msg);
@@ -1458,25 +1423,11 @@ export async function runCopilotAgent(
       let loopCount = 0;
       while (loopCount < 3) {
         console.log(`[Copilot Agent] Running standard ReAct iteration ${loopCount + 1}...`);
-        const result = await callEdenAIWithTools(transformMessagesForLLM(messagesForLLM), tools, useThinking);
+        const result = await callEdenAIWithTools(transformMessagesForLLM(messagesForLLM), tools);
         const rawMessage = result.choices?.[0]?.message;
 
         if (!rawMessage) {
           throw new Error('Invalid empty response received from completions API.');
-        }
-
-        // Capture Gemma 4 native reasoning_content if available
-        if (rawMessage.reasoning) {
-          const currentTask = backgroundTasks.get(taskId);
-          if (currentTask) {
-            currentTask.thinkingSteps = currentTask.thinkingSteps ?? [];
-            currentTask.thinkingSteps.push({
-              label: `Reasoning (step ${loopCount + 1})`,
-              reasoning: rawMessage.reasoning,
-              completed: true
-            });
-            backgroundTasks.set(taskId, currentTask);
-          }
         }
 
         if (rawMessage.tool_calls && rawMessage.tool_calls.length > 0) {
@@ -1578,8 +1529,7 @@ export async function runCopilotAgent(
 
 app.post('/api/ai/copilot', requirePermission('copilot.open'), async (c) => {
   try {
-    const { messages, autoExecute, thinkingEnabled } = await c.req.json();
-    const useThinking = thinkingEnabled !== false; // default true
+    const { messages, autoExecute } = await c.req.json();
     if (!messages || !Array.isArray(messages)) {
       return c.json({ error: 'messages array is required' }, 400);
     }
@@ -1886,9 +1836,9 @@ Only generate ONE action block at the very end of your message. Ensure the JSON 
     }
 
     if (hasExecutionCtx) {
-      c.executionCtx.waitUntil(runCopilotAgent(taskId, messages, autoExecute, user, systemInstruction, tools, useThinking));
+      c.executionCtx.waitUntil(runCopilotAgent(taskId, messages, autoExecute, user, systemInstruction, tools));
     } else {
-      runCopilotAgent(taskId, messages, autoExecute, user, systemInstruction, tools, useThinking);
+      runCopilotAgent(taskId, messages, autoExecute, user, systemInstruction, tools);
     }
 
     return c.json({

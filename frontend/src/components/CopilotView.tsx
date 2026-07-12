@@ -3,7 +3,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { 
   Plus, Mic, AudioLines, SendHorizontal, Square,
-  Loader2, Trash2, ArrowRight, Paperclip, X, FileText, Zap, User, Brain
+  Loader2, Trash2, ArrowRight, Paperclip, X, FileText, Zap, User 
 } from 'lucide-react';
 import { Candidate, Job, Company, Task, EmailTemplate } from '../types';
 import { supabase } from '../utils/supabase';
@@ -16,7 +16,6 @@ import {
   ComposerPrimitive,
   AuiIf
 } from "@assistant-ui/react";
-import { ReasoningRoot, ReasoningTrigger, ReasoningContent, ReasoningText } from './assistant-ui/reasoning';
 
 interface CopilotViewProps {
   candidates: Candidate[];
@@ -31,7 +30,6 @@ interface Message {
   content: string;
   attachments?: string[];
   isStreaming?: boolean;
-  reasoningText?: string;   // Gemma 4 native chain-of-thought
   pendingAction?: {
     taskId: string;
     command: string;
@@ -181,9 +179,7 @@ const Composer = ({
   handleRemoveFile,
   handleSend,
   autoExecute,
-  setAutoExecute,
-  thinkingEnabled,
-  setThinkingEnabled
+  setAutoExecute
 }: { 
   placeholder: string;
   input: string;
@@ -197,8 +193,6 @@ const Composer = ({
   handleSend: (text: string) => void;
   autoExecute: boolean;
   setAutoExecute: (v: boolean) => void;
-  thinkingEnabled: boolean;
-  setThinkingEnabled: (v: boolean) => void;
 }) => (
   <div className="w-full max-w-2xl mx-auto space-y-3">
     <ComposerPrimitive.Root className="rounded-[28px] border border-[#e5e5e5] dark:border-[#2e2e2e] bg-white dark:bg-[#212121] p-3 shadow-sm flex flex-col w-full focus-within:shadow-md focus-within:border-slate-350 transition-all gap-2">
@@ -294,25 +288,6 @@ const Composer = ({
             <Zap className={`h-3 w-3 ${autoExecute ? 'fill-current animate-pulse' : ''}`} />
             <span>Auto-Run</span>
           </button>
-
-          {/* Sleek integrated pill toggle for Thinking Mode */}
-          <button
-            type="button"
-            onClick={() => {
-              const newVal = !thinkingEnabled;
-              setThinkingEnabled(newVal);
-              localStorage.setItem('hirely_copilot_thinking_enabled', String(newVal));
-            }}
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold transition-all cursor-pointer border ${
-              thinkingEnabled 
-                ? 'bg-indigo-50 border-indigo-100 text-indigo-700 dark:bg-indigo-950/40 dark:border-indigo-900/60 dark:text-indigo-300 shadow-3xs border-indigo-200/50' 
-                : 'bg-transparent border-slate-200 dark:border-white/10 text-slate-500 hover:bg-slate-50 dark:hover:bg-white/5'
-            }`}
-            title="Toggle Gemma 4 reasoning mode"
-          >
-            <Brain className="h-3 w-3" />
-            <span>Thinking</span>
-          </button>
         </div>
         
         <PrimaryAction 
@@ -338,9 +313,7 @@ const EmptyState = ({
   handleRemoveFile,
   handleSend,
   autoExecute,
-  setAutoExecute,
-  thinkingEnabled,
-  setThinkingEnabled
+  setAutoExecute
 }: { 
   input: string;
   setInput: (v: string) => void;
@@ -353,8 +326,6 @@ const EmptyState = ({
   handleSend: (text: string) => void;
   autoExecute: boolean;
   setAutoExecute: (v: boolean) => void;
-  thinkingEnabled: boolean;
-  setThinkingEnabled: (v: boolean) => void;
 }) => (
   <div className="flex-1 flex flex-col justify-center items-center px-4 max-w-2xl mx-auto w-full text-center space-y-8 my-auto animate-fade-in">
     <div className="space-y-3">
@@ -376,8 +347,6 @@ const EmptyState = ({
       handleSend={handleSend}
       autoExecute={autoExecute}
       setAutoExecute={setAutoExecute}
-      thinkingEnabled={thinkingEnabled}
-      setThinkingEnabled={setThinkingEnabled}
     />
 
     {/* Grid of suggestions */}
@@ -424,19 +393,11 @@ export default function CopilotView({
   // Bridged Runtime for assistant-ui
   const runtime = useExternalStoreRuntime({
     messages,
-    convertMessage: (message: Message): ThreadMessageLike => {
-      const contentParts: any[] = [];
-      // Prepend reasoning part if present — enables native ReasoningRoot
-      if (message.reasoningText) {
-        contentParts.push({ type: 'reasoning', text: message.reasoningText });
-      }
-      contentParts.push({ type: 'text', text: message.content });
-      return {
-        id: String(messages.indexOf(message)),
-        role: message.role,
-        content: contentParts as any,
-      };
-    },
+    convertMessage: (message: Message): ThreadMessageLike => ({
+      id: String(messages.indexOf(message)),
+      role: message.role,
+      content: [{ type: "text", text: message.content }],
+    }),
     onNew: async (message) => {
       const text = message.content[0]?.type === 'text' ? message.content[0].text : '';
       if (handleSendRef.current) {
@@ -448,8 +409,6 @@ export default function CopilotView({
   const [currentTool, setCurrentTool] = useState<string | null>(null);
   const [autoExecute, setAutoExecute] = useState(false);
   const [approvingTaskId, setApprovingTaskId] = useState<string | null>(null);
-  const [thinkingSteps, setThinkingSteps] = useState<Array<{ label: string; reasoning: string; completed: boolean }>>([]);
-  const [thinkingEnabled, setThinkingEnabled] = useState(true); // on/off toggle for Gemma 4 reasoning
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -472,10 +431,6 @@ export default function CopilotView({
       const savedAuto = localStorage.getItem('hirely_copilot_auto_execute');
       if (savedAuto) {
         setAutoExecute(savedAuto === 'true');
-      }
-      const savedThinking = localStorage.getItem('hirely_copilot_thinking_enabled');
-      if (savedThinking) {
-        setThinkingEnabled(savedThinking === 'true');
       }
       setHasLoadedHistory(true);
     }
@@ -568,7 +523,6 @@ export default function CopilotView({
     setAttachedFiles([]);
     setIsLoading(true);
     setCurrentTool(null);
-    setThinkingSteps([]);
 
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -605,8 +559,7 @@ export default function CopilotView({
             };
           }),
           context,
-          autoExecute,
-          thinkingEnabled
+          autoExecute
         })
       });
 
@@ -632,18 +585,14 @@ export default function CopilotView({
                   resolve({
                     responseText: data.result?.responseText,
                     action: data.result?.action,
-                    pendingApproval: data.status === 'pending_approval',
-                    reasoningText: data.thinkingSteps?.map((s: any) => s.reasoning).filter(Boolean).join('\n\n') || undefined
+                    pendingApproval: data.status === 'pending_approval'
                   });
                 } else if (data.status === 'failed') {
                   reject(new Error(data.error || 'Task execution failed.'));
                 } else {
-                  // If running, set current tool label and thinking steps dynamically
+                  // If running, set current tool label dynamically
                   if (data.current_step) {
                     setCurrentTool(data.current_step);
-                  }
-                  if (data.thinkingSteps && data.thinkingSteps.length > 0) {
-                    setThinkingSteps(data.thinkingSteps);
                   }
                   setTimeout(checkStatus, 800);
                 }
@@ -679,7 +628,6 @@ export default function CopilotView({
         { 
           role: 'assistant' as const, 
           content: finalResult.responseText || 'Sorry, I couldn\'t formulate an answer.',
-          reasoningText: finalResult.reasoningText,
           isStreaming: true
         }
       ]);
@@ -799,8 +747,6 @@ export default function CopilotView({
               handleSend={handleSend}
               autoExecute={autoExecute}
               setAutoExecute={setAutoExecute}
-              thinkingEnabled={thinkingEnabled}
-              setThinkingEnabled={setThinkingEnabled}
             />
           ) : (
             <div className="flex-1 flex flex-col min-h-0">
@@ -828,15 +774,6 @@ export default function CopilotView({
                                     </div>
                                   ))}
                                 </div>
-                              )}
-                              {/* Native Reasoning Panel — shows for completed messages */}
-                              {isAi && m.reasoningText && (
-                                <ReasoningRoot variant="outline" streaming={false} defaultOpen={false} className="mb-2">
-                                  <ReasoningTrigger />
-                                  <ReasoningContent>
-                                    <ReasoningText>{m.reasoningText}</ReasoningText>
-                                  </ReasoningContent>
-                                </ReasoningRoot>
                               )}
                               {m.isStreaming ? (
                                 <TypewriterText
@@ -1012,20 +949,6 @@ export default function CopilotView({
                   })}
                   {isLoading && (
                     <div className="flex flex-col gap-3 w-full max-w-3xl mx-auto my-6 px-4 animate-fade-in">
-                      {/* Native Streaming ReasoningRoot — auto-opens while thinking, auto-collapses when done */}
-                      {thinkingEnabled && thinkingSteps.length > 0 && (
-                        <ReasoningRoot variant="outline" streaming={true}>
-                          <ReasoningTrigger active={true} />
-                          <ReasoningContent>
-                            {thinkingSteps.map((step, i) => (
-                              <div key={i} className="mb-3">
-                                <p className="text-[10px] font-semibold text-indigo-400/80 uppercase tracking-wider mb-1">{step.label}</p>
-                                <ReasoningText>{step.reasoning}</ReasoningText>
-                              </div>
-                            ))}
-                          </ReasoningContent>
-                        </ReasoningRoot>
-                      )}
                       <div className="flex items-center gap-1.5 text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
                         <Zap className="h-3.5 w-3.5 animate-pulse text-indigo-650" />
                         <span>
@@ -1059,8 +982,6 @@ export default function CopilotView({
                     handleSend={handleSend}
                     autoExecute={autoExecute}
                     setAutoExecute={setAutoExecute}
-                    thinkingEnabled={thinkingEnabled}
-                    setThinkingEnabled={setThinkingEnabled}
                   />
                   <p className="text-[10px] text-center text-slate-400 dark:text-slate-500 mt-1 font-medium">
                     Forge can make mistakes. Verify important information.
