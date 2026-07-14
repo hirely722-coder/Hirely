@@ -12,6 +12,8 @@ export default function PrivacyPage() {
         <Head>
           <title>Privacy Policy | Hirly AI</title>
           <meta name="description" content="Hirly AI Privacy Policy. Learn how we handle, collect, and protect your workspace data." />
+          <meta property="og:title" content="Privacy Policy | Hirly AI" />
+          <meta property="og:description" content="Hirly AI Privacy Policy. Learn how we handle, collect, and protect your workspace data." />
         </Head>
         <AnimatedBackground />
         <Navbar />

@@ -12,6 +12,8 @@ export default function TermsPage() {
         <Head>
           <title>Terms of Service | Hirly AI</title>
           <meta name="description" content="Hirly AI Terms and Conditions of service." />
+          <meta property="og:title" content="Terms of Service | Hirly AI" />
+          <meta property="og:description" content="Hirly AI Terms and Conditions of service." />
         </Head>
         <AnimatedBackground />
         <Navbar />

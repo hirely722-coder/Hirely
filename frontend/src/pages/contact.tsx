@@ -25,6 +25,8 @@ export default function ContactPage() {
         <Head>
           <title>Contact Us | Hirly AI</title>
           <meta name="description" content="Contact Hirly AI support, sales, or customer success." />
+          <meta property="og:title" content="Contact Us | Hirly AI" />
+          <meta property="og:description" content="Contact Hirly AI support, sales, or customer success." />
         </Head>
         <AnimatedBackground />
         <Navbar />

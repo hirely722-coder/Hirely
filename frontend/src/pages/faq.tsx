@@ -35,6 +35,8 @@ export default function FAQPage() {
         <Head>
           <title>Frequently Asked Questions | Hirly AI</title>
           <meta name="description" content="Hirly AI FAQ. Answers to common questions about candidate parsing, AI copilot matching, and database security." />
+          <meta property="og:title" content="Frequently Asked Questions | Hirly AI" />
+          <meta property="og:description" content="Hirly AI FAQ. Answers to common questions about candidate parsing, AI copilot matching, and database security." />
         </Head>
         <AnimatedBackground />
         <Navbar />

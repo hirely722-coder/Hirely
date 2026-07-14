@@ -30,6 +30,21 @@ export default function App({ Component, pageProps }: AppProps) {
       <Head>
         <title>Hirly - Premium Recruiter Platform</title>
         <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+        
+        {/* Open Graph Meta Tags */}
+        <meta property="og:title" content="Hirly - Premium Recruiter Platform" />
+        <meta property="og:description" content="The AI-powered recruitment management platform helping agencies hire smarter, not harder." />
+        <meta property="og:image" content="/og-banner.png" />
+        <meta property="og:type" content="website" />
+        <meta property="og:image:type" content="image/png" />
+        <meta property="og:image:width" content="1200" />
+        <meta property="og:image:height" content="630" />
+        
+        {/* Twitter Card Meta Tags */}
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:title" content="Hirly - Premium Recruiter Platform" />
+        <meta name="twitter:description" content="The AI-powered recruitment management platform helping agencies hire smarter, not harder." />
+        <meta name="twitter:image" content="/og-banner.png" />
       </Head>
       <Script src="https://checkout.razorpay.com/v1/checkout.js" strategy="beforeInteractive" />
       <Layout>

@@ -12,6 +12,8 @@ export default function AboutPage() {
         <Head>
           <title>About Us | Hirly AI</title>
           <meta name="description" content="About Hirly AI. Our mission, technology stack, and values in recruitment automation." />
+          <meta property="og:title" content="About Us | Hirly AI" />
+          <meta property="og:description" content="About Hirly AI. Our mission, technology stack, and values in recruitment automation." />
         </Head>
         <AnimatedBackground />
         <Navbar />
