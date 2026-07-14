@@ -381,7 +381,8 @@ async function callLLM(
   systemInstruction: string,
   promptContent: any,
   temperature: number = 0.7,
-  responseSchema?: any
+  responseSchema?: any,
+  signal?: AbortSignal
 ): Promise<string> {
   // If responseSchema is defined, inject standard instruction to promptContent
   let finalPrompt = promptContent;
@@ -461,7 +462,8 @@ async function callLLM(
       model: 'google/gemma-4-31b-it',
       messages: formattedMessages,
       temperature
-    })
+    }),
+    signal
   });
 
   if (!response.ok) {
@@ -483,7 +485,8 @@ async function* callLLMStream(
   systemInstruction: string,
   promptContent: any,
   temperature: number = 0.7,
-  responseSchema?: any
+  responseSchema?: any,
+  signal?: AbortSignal
 ): AsyncGenerator<string, void, unknown> {
   const edenKey = process.env.EDENAI_API_KEY;
   if (!edenKey) {
@@ -560,7 +563,8 @@ async function* callLLMStream(
       messages: formattedMessages,
       temperature,
       stream: true
-    })
+    }),
+    signal
   });
 
   if (!response.ok) {
@@ -612,7 +616,8 @@ async function* callLLMStream(
 
 async function callEdenAIWithTools(
   messages: any[],
-  tools: any[]
+  tools: any[],
+  signal?: AbortSignal
 ): Promise<any> {
   const edenKey = process.env.EDENAI_API_KEY;
   if (!edenKey) {
@@ -630,7 +635,8 @@ async function callEdenAIWithTools(
       messages,
       tools,
       temperature: 0.7
-    })
+    }),
+    signal
   });
 
   if (!response.ok) {
@@ -643,7 +649,8 @@ async function callEdenAIWithTools(
 
 async function* callEdenAIWithToolsStream(
   messages: any[],
-  tools: any[]
+  tools: any[],
+  signal?: AbortSignal
 ): AsyncGenerator<{ type: 'token'; content: string } | { type: 'tool_call'; content: any }, void, unknown> {
   const edenKey = process.env.EDENAI_API_KEY;
   if (!edenKey) {
@@ -662,7 +669,8 @@ async function* callEdenAIWithToolsStream(
       tools,
       temperature: 0.7,
       stream: true
-    })
+    }),
+    signal
   });
 
   if (!response.ok) {
@@ -746,49 +754,7 @@ export interface BackgroundTask {
   user?: any;
 }
 
-export const backgroundTasks = new Map<string, BackgroundTask>();
 
-// Task Status polling endpoint
-app.get('/api/ai/task-status/:id', async (c) => {
-  const taskId = c.req.param('id');
-  
-  // 1. Try local memory map first (fast fallback)
-  let task = backgroundTasks.get(taskId);
-  
-  // 2. If not found in local memory (different Cloudflare isolate), query database
-  if (!task) {
-    console.log(`[Task Status] Task ${taskId} not found in memory, checking database...`);
-    const { data: dbTask, error } = await supabase
-      .from('copilot_tasks')
-      .select('*')
-      .eq('id', taskId)
-      .maybeSingle();
-
-    if (error) {
-      console.error('[Task Status] Database query failed:', error.message);
-    }
-
-    if (dbTask) {
-      task = {
-        status: dbTask.status,
-        currentStep: dbTask.current_step ? { name: dbTask.current_step, args: {} } : undefined,
-        result: dbTask.result,
-        error: dbTask.error
-      };
-      // Cache it locally in this isolate for subsequent polls
-      backgroundTasks.set(taskId, task);
-    }
-  }
-
-  if (!task) {
-    return c.json({ error: 'Task not found' }, 404);
-  }
-  
-  return c.json({
-    ...task,
-    current_step: task.currentStep?.name || null
-  });
-});
 
 
 
@@ -999,10 +965,7 @@ app.use('/api/*', async (c, next) => {
   }
 
   const authHeader = c.req.header('Authorization');
-  let token = authHeader?.split(' ')[1];
-  if (!token && c.req.path.startsWith('/api/ai/copilot/stream/')) {
-    token = c.req.query('token');
-  }
+  const token = authHeader?.split(' ')[1];
   if (!token) {
     return c.json({ error: 'Authorization header is missing' }, 401);
   }
@@ -1173,96 +1136,7 @@ app.use('/api/ai/*', async (c, next) => {
   await next();
 });
 
-// Task stream endpoint
-app.get('/api/ai/copilot/stream/:id', async (c) => {
-  const taskId = c.req.param('id');
-  
-  c.header('Content-Type', 'text/event-stream');
-  c.header('Cache-Control', 'no-cache, no-transform');
-  c.header('Connection', 'keep-alive');
-  c.header('X-Accel-Buffering', 'no');
 
-  return stream(c, async (stream) => {
-    // Write an initial comment to flush headers and establish the stream connection immediately
-    await stream.write(': ok\n\n');
-
-    // 1. Check if task is already completed (in memory or database)
-    let task = backgroundTasks.get(taskId);
-    if (!task) {
-      const { data: dbTask } = await supabase
-        .from('copilot_tasks')
-        .select('*')
-        .eq('id', taskId)
-        .maybeSingle();
-      if (dbTask) {
-        task = {
-          status: dbTask.status,
-          result: dbTask.result,
-          error: dbTask.error
-        };
-      }
-    }
-    if (task && (task.status === 'completed' || task.status === 'pending_approval' || task.status === 'failed')) {
-      await stream.write(`data: ${JSON.stringify({ type: 'status', status: task.status, result: task.result, error: task.error })}\n\n`);
-      return;
-    }
-
-    let isClosed = false;
-
-    const listener = async (event: any) => {
-      if (isClosed) return;
-      try {
-        await stream.write(`data: ${JSON.stringify(event)}\n\n`);
-      } catch (e) {
-        cleanup();
-      }
-    };
-
-    streamEmitter.on(taskId, listener);
-
-    const keepAlive = setInterval(async () => {
-      if (isClosed) return;
-      try {
-        await stream.write(': keep-alive\n\n');
-      } catch (e) {
-        cleanup();
-      }
-    }, 4000);
-
-    const cleanup = () => {
-      if (isClosed) return;
-      isClosed = true;
-      clearInterval(keepAlive);
-      streamEmitter.off(taskId, listener);
-    };
-
-    // Hold the stream open until closed
-    while (!isClosed) {
-      let currentTask = backgroundTasks.get(taskId);
-      if (!currentTask) {
-        const { data: dbTask } = await supabase
-          .from('copilot_tasks')
-          .select('*')
-          .eq('id', taskId)
-          .maybeSingle();
-        if (dbTask) {
-          currentTask = {
-            status: dbTask.status,
-            result: dbTask.result,
-            error: dbTask.error
-          };
-        }
-      }
-
-      if (currentTask && (currentTask.status === 'completed' || currentTask.status === 'pending_approval' || currentTask.status === 'failed')) {
-        await stream.write(`data: ${JSON.stringify({ type: 'status', status: currentTask.status, result: currentTask.result, error: currentTask.error })}\n\n`);
-        cleanup();
-        break;
-      }
-      await new Promise(resolve => setTimeout(resolve, 500));
-    }
-  });
-});
 
 // Resume Parser (File upload endpoint via multipart/form-data)
 app.post('/api/ai/parse-resume', requirePermission('candidates.run_ai_parsing'), rateLimiter(10, 60000, 'ai_parse'), async (c) => {
@@ -1508,20 +1382,29 @@ app.post('/api/ai/parse-file', requirePermission('candidates.run_ai_parsing'), r
   }
 });
 
-
+export interface StreamingEvent {
+  type: 'assistant_message_start' | 'assistant_delta' | 'assistant_message_end' | 'tool_start' | 'tool_complete' | 'approval_required' | 'completed' | 'error';
+  content?: string;
+  tool?: string;
+  args?: any;
+  result?: any;
+  action?: any;
+  text?: string;
+  message?: string;
+}
 
 // Copilot Chat / Search Engine
-export async function runCopilotAgent(
+export async function* runCopilotAgent(
   taskId: string,
   messages: any[],
   autoExecute: boolean,
   user: any,
   systemInstruction: string,
-  tools: any[]
-) {
+  tools: any[],
+  signal?: AbortSignal
+): AsyncGenerator<StreamingEvent, void, unknown> {
   const transformMessagesForLLM = (msgs: any[]) => {
     return msgs.map(msg => {
-      // 1. Handle custom system actions (pending approval)
       if (msg.role === 'assistant' && msg.pendingAction) {
         const desc = msg.pendingAction.command;
         return {
@@ -1530,7 +1413,6 @@ export async function runCopilotAgent(
         };
       }
       
-      // 2. Handle assistant messages with active tool calls
       if (msg.role === 'assistant' && msg.tool_calls && msg.tool_calls.length > 0) {
         const callsDesc = msg.tool_calls.map((c: any) => {
           let argsStr = '';
@@ -1551,7 +1433,6 @@ export async function runCopilotAgent(
         };
       }
       
-      // 3. Handle tool outputs
       if (msg.role === 'tool') {
         return {
           role: 'tool',
@@ -1561,7 +1442,6 @@ export async function runCopilotAgent(
         };
       }
       
-      // 4. Default fallback
       return {
         role: msg.role,
         content: msg.content
@@ -1574,7 +1454,6 @@ export async function runCopilotAgent(
     ...messages
   ];
 
-  // Keyword Stemming Helper for synonyms and partial matching (e.g. Accountant -> accounting)
   const getStems = (query: string): string[] => {
     return query
       .toLowerCase()
@@ -1582,231 +1461,186 @@ export async function runCopilotAgent(
       .map(w => {
         let stem = w.trim();
         if (stem.length <= 3) return stem;
-        // Strip common suffixes
         stem = stem.replace(/(?:ing|ant|ent|er|ist|s|ed|ly|ment|ional|al|ive)$/, '');
         return stem;
       })
       .filter(w => w.length > 2);
   };
 
-  // Local Tool Execution Handler
   const executeTool = async (name: string, args: any): Promise<any> => {
     const toolStart = performance.now();
     const run = async () => {
       console.log(`[Copilot Agent] Executing tool '${name}' with args:`, args);
     
-    // Update Supabase task current step
-    await supabase.from('copilot_tasks').update({
-      current_step: name
-    }).eq('id', taskId);
+      if (name === 'search_candidates') {
+        const { data, error } = await supabase
+          .from('candidates')
+          .select('*')
+          .eq('workspace_id', user.workspace_id)
+          .order('created_at', { ascending: false })
+          .limit(1000);
 
-    const currentTask = backgroundTasks.get(taskId) || { status: 'pending' };
-    currentTask.currentStep = { name, args };
-    backgroundTasks.set(taskId, currentTask);
-    
-    if (name === 'search_candidates') {
-      const { data, error } = await supabase
-        .from('candidates')
-        .select('*')
-        .eq('workspace_id', user.workspace_id)
-        .order('created_at', { ascending: false })
-        .limit(1000);
+        if (error) throw error;
 
-      if (error) throw error;
+        let candidates = keysToCamel(data || []);
+        
+        if (args.query) {
+          const q = args.query.toLowerCase();
+          const stems = getStems(q);
 
-      let candidates = keysToCamel(data || []);
-      
-      if (args.query) {
-        const q = args.query.toLowerCase();
-        const stems = getStems(q);
+          candidates = candidates.filter(c => {
+            const nameMatch = (c.name || '').toLowerCase().includes(q);
+            const emailMatch = (c.email || '').toLowerCase().includes(q);
+            const designationMatch = (c.designation || '').toLowerCase().includes(q);
+            const cityMatch = (c.city || '').toLowerCase().includes(q);
+            
+            const candidateSkills = (c.skills || []).map((s: string) => s.toLowerCase());
+            const skillsMatch = candidateSkills.some((s: string) => 
+              s.includes(q) || stems.some(stem => s.includes(stem))
+            );
 
-        candidates = candidates.filter(c => {
-          // Check standard fields
-          const nameMatch = (c.name || '').toLowerCase().includes(q);
-          const emailMatch = (c.email || '').toLowerCase().includes(q);
-          const designationMatch = (c.designation || '').toLowerCase().includes(q);
-          const cityMatch = (c.city || '').toLowerCase().includes(q);
-          
-          // Check skills (including stems)
-          const candidateSkills = (c.skills || []).map((s: string) => s.toLowerCase());
-          const skillsMatch = candidateSkills.some((s: string) => 
-            s.includes(q) || stems.some(stem => s.includes(stem))
-          );
+            const designationStemMatch = stems.some(stem => 
+              (c.designation || '').toLowerCase().includes(stem)
+            );
 
-          // Check designation stems (for Accountant matching Accounting Professional)
-          const designationStemMatch = stems.some(stem => 
-            (c.designation || '').toLowerCase().includes(stem)
-          );
+            const resumeMatch = (c.resumeText || '').toLowerCase().includes(q) || 
+                                stems.some(stem => (c.resumeText || '').toLowerCase().includes(stem));
+            const notesMatch = (c.notes || '').toLowerCase().includes(q) || 
+                               stems.some(stem => (c.notes || '').toLowerCase().includes(stem));
 
-          // Check resume_text & notes for deep keywords
-          const resumeMatch = (c.resumeText || '').toLowerCase().includes(q) || 
-                              stems.some(stem => (c.resumeText || '').toLowerCase().includes(stem));
-          const notesMatch = (c.notes || '').toLowerCase().includes(q) || 
-                             stems.some(stem => (c.notes || '').toLowerCase().includes(stem));
+            let customFieldsMatch = false;
+            if (c.customFields && typeof c.customFields === 'object') {
+              customFieldsMatch = Object.entries(c.customFields).some(([key, val]) => {
+                const fieldKey = key.toLowerCase();
+                const fieldValue = String(val || '').toLowerCase();
+                return fieldKey.includes(q) || fieldValue.includes(q) || stems.some(stem => fieldValue.includes(stem));
+              });
+            }
 
-          // Scan custom fields dynamically
-          let customFieldsMatch = false;
-          if (c.customFields && typeof c.customFields === 'object') {
-            customFieldsMatch = Object.entries(c.customFields).some(([key, val]) => {
-              const fieldKey = key.toLowerCase();
-              const fieldValue = String(val || '').toLowerCase();
-              return fieldKey.includes(q) || fieldValue.includes(q) || stems.some(stem => fieldValue.includes(stem));
-            });
-          }
-
-          return nameMatch || emailMatch || designationMatch || cityMatch || skillsMatch || designationStemMatch || resumeMatch || notesMatch || customFieldsMatch;
-        });
-      }
-      if (args.skills && Array.isArray(args.skills)) {
-        candidates = candidates.filter(c => {
-          const candidateSkills = (c.skills || []).map((s: string) => s.toLowerCase());
-          return args.skills.every((s: string) => {
-            const ls = s.toLowerCase();
-            return candidateSkills.some((cs: string) => cs.includes(ls));
+            return nameMatch || emailMatch || designationMatch || cityMatch || skillsMatch || designationStemMatch || resumeMatch || notesMatch || customFieldsMatch;
           });
-        });
+        }
+
+        if (args.skills && Array.isArray(args.skills) && args.skills.length > 0) {
+          const lowerSkills = args.skills.map((s: string) => s.toLowerCase());
+          candidates = candidates.filter(c => {
+            const candidateSkills = (c.skills || []).map((s: string) => s.toLowerCase());
+            return lowerSkills.every((s: string) => candidateSkills.includes(s));
+          });
+        }
+
+        if (args.stage) {
+          const lowerStage = args.stage.toLowerCase();
+          candidates = candidates.filter(c => (c.status || '').toLowerCase() === lowerStage);
+        }
+
+        const totalMatches = candidates.length;
+        const limit = args.limit ? Math.min(args.limit, 30) : 15;
+        const offset = args.offset || 0;
+        const sliced = candidates.slice(offset, offset + limit);
+
+        return {
+          totalMatches,
+          resultsCount: sliced.length,
+          limit,
+          offset,
+          warning: totalMatches > (offset + limit) ? `Showing matches ${offset + 1} to ${offset + sliced.length} of ${totalMatches}. More matches are available. Ask to fetch the next page.` : undefined,
+          results: sliced.map(c => ({
+            id: c.id,
+            name: c.name,
+            email: c.email,
+            phone: c.phone,
+            experience: c.experience,
+            skills: c.skills,
+            currentCompany: c.currentCompany,
+            status: c.status,
+            designation: c.designation,
+            city: c.city,
+            customFields: c.customFields
+          }))
+        };
       }
-      if (args.stage) {
-        candidates = candidates.filter(c => (c.status || '').toLowerCase() === args.stage.toLowerCase());
+
+      if (name === 'get_candidate_resume') {
+        const { data, error } = await supabase
+          .from('candidates')
+          .select('resume_text, notes')
+          .eq('id', args.candidate_id)
+          .eq('workspace_id', user.workspace_id)
+          .maybeSingle();
+
+        if (error) throw error;
+        return { resume_text: data?.resume_text || data?.notes || 'No resume content available.' };
       }
 
-      const totalMatches = candidates.length;
-      const limit = args.limit || 15;
-      const offset = args.offset || 0;
-      const sliced = candidates.slice(offset, offset + limit);
+      if (name === 'list_active_jobs') {
+        const { data, error } = await supabase
+          .from('jobs')
+          .select('*')
+          .eq('workspace_id', user.workspace_id)
+          .eq('status', 'Open')
+          .order('created_at', { ascending: false });
 
-      return {
-        totalMatches,
-        resultsCount: sliced.length,
-        limit,
-        offset,
-        warning: totalMatches > (offset + limit) ? `Showing matches ${offset + 1} to ${offset + sliced.length} of ${totalMatches}. More matches are available. Ask to fetch the next page.` : undefined,
-        results: sliced.map(c => ({
-          id: c.id,
-          name: c.name,
-          email: c.email,
-          phone: c.phone,
-          experience: c.experience,
-          skills: c.skills,
-          currentCompany: c.currentCompany,
-          status: c.status,
-          designation: c.designation,
-          city: c.city,
-          customFields: c.customFields
-        }))
-      };
-    }
-
-    if (name === 'get_candidate_resume') {
-      const repo = new WorkspaceRepository('candidates', user);
-      const candidates = await repo.getCustom('*', { id: args.candidate_id });
-      const candidate = candidates?.[0];
-      if (!candidate) return { error: 'Candidate not found' };
-      return {
-        id: candidate.id,
-        name: candidate.name,
-        skills: candidate.skills,
-        customFields: candidate.customFields,
-        parsedResumeText: candidate.parsedResumeText || candidate.notes || 'No resume text available'
-      };
-    }
-
-    if (name === 'list_active_jobs') {
-      const { data, error } = await supabase
-        .from('jobs')
-        .select('*')
-        .eq('workspace_id', user.workspace_id)
-        .eq('status', 'Open')
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-      const jobs = keysToCamel(data || []);
-      return jobs.map(j => ({
-        id: j.id,
-        title: j.title,
-        department: j.department,
-        location: j.location,
-        status: j.status,
-        experience: j.experience,
-        requiredSkills: j.requiredSkills
-      }));
-    }
-
-    if (name === 'list_companies') {
-      const { data, error } = await supabase
-        .from('companies')
-        .select('*')
-        .eq('workspace_id', user.workspace_id)
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-      const companies = keysToCamel(data || []);
-      return companies.map(comp => ({
-        id: comp.id,
-        name: comp.name,
-        industry: comp.industry,
-        companySize: comp.companySize,
-        website: comp.website
-      }));
-    }
-
-    if (name === 'get_workspace_tasks') {
-      const { data, error } = await supabase
-        .from('tasks')
-        .select('*')
-        .eq('workspace_id', user.workspace_id)
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-      const tasks = keysToCamel(data || []);
-      return tasks.map(t => ({
-        id: t.id,
-        type: t.type,
-        title: t.title,
-        dueDate: t.dueDate,
-        priority: t.priority,
-        status: t.status,
-        candidateName: t.candidateName
-      }));
-    }
-
-    if (name === 'get_custom_field_definitions') {
-      const repo = new WorkspaceRepository('custom_field_definitions', user);
-      const defs = await repo.getAll();
-      return defs.map(d => ({
-        id: d.id,
-        name: d.name,
-        key: d.key,
-        type: d.type,
-        options: d.options,
-        isRequired: d.isRequired
-      }));
-    }
-
-    if (name === 'get_pipeline_summary') {
-      const { data, error } = await supabase
-        .from('candidates')
-        .select('status')
-        .eq('workspace_id', user.workspace_id);
-
-      if (error) throw error;
-      const summary: Record<string, number> = {};
-      for (const c of data || []) {
-        const stage = c.status || 'Pool';
-        summary[stage] = (summary[stage] || 0) + 1;
+        if (error) throw error;
+        return keysToCamel(data || []);
       }
-      return summary;
-    }
+
+      if (name === 'list_companies') {
+        const { data, error } = await supabase
+          .from('companies')
+          .select('*')
+          .eq('workspace_id', user.workspace_id)
+          .order('created_at', { ascending: false });
+
+        if (error) throw error;
+        return keysToCamel(data || []);
+      }
+
+      if (name === 'get_workspace_tasks') {
+        const { data, error } = await supabase
+          .from('tasks')
+          .select('*')
+          .eq('workspace_id', user.workspace_id)
+          .order('created_at', { ascending: false });
+
+        if (error) throw error;
+        return keysToCamel(data || []);
+      }
+
+      if (name === 'get_custom_field_definitions') {
+        const repo = new WorkspaceRepository('custom_field_definitions', user);
+        const defs = await repo.getAll();
+        return defs.map(d => ({
+          id: d.id,
+          name: d.name,
+          key: d.key,
+          type: d.type,
+          options: d.options,
+          isRequired: d.isRequired
+        }));
+      }
+
+      if (name === 'get_pipeline_summary') {
+        const { data, error } = await supabase
+          .from('candidates')
+          .select('status')
+          .eq('workspace_id', user.workspace_id);
+
+        if (error) throw error;
+        const summary: Record<string, number> = {};
+        for (const c of data || []) {
+          const stage = c.status || 'Pool';
+          summary[stage] = (summary[stage] || 0) + 1;
+        }
+        return summary;
+      }
 
       return { error: `Tool ${name} not found` };
     };
     const res = await run();
-    const toolDuration = performance.now() - toolStart;
-    console.log(`[PROFILE] Tool execution for '${name}' took ${toolDuration.toFixed(2)}ms`);
     return res;
   };
 
-  // Helper to execute database action commands
   const executeDatabaseAction = async (actionJson: any) => {
     const { command, id, data } = actionJson;
     console.log(`[Copilot Agent] Executing action command: ${command}`);
@@ -1869,36 +1703,29 @@ export async function runCopilotAgent(
   let pendingActionData: any = null;
 
   const startAgent = performance.now();
-  let timePlanner = 0;
-  let isPlannerSkipped = true;
 
   try {
     const latestUserMessage = messages[messages.length - 1]?.content || '';
     let useMultiAgent = false;
     let subTasks: any[] = [];
 
-    // Analyze query length & intent to decide on multi-agent execution
     const containsCompoundKeywords = /\band\b|\bthen\b|\balso\b|;/i.test(latestUserMessage);
     const isPotentiallyComplex = latestUserMessage.length > 100 && containsCompoundKeywords;
     if (isPotentiallyComplex) {
-      isPlannerSkipped = false;
-      const startPlanner = performance.now();
-      console.log(`[Copilot Orchestrator] Analyzing query: "${latestUserMessage}"`);
       try {
         const plannerSchema = {
           type: 'object',
           properties: {
             isMultiAgent: {
-              type: 'boolean',
-              description: 'Set to true if query contains multiple distinct instructions (e.g. search candidates AND create a task). Set to false for conversational greetings or a single task.'
+              type: 'boolean'
             },
             tasks: {
               type: 'array',
               items: {
                 type: 'object',
                 properties: {
-                  agent: { type: 'string', enum: ['SearchAgent', 'DBWriteAgent'], description: 'The specialized agent needed' },
-                  query: { type: 'string', description: 'The specific sub-task instruction query' }
+                  agent: { type: 'string', enum: ['SearchAgent', 'DBWriteAgent'] },
+                  query: { type: 'string' }
                 },
                 required: ['agent', 'query']
               }
@@ -1908,34 +1735,23 @@ export async function runCopilotAgent(
         };
 
         const plannerInstruction = `You are the Orchestrator Planner. Analyze the user's latest query and determine if it requires executing multiple independent sub-tasks in parallel (e.g. reading/matching candidates AND writing new tasks/jobs/companies). Output JSON matching the schema.`;
-        const planText = await callLLM(plannerInstruction, latestUserMessage, 0.2, plannerSchema);
+        const planText = await callLLM(plannerInstruction, latestUserMessage, 0.2, plannerSchema, signal);
         const parsedPlan = JSON.parse(planText.replace(/```json|```/g, '').trim());
 
         if (parsedPlan.isMultiAgent && Array.isArray(parsedPlan.tasks) && parsedPlan.tasks.length > 0) {
           useMultiAgent = true;
           subTasks = parsedPlan.tasks;
-          console.log(`[Copilot Orchestrator] Multi-Agent Planner activated with ${subTasks.length} sub-tasks.`);
         }
       } catch (planErr: any) {
-        console.error('[Copilot Orchestrator] Planner execution failed, falling back to standard ReAct loop:', planErr.message);
+        console.error('[Copilot Orchestrator] Planner execution failed:', planErr.message);
       }
-      timePlanner = performance.now() - startPlanner;
-      console.log(`[PROFILE] Planner execution took ${timePlanner.toFixed(2)}ms`);
     }
 
     if (useMultiAgent) {
       console.log('[Copilot Orchestrator] Spawning sub-agents in parallel...');
       
       const subAgentOutputs = await Promise.all(subTasks.map(async (task) => {
-        // Check for cancellation
-        const { data: dbTask } = await supabase
-          .from('copilot_tasks')
-          .select('status')
-          .eq('id', taskId)
-          .maybeSingle();
-        if (dbTask?.status === 'cancelled' || backgroundTasks.get(taskId)?.status === 'cancelled') {
-          throw new Error('Task cancelled by user');
-        }
+        if (signal?.aborted) throw new Error('Task cancelled by user');
 
         let agentSystemInstruction = '';
         let activeTools = tools;
@@ -1949,7 +1765,6 @@ export async function runCopilotAgent(
           agentSystemInstruction = `You are a Database Operations Assistant. Your task is to draft database action blocks (create/update/delete candidates, jobs, tasks, companies) matching the request. Output your response containing the exact <action>...</action> block.`;
         }
 
-        // Run sub-agent ReAct loop
         let subMessages: any[] = [
           { role: 'system', content: agentSystemInstruction },
           { role: 'user', content: task.query }
@@ -1959,17 +1774,9 @@ export async function runCopilotAgent(
         let subContent = '';
         
         while (subLoop < 2) {
-          // Check for cancellation
-          const { data: dbTask } = await supabase
-            .from('copilot_tasks')
-            .select('status')
-            .eq('id', taskId)
-            .maybeSingle();
-          if (dbTask?.status === 'cancelled' || backgroundTasks.get(taskId)?.status === 'cancelled') {
-            throw new Error('Task cancelled by user');
-          }
+          if (signal?.aborted) throw new Error('Task cancelled by user');
 
-          const res = await callEdenAIWithTools(subMessages, activeTools);
+          const res = await callEdenAIWithTools(subMessages, activeTools, signal);
           const msg = res.choices?.[0]?.message;
           if (!msg) break;
           
@@ -2000,26 +1807,18 @@ export async function runCopilotAgent(
         return `[Sub-Agent Output (${task.agent})]:\n${subContent}`;
       }));
 
-      // Check for cancellation before compiling final response
-      const { data: dbTaskCompile } = await supabase
-        .from('copilot_tasks')
-        .select('status')
-        .eq('id', taskId)
-        .maybeSingle();
-      if (dbTaskCompile?.status === 'cancelled' || backgroundTasks.get(taskId)?.status === 'cancelled') {
-        throw new Error('Task cancelled by user');
-      }
-
-      console.log('[Copilot Orchestrator] Compiling final response from sub-agent outputs...');
+      if (signal?.aborted) throw new Error('Task cancelled by user');
       
       const compilePrompt = `[System Orchestrator: Sub-agents have completed parallel execution. Here are their outputs:\n\n${subAgentOutputs.join('\n\n')}\n\nCombine these findings into a unified, supportive, friendly response. Keep your personality as Forge. If there are any proposed database actions (<action> blocks) in the sub-agent outputs, merge them and generate a single unified <action> block at the very end of your response.]`;
 
       let accumulatedResponse = '';
-      const streamGenerator = callLLMStream(systemInstruction, compilePrompt, 0.7);
+      const streamGenerator = callLLMStream(systemInstruction, compilePrompt, 0.7, undefined, signal);
+      yield { type: 'assistant_message_start' };
       for await (const chunk of streamGenerator) {
         accumulatedResponse += chunk;
-        streamEmitter.emit(taskId, { type: 'token', content: chunk });
+        yield { type: 'assistant_delta', content: chunk };
       }
+      yield { type: 'assistant_message_end' };
       responseText = accumulatedResponse;
       cleanedResponse = responseText;
 
@@ -2044,64 +1843,42 @@ export async function runCopilotAgent(
       }
 
     } else {
-      // Execute the standard single-agent sequential ReAct loop
       let loopCount = 0;
       while (loopCount < 3) {
-        // Check database/in-memory status for user cancellation
-        const { data: dbTask } = await supabase
-          .from('copilot_tasks')
-          .select('status')
-          .eq('id', taskId)
-          .maybeSingle();
-        if (dbTask?.status === 'cancelled' || backgroundTasks.get(taskId)?.status === 'cancelled') {
-          console.log(`[Copilot Agent] Task ${taskId} cancelled before starting iteration.`);
-          throw new Error('Task cancelled by user');
-        }
+        if (signal?.aborted) throw new Error('Task cancelled by user');
 
-        console.log(`[Copilot Agent] Running standard ReAct iteration ${loopCount + 1}...`);
         let rawMessage: any = { role: 'assistant', content: '' };
-        const responseStream = callEdenAIWithToolsStream(transformMessagesForLLM(messagesForLLM), tools);
+        const responseStream = callEdenAIWithToolsStream(transformMessagesForLLM(messagesForLLM), tools, signal);
         
+        yield { type: 'assistant_message_start' };
         for await (const chunk of responseStream) {
           if (chunk.type === 'token') {
             rawMessage.content += chunk.content;
-            streamEmitter.emit(taskId, { type: 'token', content: chunk.content });
+            yield { type: 'assistant_delta', content: chunk.content };
           } else if (chunk.type === 'tool_call') {
             rawMessage.tool_calls = chunk.content;
           }
         }
+        yield { type: 'assistant_message_end' };
 
         if (!rawMessage.content && !rawMessage.tool_calls) {
           throw new Error('Invalid empty response received from completions API.');
         }
 
         if (rawMessage.tool_calls && rawMessage.tool_calls.length > 0) {
-          console.log(`[Copilot Agent] Model requested ${rawMessage.tool_calls.length} tool call(s)`);
           messagesForLLM.push(rawMessage);
 
-          await Promise.all(rawMessage.tool_calls.map(async (call: any) => {
+          for (const call of rawMessage.tool_calls) {
             let parsedArgs = {};
             try {
               parsedArgs = typeof call.function.arguments === 'string' 
                 ? JSON.parse(call.function.arguments) 
                 : call.function.arguments || {};
-            } catch (e) {
-              console.error('[Copilot Agent] Failed to parse arguments for tool:', call.function.name);
-            }
+            } catch (e) {}
 
-            // Check for user cancellation before executing a database tool
-            const { data: dbTask } = await supabase
-              .from('copilot_tasks')
-              .select('status')
-              .eq('id', taskId)
-              .maybeSingle();
-            if (dbTask?.status === 'cancelled' || backgroundTasks.get(taskId)?.status === 'cancelled') {
-              console.log(`[Copilot Agent] Task ${taskId} cancelled before executing tool ${call.function.name}.`);
-              throw new Error('Task cancelled by user');
-            }
+            if (signal?.aborted) throw new Error('Task cancelled by user');
 
-            // Emit executing status to client
-            streamEmitter.emit(taskId, { type: 'status', status: 'pending', currentStep: `Executing: ${call.function.name}...` });
+            yield { type: 'tool_start', tool: call.function.name, args: parsedArgs };
 
             const toolOutput = await executeTool(call.function.name, parsedArgs);
             messagesForLLM.push({
@@ -2110,7 +1887,9 @@ export async function runCopilotAgent(
               name: call.function.name,
               content: JSON.stringify(toolOutput)
             });
-          }));
+
+            yield { type: 'tool_complete', tool: call.function.name, result: toolOutput };
+          }
           loopCount++;
         } else {
           responseText = rawMessage.content || '';
@@ -2125,15 +1904,8 @@ export async function runCopilotAgent(
                 cleanedResponse = responseText.replace(/<action>[\s\S]*?<\/action>/, '').trim();
                 break;
               } catch (actionErr: any) {
-                console.error('[Copilot Agent Self-Healing] Database action failed:', actionErr.message);
-                messagesForLLM.push({
-                  role: 'assistant',
-                  content: responseText
-                });
-                messagesForLLM.push({
-                  role: 'user',
-                  content: `[System Action Error: The database action failed with error: "${actionErr.message}". This usually means a candidate, job, or task ID you provided does not exist, or you violated a database constraint. Please check your IDs, call the appropriate search tools (e.g. 'search_candidates') to get the correct UUID, and generate the corrected <action> block again.]`
-                });
+                messagesForLLM.push({ role: 'assistant', content: responseText });
+                messagesForLLM.push({ role: 'user', content: `[System Action Error: ${actionErr.message}]` });
                 loopCount++;
                 continue;
               }
@@ -2144,17 +1916,11 @@ export async function runCopilotAgent(
                 finalStatus = 'pending_approval';
                 pendingActionData = actionJson;
                 break;
-              } catch (parseErr: any) {
-                console.error('Failed to parse action JSON during manual approval:', parseErr.message);
-              }
+              } catch (e) {}
             }
           }
           break;
         }
-      }
-
-      if (loopCount >= 3 && !responseText) {
-        throw new Error('Agent execution loop exceeded maximum steps without producing final answer.');
       }
     }
 
@@ -2163,48 +1929,34 @@ export async function runCopilotAgent(
       taskResult.action = pendingActionData;
     }
 
-    await supabase.from('copilot_tasks').update({
+    await supabase.from('copilot_tasks').upsert({
+      id: taskId,
       status: finalStatus,
       result: taskResult,
+      user_id: user?.id || null,
       current_step: null
-    }).eq('id', taskId);
-
-    backgroundTasks.set(taskId, {
-      status: finalStatus,
-      user,
-      result: taskResult
     });
 
-    const totalDuration = performance.now() - startAgent;
-    console.log(`[PROFILE] runCopilotAgent completed successfully in ${totalDuration.toFixed(2)}ms. Planner duration: ${timePlanner.toFixed(2)}ms (skipped: ${isPlannerSkipped}).`);
+    if (finalStatus === 'pending_approval') {
+      yield { type: 'approval_required', action: pendingActionData, text: cleanedResponse };
+    } else {
+      yield { type: 'completed', result: taskResult };
+    }
 
   } catch (err: any) {
-    console.error('Error in background copilot task:', err.message);
+    console.error('Error in copilot task run:', err.message);
     
-    const currentTask = backgroundTasks.get(taskId);
-    if (currentTask?.status === 'cancelled') {
-      console.log(`[Copilot Agent] Task ${taskId} finished with status: cancelled.`);
-      return;
-    }
-    const { data: dbTask } = await supabase
-      .from('copilot_tasks')
-      .select('status')
-      .eq('id', taskId)
-      .maybeSingle();
-    if (dbTask?.status === 'cancelled') {
-      console.log(`[Copilot Agent] Task ${taskId} finished with status: cancelled.`);
-      return;
-    }
+    try {
+      await supabase.from('copilot_tasks').upsert({
+        id: taskId,
+        status: 'failed',
+        error: err.message,
+        user_id: user?.id || null,
+        current_step: null
+      });
+    } catch (dbErr) {}
 
-    await supabase.from('copilot_tasks').update({
-      status: 'failed',
-      error: err.message,
-      current_step: null
-    }).eq('id', taskId);
-    backgroundTasks.set(taskId, { status: 'failed', error: err.message });
-    
-    const totalDuration = performance.now() - startAgent;
-    console.log(`[PROFILE] runCopilotAgent failed in ${totalDuration.toFixed(2)}ms.`);
+    yield { type: 'error', message: err.message };
   }
 }
 
@@ -2497,35 +2249,45 @@ Action formats:
 Only generate ONE action block at the very end of your message. Ensure the JSON is valid and complete.`;
 
     const taskId = 'task_copilot_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-    backgroundTasks.set(taskId, { status: 'pending' });
 
-    // Write initial task status to Supabase database
-    await supabase.from('copilot_tasks').insert({
-      id: taskId,
-      status: 'pending',
-      user_id: user?.id || null,
-      current_step: 'Planning...'
-    });
+    c.header('Content-Type', 'text/event-stream');
+    c.header('Cache-Control', 'no-cache, no-transform');
+    c.header('Connection', 'keep-alive');
+    c.header('X-Accel-Buffering', 'no');
 
-    // Execute task in the background using c.executionCtx.waitUntil
-    let hasExecutionCtx = false;
-    try {
-      if (c.executionCtx && typeof c.executionCtx.waitUntil === 'function') {
-        hasExecutionCtx = true;
+    return stream(c, async (stream) => {
+      // Flush headers and establish stream connection immediately
+      await stream.write(': ok\n\n');
+
+      const abortController = new AbortController();
+      stream.onAbort(() => {
+        console.log(`[Copilot Stream] Client aborted connection for task ${taskId}. Aborting agent run.`);
+        abortController.abort();
+      });
+
+      try {
+        const agentStream = runCopilotAgent(
+          taskId,
+          messages,
+          autoExecute,
+          user,
+          systemInstruction,
+          tools,
+          abortController.signal
+        );
+
+        for await (const event of agentStream) {
+          if (abortController.signal.aborted) {
+            break;
+          }
+          await stream.write(`data: ${JSON.stringify(event)}\n\n`);
+        }
+      } catch (err: any) {
+        console.error('[Copilot Stream] Streaming error:', err.message);
+        if (!abortController.signal.aborted) {
+          await stream.write(`data: ${JSON.stringify({ type: 'error', message: err.message })}\n\n`);
+        }
       }
-    } catch (e) {
-      // Accessing c.executionCtx throws when running outside Cloudflare (e.g. Node/Bun local dev)
-    }
-
-    if (hasExecutionCtx) {
-      c.executionCtx.waitUntil(runCopilotAgent(taskId, messages, autoExecute, user, systemInstruction, tools));
-    } else {
-      runCopilotAgent(taskId, messages, autoExecute, user, systemInstruction, tools);
-    }
-
-    return c.json({
-      taskId,
-      status: 'pending'
     });
   } catch (err: any) {
     console.error('Error in copilot route:', err.message);
@@ -2537,57 +2299,7 @@ Only generate ONE action block at the very end of your message. Ensure the JSON 
 });
 
 // Cancel Copilot Task Endpoint
-app.post('/api/ai/copilot/cancel', requirePermission('copilot.open'), async (c) => {
-  try {
-    const { taskId } = await c.req.json();
-    if (!taskId) {
-      return c.json({ error: 'taskId is required' }, 400);
-    }
 
-    const user = c.get('user') as any;
-
-    // Fetch the task first to verify ownership
-    const { data: dbTask } = await supabase
-      .from('copilot_tasks')
-      .select('user_id')
-      .eq('id', taskId)
-      .maybeSingle();
-
-    if (dbTask && dbTask.user_id !== user.id) {
-      return c.json({ error: 'Forbidden: You do not own this task' }, 403);
-    }
-
-    // 1. Update in-memory status (for this isolate)
-    const task = backgroundTasks.get(taskId);
-    if (task) {
-      task.status = 'cancelled';
-      backgroundTasks.set(taskId, task);
-    } else {
-      backgroundTasks.set(taskId, { status: 'cancelled' });
-    }
-
-    // 2. Update database status (for all isolates)
-    const { error } = await supabase
-      .from('copilot_tasks')
-      .update({
-        status: 'cancelled',
-        current_step: null,
-        error: 'Task cancelled by user'
-      })
-      .eq('id', taskId);
-
-    if (error) {
-      console.error('[Copilot Cancel] Failed to update database status:', error.message);
-      return c.json({ error: 'Failed to cancel task in database', details: error.message }, 500);
-    }
-
-    console.log(`[Copilot Cancel] Task ${taskId} successfully marked as cancelled.`);
-    return c.json({ success: true });
-  } catch (err: any) {
-    console.error('Error in copilot cancel route:', err.message);
-    return c.json({ error: 'Failed to cancel copilot task.', details: err.message }, 500);
-  }
-});
 
 // Approve Copilot Action Endpoint// Approve Copilot Action Endpoint
 app.post('/api/ai/copilot/approve', requirePermission('copilot.open'), async (c) => {
@@ -2597,23 +2309,11 @@ app.post('/api/ai/copilot/approve', requirePermission('copilot.open'), async (c)
       return c.json({ error: 'taskId is required' }, 400);
     }
 
-    let actionJson;
-    let user;
-
-    const task = backgroundTasks.get(taskId);
-    if (task) {
-      actionJson = task.result.action;
-      user = task.user;
-    }
-
-    // Stateless fallback: use client-provided action and authenticated user context
-    if (!actionJson && action) {
-      actionJson = action;
-      user = c.get('user');
-    }
+    const actionJson = action;
+    const user = c.get('user') as any;
 
     if (!actionJson || !user) {
-      return c.json({ error: 'Task not found or state cleared. Direct action payload must be provided.' }, 404);
+      return c.json({ error: 'Direct action payload and authenticated user context must be provided.' }, 400);
     }
 
     // Execute database action command stored in task using stored user context
@@ -2687,10 +2387,6 @@ app.post('/api/ai/copilot/approve', requirePermission('copilot.open'), async (c)
     } else {
       throw new Error(`Unknown action command: ${command}`);
     }
-
-    // Set status to completed
-    task.status = 'completed';
-    backgroundTasks.set(taskId, task);
 
     return c.json({ success: true, message: `Action '${command}' executed successfully.` });
   } catch (err: any) {

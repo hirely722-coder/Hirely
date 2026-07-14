@@ -584,7 +584,7 @@ const MessageItem = ({
       </div>
 
       {/* Message action bar (Edit/Copy) */}
-      {!isEditingLocal && (
+      {!isEditingLocal && m.content && (
         <div className={`flex ${isAi ? 'justify-start' : 'justify-end'} gap-1.5 mt-1 transition-opacity duration-200 ${isHovered ? 'opacity-100' : 'opacity-0'}`}>
           {!isAi && (
             <button
@@ -799,6 +799,7 @@ export default function CopilotView({
   const { fetchData } = useApp();
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isStreamingStarted, setIsStreamingStarted] = useState(false);
   const [attachedFiles, setAttachedFiles] = useState<{ name: string; text?: string; isLoading: boolean }[]>([]);
   const [isParsingFile, setIsParsingFile] = useState(false);
   const [hasLoadedHistory, setHasLoadedHistory] = useState(false);
@@ -811,6 +812,7 @@ export default function CopilotView({
 
   // Cancellation and Stream Control Refs
   const activeEventSourceRef = React.useRef<EventSource | null>(null);
+  const activeFetchControllerRef = React.useRef<AbortController | null>(null);
   const pollingTimeoutRef = React.useRef<any>(null);
   const activeTaskIdRef = React.useRef<string | null>(null);
   const isCancelledRef = React.useRef(false);
@@ -877,46 +879,32 @@ export default function CopilotView({
     isCancelledRef.current = true;
     speechProviderRef.current.stop(); // Stop voice recording if active
 
-    // 1. Close EventSource connection
+    // 1. Abort active fetch stream
+    if (activeFetchControllerRef.current) {
+      activeFetchControllerRef.current.abort();
+      activeFetchControllerRef.current = null;
+    }
+
+    // 2. Close EventSource connection (if any remains)
     if (activeEventSourceRef.current) {
       activeEventSourceRef.current.close();
       activeEventSourceRef.current = null;
     }
 
-    // 2. Clear polling timeout
+    // 3. Clear polling timeout
     if (pollingTimeoutRef.current) {
       clearTimeout(pollingTimeoutRef.current);
       pollingTimeoutRef.current = null;
     }
 
-    // 3. Stop typewriter animation loop
+    // 4. Stop typewriter animation loop
     stopTypingLoop();
     if (typingTimerRef.current) {
       clearInterval(typingTimerRef.current);
       typingTimerRef.current = null;
     }
 
-    const taskId = activeTaskIdRef.current;
     activeTaskIdRef.current = null;
-
-    // 4. Cancel active backend processing
-    if (taskId) {
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        const token = session?.access_token;
-        
-        await fetch(`/api/ai/copilot/cancel`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(token ? { Authorization: `Bearer ${token}` } : {})
-          },
-          body: JSON.stringify({ taskId })
-        });
-      } catch (err) {
-        console.error('Failed to notify backend of cancellation:', err);
-      }
-    }
 
     // 5. Update UI to idle state with partial responses remaining visible
     setIsLoading(false);
@@ -1159,19 +1147,15 @@ export default function CopilotView({
     setMessages(updatedMessages);
     setAttachedFiles([]);
     setIsLoading(true);
+    setIsStreamingStarted(false);
     setCurrentTool(null);
 
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token;
 
-      const context = {
-        candidates,
-        jobs,
-        companies,
-        tasks,
-        templates
-      };
+      const abortController = new AbortController();
+      activeFetchControllerRef.current = abortController;
 
       const response = await fetch('/api/ai/copilot', {
         method: 'POST',
@@ -1195,42 +1179,53 @@ export default function CopilotView({
               content: m.content
             };
           }),
-          context,
           autoExecute,
           clientTime: new Date().toString()
-        })
+        }),
+        signal: abortController.signal
       });
 
-      const result = await response.json();
-      if (isCancelledRef.current) {
-        return; // Intercept if user clicked Stop while POST request was in progress
-      }
-      if (!response.ok || result.error) {
-        throw new Error(result.error || 'Failed to reach AI Copilot server.');
+      if (!response.ok) {
+        let errText = 'Failed to reach AI Copilot server.';
+        try {
+          const errData = await response.json();
+          if (errData && errData.error) errText = errData.error;
+        } catch (e) {}
+        throw new Error(errText);
       }
 
-      const { taskId } = result;
-      activeTaskIdRef.current = taskId;
+      if (isCancelledRef.current) return;
 
-      const finalResult = (result.status === 'completed' || result.status === 'pending_approval')
-        ? {
-          responseText: result.result.responseText,
-          action: result.result.action,
-          pendingApproval: result.status === 'pending_approval'
+      const reader = response.body?.getReader();
+      if (!reader) {
+        throw new Error('Response body is not readable.');
+      }
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        if (isCancelledRef.current) {
+          reader.cancel();
+          break;
         }
-        : await new Promise<any>((resolve, reject) => {
-          const backendUrl = process.env.NEXT_PUBLIC_BACKEND_API_URL || process.env.NEXT_PUBLIC_BACKEND_URL || '';
-          const formattedBackendUrl = backendUrl.endsWith('/') ? backendUrl.slice(0, -1) : backendUrl;
-          const eventSource = new EventSource(`${formattedBackendUrl}/api/ai/copilot/stream/${taskId}?token=${encodeURIComponent(token || '')}`);
-          activeEventSourceRef.current = eventSource;
 
-          eventSource.onmessage = (event) => {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed || trimmed.startsWith(':')) continue;
+          if (trimmed.startsWith('data: ')) {
+            const dataStr = trimmed.slice(6);
             try {
-              if (event.data === ': keep-alive') return;
-              const data = JSON.parse(event.data);
-
-              if (data.type === 'token') {
-                incomingTextRef.current += data.content;
+              const data = JSON.parse(dataStr);
+              if (data.type === 'assistant_message_start') {
+                incomingTextRef.current = '';
                 setMessages(prev => {
                   const next = [...prev];
                   const last = next[next.length - 1];
@@ -1244,151 +1239,110 @@ export default function CopilotView({
                   }
                 });
                 startTypingLoop();
-              } else if (data.type === 'status') {
-                if (data.currentStep) {
-                  setCurrentTool(data.currentStep);
-                }
-                if (data.status === 'completed' || data.status === 'pending_approval' || data.status === 'failed') {
-                  eventSource.close();
-                  activeEventSourceRef.current = null;
-                  stopTypingLoop();
-
-                  // Wait for the typewriter animation to completely finish rendering before resolving
-                  const checkTypewriter = () => {
+              } else if (data.type === 'assistant_delta') {
+                incomingTextRef.current += data.content || '';
+                setIsStreamingStarted(true);
+              } else if (data.type === 'tool_start') {
+                setCurrentTool(data.tool);
+              } else if (data.type === 'tool_complete') {
+                // Done tool
+              } else if (data.type === 'approval_required') {
+                stopTypingLoop();
+                await new Promise<void>((resolveTypewriter) => {
+                  const check = () => {
                     if (displayedTextRef.current === incomingTextRef.current) {
-                      resolve({
-                        responseText: data.result?.responseText,
-                        action: data.result?.action,
-                        pendingApproval: data.status === 'pending_approval'
-                      });
+                      resolveTypewriter();
                     } else {
-                      setTimeout(checkTypewriter, 50);
+                      setTimeout(check, 50);
                     }
                   };
-                  checkTypewriter();
-                } else if (data.status === 'failed') {
-                  eventSource.close();
-                  activeEventSourceRef.current = null;
-                  stopTypingLoop();
-                  reject(new Error(data.error || 'Task execution failed.'));
-                }
+                  check();
+                });
+
+                setMessages(prev => {
+                  const next = [...prev];
+                  const last = next[next.length - 1];
+                  const actionMsg = {
+                    role: 'assistant' as const,
+                    content: data.text || incomingTextRef.current || 'Sorry, I couldn\'t formulate an answer.',
+                    pendingAction: {
+                      taskId: 'direct_action_' + Date.now(),
+                      command: data.action.command,
+                      data: data.action.data,
+                      id: data.action.id,
+                      status: 'pending' as const
+                    }
+                  };
+                  if (last && last.role === 'assistant' && last.isStreaming) {
+                    return [...next.slice(0, -1), actionMsg];
+                  } else {
+                    return [...next, actionMsg];
+                  }
+                });
+                setIsLoading(false);
+                setCurrentTool(null);
+                await fetchData();
+                return;
+
+              } else if (data.type === 'completed') {
+                stopTypingLoop();
+                await new Promise<void>((resolveTypewriter) => {
+                  const check = () => {
+                    if (displayedTextRef.current === incomingTextRef.current) {
+                      resolveTypewriter();
+                    } else {
+                      setTimeout(check, 50);
+                    }
+                  };
+                  check();
+                });
+
+                setMessages(prev => {
+                  const next = [...prev];
+                  const last = next[next.length - 1];
+                  const finalMsg = {
+                    role: 'assistant' as const,
+                    content: data.result?.responseText || incomingTextRef.current || 'Sorry, I couldn\'t formulate an answer.',
+                    isStreaming: false,
+                    isSse: false
+                  };
+                  if (last && last.role === 'assistant' && last.isStreaming) {
+                    return [...next.slice(0, -1), finalMsg];
+                  } else {
+                    return [...next, finalMsg];
+                  }
+                });
+                setIsLoading(false);
+                setCurrentTool(null);
+                await fetchData();
+                return;
+
+              } else if (data.type === 'error') {
+                throw new Error(data.message || 'Stream processing failed.');
               }
             } catch (err) {
-              console.error('Error parsing SSE event:', err);
+              console.error('Error parsing streaming event:', err);
             }
-          };
-
-          eventSource.onerror = (err) => {
-            if (isCancelledRef.current) return;
-            console.warn('SSE stream error, falling back to polling...', err);
-            eventSource.close();
-            activeEventSourceRef.current = null;
-            stopTypingLoop();
-            // Fallback to traditional polling
-            const checkStatus = async () => {
-              if (isCancelledRef.current) return;
-              try {
-                const res = await fetch(`/api/ai/task-status/${taskId}`);
-                const data = await res.json();
-                if (isCancelledRef.current) return;
-                if (data.status === 'completed' || data.status === 'pending_approval' || data.status === 'failed') {
-                  if (pollingTimeoutRef.current) {
-                    clearTimeout(pollingTimeoutRef.current);
-                    pollingTimeoutRef.current = null;
-                  }
-                  resolve({
-                    responseText: data.result?.responseText,
-                    action: data.result?.action,
-                    pendingApproval: data.status === 'pending_approval'
-                  });
-                } else if (data.status === 'failed') {
-                  if (pollingTimeoutRef.current) {
-                    clearTimeout(pollingTimeoutRef.current);
-                    pollingTimeoutRef.current = null;
-                  }
-                  reject(new Error(data.error || 'Task execution failed.'));
-                } else {
-                  if (data.current_step) {
-                    setCurrentTool(data.current_step);
-                  }
-                  pollingTimeoutRef.current = setTimeout(checkStatus, 800);
-                }
-              } catch (e) {
-                if (pollingTimeoutRef.current) {
-                  clearTimeout(pollingTimeoutRef.current);
-                  pollingTimeoutRef.current = null;
-                }
-                reject(e);
-              }
-            };
-            pollingTimeoutRef.current = setTimeout(checkStatus, 800);
-          };
-        });
-
-      if (finalResult.pendingApproval) {
-        setMessages(prev => {
-          const next = [...prev];
-          const last = next[next.length - 1];
-          const actionMsg = {
-            role: 'assistant' as const,
-            content: finalResult.responseText || 'Sorry, I couldn\'t formulate an answer.',
-            pendingAction: {
-              taskId,
-              command: finalResult.action.command,
-              data: finalResult.action.data,
-              id: finalResult.action.id,
-              status: 'pending' as const
-            }
-          };
-          if (last && last.role === 'assistant' && last.isStreaming) {
-            return [...next.slice(0, -1), actionMsg];
-          } else {
-            return [...next, actionMsg];
           }
-        });
-        await fetchData();
-        return;
+        }
       }
 
       setIsLoading(false);
-      setMessages(prev => {
-        const next = [...prev];
-        const last = next[next.length - 1];
-        if (last && last.role === 'assistant' && last.isStreaming) {
-          return [
-            ...next.slice(0, -1),
-            {
-              role: 'assistant' as const,
-              content: finalResult.responseText || 'Sorry, I couldn\'t formulate an answer.',
-              isStreaming: false,
-              isSse: false
-            }
-          ];
-        } else {
-          return [
-            ...next,
-            {
-              role: 'assistant' as const,
-              content: finalResult.responseText || 'Sorry, I couldn\'t formulate an answer.',
-              isStreaming: false,
-              isSse: false
-            }
-          ];
-        }
-      });
-
+      setCurrentTool(null);
       await fetchData();
 
     } catch (err: any) {
       console.error(err);
       setMessages(prev => [
         ...prev,
-        { role: 'assistant', content: `**Error:** ${err.message || 'Failed to contact Hirly Forge. Please make sure process.env.GEMINI_API_KEY is configured correctly.'}` }
+        { role: 'assistant', content: `**Error:** ${err.message || 'Failed to contact Hirly Forge.'}` }
       ]);
     } finally {
       setIsLoading(false);
+      setIsStreamingStarted(false);
       setCurrentTool(null);
       activeTaskIdRef.current = null;
+      activeFetchControllerRef.current = null;
     }
   };
   handleSendRef.current = handleSend;
@@ -1498,26 +1452,31 @@ export default function CopilotView({
               {/* Messages Viewport */}
               <div className="flex-1 p-4 md:p-6 overflow-y-auto space-y-6">
                 <div className="max-w-3xl mx-auto space-y-6">
-                  {messages.map((m, idx) => (
-                    <MessageItem
-                      key={idx}
-                      m={m}
-                      idx={idx}
-                      handleApproveAction={handleApproveAction}
-                      handleRejectAction={handleRejectAction}
-                      approvingTaskId={approvingTaskId}
-                      messages={messages}
-                      setMessages={setMessages}
-                      candidates={candidates}
-                      jobs={jobs}
-                      companies={companies}
-                      tasks={tasks}
-                      templates={templates}
-                      handleSend={handleSend}
-                    />
-                  ))}
+                  {messages.map((m, idx) => {
+                    if (m.role === 'assistant' && !m.content && m.isStreaming) {
+                      return null;
+                    }
+                    return (
+                      <MessageItem
+                        key={idx}
+                        m={m}
+                        idx={idx}
+                        handleApproveAction={handleApproveAction}
+                        handleRejectAction={handleRejectAction}
+                        approvingTaskId={approvingTaskId}
+                        messages={messages}
+                        setMessages={setMessages}
+                        candidates={candidates}
+                        jobs={jobs}
+                        companies={companies}
+                        tasks={tasks}
+                        templates={templates}
+                        handleSend={handleSend}
+                      />
+                    );
+                  })}
 
-                  {isLoading && (
+                  {isLoading && !isStreamingStarted && (
                     <div className="flex flex-col gap-3 w-full max-w-3xl mx-auto my-6 px-4 animate-fade-in">
                       <div className="flex items-center gap-1.5 text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
                         <Zap className="h-3.5 w-3.5 animate-pulse text-indigo-650" />
