@@ -1186,8 +1186,22 @@ app.get('/api/ai/copilot/stream/:id', async (c) => {
     // Write an initial comment to flush headers and establish the stream connection immediately
     await stream.write(': ok\n\n');
 
-    // 1. Check if task is already completed
-    const task = backgroundTasks.get(taskId);
+    // 1. Check if task is already completed (in memory or database)
+    let task = backgroundTasks.get(taskId);
+    if (!task) {
+      const { data: dbTask } = await supabase
+        .from('copilot_tasks')
+        .select('*')
+        .eq('id', taskId)
+        .maybeSingle();
+      if (dbTask) {
+        task = {
+          status: dbTask.status,
+          result: dbTask.result,
+          error: dbTask.error
+        };
+      }
+    }
     if (task && (task.status === 'completed' || task.status === 'pending_approval' || task.status === 'failed')) {
       await stream.write(`data: ${JSON.stringify({ type: 'status', status: task.status, result: task.result, error: task.error })}\n\n`);
       return;
@@ -1224,7 +1238,22 @@ app.get('/api/ai/copilot/stream/:id', async (c) => {
 
     // Hold the stream open until closed
     while (!isClosed) {
-      const currentTask = backgroundTasks.get(taskId);
+      let currentTask = backgroundTasks.get(taskId);
+      if (!currentTask) {
+        const { data: dbTask } = await supabase
+          .from('copilot_tasks')
+          .select('*')
+          .eq('id', taskId)
+          .maybeSingle();
+        if (dbTask) {
+          currentTask = {
+            status: dbTask.status,
+            result: dbTask.result,
+            error: dbTask.error
+          };
+        }
+      }
+
       if (currentTask && (currentTask.status === 'completed' || currentTask.status === 'pending_approval' || currentTask.status === 'failed')) {
         await stream.write(`data: ${JSON.stringify({ type: 'status', status: currentTask.status, result: currentTask.result, error: currentTask.error })}\n\n`);
         cleanup();

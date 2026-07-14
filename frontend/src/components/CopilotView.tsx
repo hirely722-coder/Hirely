@@ -1219,7 +1219,7 @@ export default function CopilotView({
           pendingApproval: result.status === 'pending_approval'
         }
         : await new Promise<any>((resolve, reject) => {
-          const backendUrl = process.env.NEXT_PUBLIC_BACKEND_API_URL || 'https://hirely-backend.hirly-app.workers.dev';
+          const backendUrl = process.env.NEXT_PUBLIC_BACKEND_API_URL || process.env.NEXT_PUBLIC_BACKEND_URL || '';
           const formattedBackendUrl = backendUrl.endsWith('/') ? backendUrl.slice(0, -1) : backendUrl;
           const eventSource = new EventSource(`${formattedBackendUrl}/api/ai/copilot/stream/${taskId}?token=${encodeURIComponent(token || '')}`);
           activeEventSourceRef.current = eventSource;
