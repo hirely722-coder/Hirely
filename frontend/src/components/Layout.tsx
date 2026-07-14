@@ -209,16 +209,18 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     return () => clearTimeout(timer);
   }, [mounted, user, token, needsOnboarding, candidates, jobs, communicationLogs, activityLogs, companies, workspaceCreatedAt]);
 
-  // Redirect to login if user session is absent and we aren't on login, landing, onboarding, invite, or callback pages
+  // Redirect to login if user session is absent and we aren't on login, landing, onboarding, invite, callback, or public static pages
   useEffect(() => {
-    if (!isLoading && !user && router.pathname !== '/login' && router.pathname !== '/' && router.pathname !== '/onboarding' && router.pathname !== '/accept-invite' && router.pathname !== '/auth/callback') {
+    const publicPages = ['/', '/login', '/onboarding', '/accept-invite', '/auth/callback', '/privacy', '/terms', '/faq', '/about', '/contact'];
+    if (!isLoading && !user && !publicPages.includes(router.pathname)) {
       router.replace('/login');
     }
   }, [user, isLoading, router.pathname]);
 
   // Redirect to onboarding if user is logged in but lacks a workspace, and is trying to access dashboard pages
   useEffect(() => {
-    if (!isLoading && user && needsOnboarding && router.pathname !== '/onboarding' && router.pathname !== '/accept-invite' && router.pathname !== '/auth/callback') {
+    const publicPages = ['/', '/login', '/onboarding', '/accept-invite', '/auth/callback', '/privacy', '/terms', '/faq', '/about', '/contact'];
+    if (!isLoading && user && needsOnboarding && !publicPages.includes(router.pathname)) {
       router.replace('/onboarding');
     }
   }, [user, isLoading, needsOnboarding, router.pathname]);
@@ -306,7 +308,12 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     router.pathname !== '/' && 
     router.pathname !== '/onboarding' && 
     router.pathname !== '/accept-invite' && 
-    router.pathname !== '/auth/callback';
+    router.pathname !== '/auth/callback' &&
+    router.pathname !== '/privacy' &&
+    router.pathname !== '/terms' &&
+    router.pathname !== '/faq' &&
+    router.pathname !== '/about' &&
+    router.pathname !== '/contact';
 
   useEffect(() => {
     if (showLockout) {
@@ -328,7 +335,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     return <div className="min-h-screen bg-slate-950 text-white font-sans">{children}</div>;
   }
 
-  if (router.pathname === '/') {
+  const landingAndStaticPages = ['/', '/privacy', '/terms', '/faq', '/about', '/contact'];
+  if (landingAndStaticPages.includes(router.pathname)) {
     return <>{children}</>;
   }
 
