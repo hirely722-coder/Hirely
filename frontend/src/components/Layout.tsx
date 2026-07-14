@@ -971,37 +971,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             <div className="flex items-center gap-1.5 font-sans">
               <span className="text-xs font-semibold text-slate-900 font-sans hidden sm:inline">{userName}</span>
               <span className="text-[9px] font-mono px-1.5 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded font-medium">ONLINE</span>
-              
-              {realtimeStatus === 'SUBSCRIBED' && (
-                <span className="text-[9px] font-mono px-1.5 py-0.5 bg-green-50 text-green-700 border border-green-100 rounded font-medium flex items-center gap-1">
-                  <span className="h-1.5 w-1.5 bg-green-500 rounded-full" />
-                  REALTIME
-                </span>
-              )}
-              {realtimeStatus === 'CONNECTING' && (
-                <span className="text-[9px] font-mono px-1.5 py-0.5 bg-amber-50 text-amber-700 border border-amber-100 rounded font-medium flex items-center gap-1">
-                  <span className="h-1.5 w-1.5 bg-amber-500 rounded-full animate-ping" />
-                  RT CONNECTING
-                </span>
-              )}
-              {realtimeStatus === 'ERROR' && (
-                <span className="text-[9px] font-mono px-1.5 py-0.5 bg-red-50 text-red-700 border border-red-100 rounded font-medium flex items-center gap-1">
-                  <span className="h-1.5 w-1.5 bg-red-500 rounded-full" />
-                  RT ERROR
-                </span>
-              )}
-              {realtimeStatus === 'CLOSED' && (
-                <span className="text-[9px] font-mono px-1.5 py-0.5 bg-slate-50 text-slate-700 border border-slate-100 rounded font-medium flex items-center gap-1">
-                  <span className="h-1.5 w-1.5 bg-slate-500 rounded-full" />
-                  RT CLOSED
-                </span>
-              )}
-              {realtimeStatus === 'DISCONNECTED' && (
-                <span className="text-[9px] font-mono px-1.5 py-0.5 bg-slate-50 text-slate-700 border border-slate-100 rounded font-medium flex items-center gap-1">
-                  <span className="h-1.5 w-1.5 bg-slate-500 rounded-full" />
-                  RT DISCONNECTED
-                </span>
-              )}
             </div>
 
           </div>
