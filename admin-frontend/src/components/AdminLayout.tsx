@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { 
   LayoutDashboard, Building2, Users, Briefcase, CreditCard, Sparkles, 
   Mail, Database, MessageSquare, Activity, Shield, Settings, 
-  X, Menu, LogOut, Bell, Search
+  X, Menu, LogOut, Bell, Search, Star
 } from 'lucide-react';
 import { useApp } from '../context/AdminAppContext';
 
@@ -143,6 +143,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     { name: 'Email Logs', path: '/email-logs', icon: Mail },
     { name: 'Storage', path: '/storage', icon: Database },
     { name: 'Support', path: '/support', icon: MessageSquare },
+    { name: 'Testimonials', path: '/testimonials', icon: Star },
     { name: 'Feature Control', path: '/feature-control', icon: Activity },
     { name: 'Audit Logs', path: '/audit-logs', icon: Shield },
     { name: 'Settings', path: '/settings', icon: Settings },

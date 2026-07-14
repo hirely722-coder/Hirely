@@ -53,6 +53,12 @@ export default function Login() {
 
   // Cache signup query parameters in localStorage for onboarding step
   useEffect(() => {
+    if (router.isReady && router.query.error) {
+      setError(router.query.error as string);
+    }
+  }, [router.isReady, router.query.error]);
+
+  useEffect(() => {
     const { plan, cycle, trial, mode } = router.query;
     if (plan) localStorage.setItem('hirely_setup_plan', plan as string);
     if (cycle) localStorage.setItem('hirely_setup_cycle', cycle as string);
@@ -150,7 +156,7 @@ export default function Login() {
         router.replace(inviteToken ? `/accept-invite?token=${inviteToken}` : '/');
       }
     } else {
-      const { error: signInErr } = await supabase.auth.signInWithPassword({
+      const { data, error: signInErr } = await supabase.auth.signInWithPassword({
         email,
         password
       });
@@ -158,6 +164,27 @@ export default function Login() {
       if (signInErr) {
         setError(signInErr.message);
       } else {
+        if (data?.session?.access_token) {
+          try {
+            const res = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_API_URL || 'http://localhost:3001'}/api/bootstrap`, {
+              headers: {
+                'Authorization': `Bearer ${data.session.access_token}`
+              }
+            });
+            if (res.status === 401 || res.status === 403) {
+              const resData = await res.json();
+              if (resData.error && resData.error.includes('disabled')) {
+                await supabase.auth.signOut();
+                setError('Your account has been disabled by the administrator.');
+                setIsLoading(false);
+                return;
+              }
+            }
+          } catch (err) {
+            console.error('Failed to verify account status:', err);
+          }
+        }
+
         showToast('Signed in successfully! Welcome back.');
         const { inviteToken } = router.query;
         router.replace(inviteToken ? `/accept-invite?token=${inviteToken}` : '/');

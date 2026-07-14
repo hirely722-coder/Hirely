@@ -39,7 +39,8 @@ export default function Onboarding() {
     setIsLoading(true);
 
     try {
-      const isTrial = localStorage.getItem('hirely_setup_trial') === 'true';
+      const setupTrial = localStorage.getItem('hirely_setup_trial');
+      const isTrial = setupTrial === null ? true : setupTrial === 'true';
       const sessionToken = (await supabase.auth.getSession()).data.session?.access_token;
       const res = await fetch('/api/workspaces', {
         method: 'POST',

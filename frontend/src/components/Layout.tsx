@@ -12,6 +12,7 @@ import { usePermission } from '../hooks/usePermission';
 import { injectThemeCSS } from './theme/themeHelpers';
 import { THEME_PRESETS } from './theme/themePresets';
 import { EmailComposeModal, WhatsAppComposeModal, InterviewSchedulerModal, AddTaskModal } from './GlobalModals';
+import { FeedbackModal } from './modals/FeedbackModal';
 import CSVImportModal from './CSVImportModal';
 import BackgroundImportWidget from './BackgroundImportWidget';
 import UpgradeSuccessLoader from './UpgradeSuccessLoader';
@@ -33,6 +34,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     tasks,
     templates,
     emailConfig,
+    activityLogs,
+    communicationLogs,
     activeImportTask,
     startBackgroundImport,
     handlePauseImport,
@@ -75,7 +78,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     showUpgradeSuccess,
     setShowUpgradeSuccess,
     handleAddCommunicationLog,
-    addActivityLog
+    addActivityLog,
+    workspaceCreatedAt,
+    realtimeStatus
   } = useApp();
 
   const [isUpgrading, setIsUpgrading] = useState(false);
@@ -92,6 +97,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const [csvImportInitialType, setCsvImportInitialType] = useState<'companies' | 'jobs' | 'candidates'>('candidates');
 
   const [isOffline, setIsOffline] = useState(false);
+  const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -116,6 +122,77 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  // Feedback trigger logic (Phase 2 & 8)
+  useEffect(() => {
+    if (!mounted || !user || !token || needsOnboarding) return;
+
+    const submitted = localStorage.getItem('hirely_feedback_submitted') === 'true';
+    if (submitted) return;
+
+    const dismissedAt = localStorage.getItem('hirely_feedback_dismissed_at');
+    if (dismissedAt) {
+      const elapsed = Date.now() - parseInt(dismissedAt);
+      const thirtyDays = 30 * 24 * 60 * 60 * 1000;
+      if (elapsed < thirtyDays) return;
+    }
+
+    const checkFeedback = async () => {
+      try {
+        const backendUrl = process.env.NEXT_PUBLIC_BACKEND_API_URL || process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:3001";
+        const res = await fetch(`${backendUrl}/api/testimonials/my-feedback`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (res.ok) {
+          const fb = await res.json();
+          if (fb && fb.id) {
+            localStorage.setItem('hirely_feedback_submitted', 'true');
+            return;
+          }
+        }
+
+        const has5Resumes = candidates.filter(c => c.resumeFileName || c.resumeText).length >= 5;
+        const has2Jobs = jobs.length >= 2;
+        const has20Candidates = candidates.length >= 20;
+        const sentEmails = Array.isArray(communicationLogs) && 
+          communicationLogs.filter(log => log.type?.toLowerCase() === 'email').length > 0;
+
+        const usedAiParsing = Array.isArray(activityLogs) && activityLogs.some(log => 
+          log.description?.toLowerCase().includes('parse') || 
+          log.description?.toLowerCase().includes('resume')
+        );
+        const usedAiMatching = Array.isArray(activityLogs) && activityLogs.some(log => 
+          log.description?.toLowerCase().includes('match') || 
+          log.description?.toLowerCase().includes('copilot')
+        );
+
+        const completedOnboarding = companies.length > 0 && jobs.length > 0 && candidates.length > 0;
+
+        const usedFor5Days = workspaceCreatedAt 
+          ? (Date.now() - new Date(workspaceCreatedAt).getTime() >= 5 * 24 * 60 * 60 * 1000) 
+          : false;
+
+        const shouldPrompt = 
+          usedFor5Days || 
+          has5Resumes || 
+          has2Jobs || 
+          has20Candidates || 
+          sentEmails || 
+          usedAiParsing || 
+          usedAiMatching || 
+          completedOnboarding;
+
+        if (shouldPrompt) {
+          setIsFeedbackOpen(true);
+        }
+      } catch (e) {
+        console.error('Error evaluating feedback trigger:', e);
+      }
+    };
+
+    const timer = setTimeout(checkFeedback, 5000);
+    return () => clearTimeout(timer);
+  }, [mounted, user, token, needsOnboarding, candidates, jobs, communicationLogs, activityLogs, companies, workspaceCreatedAt]);
 
   // Redirect to login if user session is absent and we aren't on login, landing, onboarding, invite, or callback pages
   useEffect(() => {
@@ -891,9 +968,40 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
             <div className="h-4 w-[1px] bg-slate-200" />
 
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-1.5 font-sans">
               <span className="text-xs font-semibold text-slate-900 font-sans hidden sm:inline">{userName}</span>
               <span className="text-[9px] font-mono px-1.5 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded font-medium">ONLINE</span>
+              
+              {realtimeStatus === 'SUBSCRIBED' && (
+                <span className="text-[9px] font-mono px-1.5 py-0.5 bg-green-50 text-green-700 border border-green-100 rounded font-medium flex items-center gap-1">
+                  <span className="h-1.5 w-1.5 bg-green-500 rounded-full" />
+                  REALTIME
+                </span>
+              )}
+              {realtimeStatus === 'CONNECTING' && (
+                <span className="text-[9px] font-mono px-1.5 py-0.5 bg-amber-50 text-amber-700 border border-amber-100 rounded font-medium flex items-center gap-1">
+                  <span className="h-1.5 w-1.5 bg-amber-500 rounded-full animate-ping" />
+                  RT CONNECTING
+                </span>
+              )}
+              {realtimeStatus === 'ERROR' && (
+                <span className="text-[9px] font-mono px-1.5 py-0.5 bg-red-50 text-red-700 border border-red-100 rounded font-medium flex items-center gap-1">
+                  <span className="h-1.5 w-1.5 bg-red-500 rounded-full" />
+                  RT ERROR
+                </span>
+              )}
+              {realtimeStatus === 'CLOSED' && (
+                <span className="text-[9px] font-mono px-1.5 py-0.5 bg-slate-50 text-slate-700 border border-slate-100 rounded font-medium flex items-center gap-1">
+                  <span className="h-1.5 w-1.5 bg-slate-500 rounded-full" />
+                  RT CLOSED
+                </span>
+              )}
+              {realtimeStatus === 'DISCONNECTED' && (
+                <span className="text-[9px] font-mono px-1.5 py-0.5 bg-slate-50 text-slate-700 border border-slate-100 rounded font-medium flex items-center gap-1">
+                  <span className="h-1.5 w-1.5 bg-slate-500 rounded-full" />
+                  RT DISCONNECTED
+                </span>
+              )}
             </div>
 
           </div>
@@ -1059,6 +1167,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       )}
 
       {showUpgradeSuccess && <UpgradeSuccessLoader />}
+
+      <FeedbackModal isOpen={isFeedbackOpen} onClose={() => setIsFeedbackOpen(false)} />
     </div>
   );
 }

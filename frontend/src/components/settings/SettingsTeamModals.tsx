@@ -76,8 +76,8 @@ export function SettingsTeamModals({
                   <UserPlus className="h-4.5 w-4.5" />
                 </div>
                 <div>
-                  <h3 className="text-sm font-bold text-slate-900 font-sans">Invite Team Member</h3>
-                  <p className="text-[10px] text-slate-400 font-mono">Dispatches invitation via outbox mail</p>
+                  <h3 className="text-sm font-bold text-slate-900 font-sans">Add Team Member</h3>
+                  <p className="text-[10px] text-slate-400 font-mono">Creates member account immediately</p>
                 </div>
               </div>
               <button 
@@ -181,12 +181,12 @@ export function SettingsTeamModals({
                 {isInviting ? (
                   <>
                     <div className="h-3.5 w-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                    Sending Invite...
+                    Adding Member...
                   </>
                 ) : (
                   <>
-                    <Send className="h-3.5 w-3.5" />
-                    Send Invitation
+                    <UserPlus className="h-3.5 w-3.5" />
+                    Add Member
                   </>
                 )}
               </button>

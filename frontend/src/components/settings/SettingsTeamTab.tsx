@@ -37,14 +37,14 @@ export function SettingsTeamTab({
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-sm font-bold text-slate-900 font-sans">Corporate Agency Roster</h2>
-            <p className="text-xs text-slate-500 mt-0.5">Control operational roles, resend invites, and configure permissions across your recruitment staff.</p>
+            <p className="text-xs text-slate-500 mt-0.5">Control operational roles, manage access, and configure permissions across your recruitment staff.</p>
           </div>
           <button 
             onClick={() => setShowInviteModal(true)}
             className="px-3 py-1.5 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-lg flex items-center gap-1.5 shadow-sm transition-colors cursor-pointer font-sans"
           >
             <UserPlus className="h-3.5 w-3.5" />
-            Invite Team Member
+            Add Team Member
           </button>
         </div>
 

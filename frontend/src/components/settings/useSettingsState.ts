@@ -326,8 +326,8 @@ export function useSettingsState({
   // TEAM MANAGEMENT ACTIONS
   const handleInviteSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inviteName.trim() || !inviteEmail.trim()) {
-      showToast('❌ Name and Email are required.', 'error');
+    if (!inviteName.trim() || !inviteEmail.trim() || !invitePassword.trim()) {
+      showToast('❌ Name, Email, and Password are required.', 'error');
       return;
     }
 
@@ -340,20 +340,20 @@ export function useSettingsState({
         name: inviteName,
         email: inviteEmail,
         role: inviteRole,
-        status: 'Pending',
+        status: 'Active',
         department: inviteDept || 'HR Recruitment',
         lastLogin: 'Never',
         password: invitePassword || undefined
       };
 
       setTeamMembers(prev => [...prev, newMember]);
-      addActivityLog('Team', `Invited new team member: ${inviteName} (${inviteRole}).`);
+      addActivityLog('Team', `Added new team member: ${inviteName} (${inviteRole}).`);
       setNotifications(prev => [
-        { id: 'n_' + Date.now(), text: `Team invitation dispatched to ${inviteEmail}.`, time: 'Just now', read: false },
+        { id: 'n_' + Date.now(), text: `Team member ${inviteName} account created.`, time: 'Just now', read: false },
         ...prev
       ]);
 
-      showToast(`✓ Invitation sent successfully to ${inviteName}!`, 'success');
+      showToast(`✓ Team member ${inviteName} added successfully!`, 'success');
       setShowInviteModal(false);
       
       setInviteName('');

@@ -144,7 +144,8 @@ export function JobAiMatchingTab({
               const noticePeriod = item.candidate.noticePeriod;
               const hasNoticePeriod = noticePeriod && noticePeriod.trim() !== '' && noticePeriod.trim().toLowerCase() !== 'n/a';
 
-              const parseMaxSalary = (salStr: string) => {
+              const parseMaxSalary = (salStr: string | null | undefined) => {
+                if (!salStr || typeof salStr !== 'string') return 200;
                 const matches = salStr.match(/\d+[\d, ]*/g);
                 if (matches && matches.length > 0) {
                   const lastVal = matches[matches.length - 1].replace(/[^0-9]/g, '');

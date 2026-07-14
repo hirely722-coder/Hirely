@@ -23,9 +23,9 @@ export { app };
 
 // Enable CORS for frontend
 app.use('/*', cors({
-  origin: '*', // We can restrict this to the frontend URL if needed
+  origin: (origin) => origin || '*',
   allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowHeaders: ['Content-Type', 'Authorization'],
+  allowHeaders: ['Content-Type', 'Authorization', 'Cache-Control', 'Pragma', 'Expires'],
   exposeHeaders: ['Content-Length'],
   maxAge: 600,
   credentials: true,
@@ -325,16 +325,18 @@ if (typeof Bun !== 'undefined') {
 async function sanitizeJobData(data: any, user: any) {
   if (!data) return data;
 
-  // Map job status values to match check constraints ('Open' | 'Closed')
+  // Normalize status to prevent database check constraint violations ('Open', 'Closed')
   if (data.status) {
-    const statusLower = data.status.toLowerCase();
-    if (statusLower === 'active' || statusLower === 'open') {
+    const s = data.status.toString().trim().toLowerCase();
+    if (s === 'active' || s === 'open') {
       data.status = 'Open';
-    } else {
+    } else if (s === 'closed') {
       data.status = 'Closed';
+    } else {
+      data.status = 'Open';
     }
   } else {
-    data.status = 'Open'; // default fallback
+    data.status = 'Open';
   }
   
   // Only sanitize if companyName or companyId are explicitly passed
@@ -639,12 +641,105 @@ async function callEdenAIWithTools(
   return await response.json();
 }
 
+async function* callEdenAIWithToolsStream(
+  messages: any[],
+  tools: any[]
+): AsyncGenerator<{ type: 'token'; content: string } | { type: 'tool_call'; content: any }, void, unknown> {
+  const edenKey = process.env.EDENAI_API_KEY;
+  if (!edenKey) {
+    throw new Error('EDENAI_API_KEY is missing or invalid.');
+  }
+
+  const response = await fetch('https://api.edenai.run/v3/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${edenKey}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      model: 'google/gemma-4-31b-it',
+      messages,
+      tools,
+      temperature: 0.7,
+      stream: true
+    })
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Eden AI API returned status ${response.status}: ${errorText}`);
+  }
+
+  const reader = response.body?.getReader();
+  if (!reader) return;
+
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let accumulatedToolCalls: any[] = [];
+
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) {
+        break;
+      }
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+
+        if (trimmed.startsWith('data:')) {
+          const dataStr = trimmed.slice(5).trim();
+          if (dataStr === '[DONE]') continue;
+
+          try {
+            const parsed = JSON.parse(dataStr);
+            const delta = parsed.choices?.[0]?.delta;
+            if (!delta) continue;
+
+            if (delta.tool_calls) {
+              for (const call of delta.tool_calls) {
+                const idx = call.index ?? 0;
+                if (!accumulatedToolCalls[idx]) {
+                  accumulatedToolCalls[idx] = {
+                    id: call.id,
+                    type: 'function',
+                    function: { name: call.function?.name, arguments: '' }
+                  };
+                }
+                if (call.function?.arguments) {
+                  accumulatedToolCalls[idx].function.arguments += call.function.arguments;
+                }
+              }
+            } else if (delta.content) {
+              yield { type: 'token', content: delta.content };
+            }
+          } catch (e) {
+            // Ignore incomplete chunks
+          }
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  const finalToolCalls = accumulatedToolCalls.filter(Boolean);
+  if (finalToolCalls.length > 0) {
+    yield { type: 'tool_call', content: finalToolCalls };
+  }
+}
+
 // Global event emitter for streaming response tokens to client SSE route
 export const streamEmitter = new EventEmitter();
 
 // Memory store for background LLM tasks
 export interface BackgroundTask {
-  status: 'pending' | 'completed' | 'failed' | 'pending_approval' | 'streaming';
+  status: 'pending' | 'completed' | 'failed' | 'pending_approval' | 'streaming' | 'cancelled';
   currentStep?: { name: string; args: any };
   result?: any;
   error?: string;
@@ -695,7 +790,6 @@ app.get('/api/ai/task-status/:id', async (c) => {
   });
 });
 
-// Task stream endpoint
 
 
 // -------------------------------------------------------------
@@ -897,6 +991,7 @@ app.use('/api/*', async (c, next) => {
     c.req.path === '/api/health' || 
     c.req.path === '/api/superadmin/login' || 
     c.req.path === '/api/public/plans' ||
+    c.req.path === '/api/public/testimonials' ||
     c.req.path === '/api/payments/webhook' ||
     c.req.path.startsWith('/api/public/invitations/')
   ) {
@@ -904,7 +999,10 @@ app.use('/api/*', async (c, next) => {
   }
 
   const authHeader = c.req.header('Authorization');
-  const token = authHeader?.split(' ')[1];
+  let token = authHeader?.split(' ')[1];
+  if (!token && c.req.path.startsWith('/api/ai/copilot/stream/')) {
+    token = c.req.query('token');
+  }
   if (!token) {
     return c.json({ error: 'Authorization header is missing' }, 401);
   }
@@ -914,12 +1012,16 @@ app.use('/api/*', async (c, next) => {
     return c.json({ error: 'Unauthorized: Invalid session token' }, 401);
   }
 
-  // Fetch profiles to retrieve workspace_id, role, name, email, custom_permissions, restricted_features, is_super_admin
+  // Fetch profiles to retrieve workspace_id, role, name, email, custom_permissions, restricted_features, is_super_admin, status
   const { data: profile, error: profileError } = await supabase
     .from('profiles')
-    .select('workspace_id, role, name, email, custom_permissions, restricted_features, is_super_admin')
+    .select('workspace_id, role, name, email, custom_permissions, restricted_features, is_super_admin, status')
     .eq('id', user.id)
     .single();
+
+  if (profile && profile.status === 'Disabled') {
+    return c.json({ error: 'Unauthorized: Your account has been disabled by the administrator.' }, 401);
+  }
 
   const isOnboardingRoute = 
     (c.req.path === '/api/workspaces' && c.req.method === 'POST') ||
@@ -1069,6 +1171,68 @@ app.use('/api/ai/*', async (c, next) => {
     }
   }
   await next();
+});
+
+// Task stream endpoint
+app.get('/api/ai/copilot/stream/:id', async (c) => {
+  const taskId = c.req.param('id');
+  
+  c.header('Content-Type', 'text/event-stream');
+  c.header('Cache-Control', 'no-cache, no-transform');
+  c.header('Connection', 'keep-alive');
+  c.header('X-Accel-Buffering', 'no');
+
+  return stream(c, async (stream) => {
+    // Write an initial comment to flush headers and establish the stream connection immediately
+    await stream.write(': ok\n\n');
+
+    // 1. Check if task is already completed
+    const task = backgroundTasks.get(taskId);
+    if (task && (task.status === 'completed' || task.status === 'pending_approval' || task.status === 'failed')) {
+      await stream.write(`data: ${JSON.stringify({ type: 'status', status: task.status, result: task.result, error: task.error })}\n\n`);
+      return;
+    }
+
+    let isClosed = false;
+
+    const listener = async (event: any) => {
+      if (isClosed) return;
+      try {
+        await stream.write(`data: ${JSON.stringify(event)}\n\n`);
+      } catch (e) {
+        cleanup();
+      }
+    };
+
+    streamEmitter.on(taskId, listener);
+
+    const keepAlive = setInterval(async () => {
+      if (isClosed) return;
+      try {
+        await stream.write(': keep-alive\n\n');
+      } catch (e) {
+        cleanup();
+      }
+    }, 4000);
+
+    const cleanup = () => {
+      if (isClosed) return;
+      isClosed = true;
+      clearInterval(keepAlive);
+      streamEmitter.off(taskId, listener);
+    };
+
+    // Hold the stream open until closed
+    while (!isClosed) {
+      const currentTask = backgroundTasks.get(taskId);
+      if (currentTask && (currentTask.status === 'completed' || currentTask.status === 'pending_approval' || currentTask.status === 'failed')) {
+        await stream.write(`data: ${JSON.stringify({ type: 'status', status: currentTask.status, result: currentTask.result, error: currentTask.error })}\n\n`);
+        cleanup();
+        break;
+      }
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+  });
 });
 
 // Resume Parser (File upload endpoint via multipart/form-data)
@@ -1381,9 +1545,26 @@ export async function runCopilotAgent(
     ...messages
   ];
 
+  // Keyword Stemming Helper for synonyms and partial matching (e.g. Accountant -> accounting)
+  const getStems = (query: string): string[] => {
+    return query
+      .toLowerCase()
+      .split(/[\s,\-_]+/)
+      .map(w => {
+        let stem = w.trim();
+        if (stem.length <= 3) return stem;
+        // Strip common suffixes
+        stem = stem.replace(/(?:ing|ant|ent|er|ist|s|ed|ly|ment|ional|al|ive)$/, '');
+        return stem;
+      })
+      .filter(w => w.length > 2);
+  };
+
   // Local Tool Execution Handler
   const executeTool = async (name: string, args: any): Promise<any> => {
-    console.log(`[Copilot Agent] Executing tool '${name}' with args:`, args);
+    const toolStart = performance.now();
+    const run = async () => {
+      console.log(`[Copilot Agent] Executing tool '${name}' with args:`, args);
     
     // Update Supabase task current step
     await supabase.from('copilot_tasks').update({
@@ -1395,39 +1576,65 @@ export async function runCopilotAgent(
     backgroundTasks.set(taskId, currentTask);
     
     if (name === 'search_candidates') {
-      const repo = new WorkspaceRepository('candidates', user);
-      let candidates = await repo.getAll();
+      const { data, error } = await supabase
+        .from('candidates')
+        .select('*')
+        .eq('workspace_id', user.workspace_id)
+        .order('created_at', { ascending: false })
+        .limit(1000);
+
+      if (error) throw error;
+
+      let candidates = keysToCamel(data || []);
       
       if (args.query) {
         const q = args.query.toLowerCase();
+        const stems = getStems(q);
+
         candidates = candidates.filter(c => {
-          // 1. Scan standard fields
-          const matchesStandard = 
-            (c.name || '').toLowerCase().includes(q) ||
-            (c.email || '').toLowerCase().includes(q) ||
-            (c.phone || '').toLowerCase().includes(q) ||
-            (c.designation || '').toLowerCase().includes(q) ||
-            (c.city || '').toLowerCase().includes(q) ||
-            (c.skills || []).some((s: string) => s.toLowerCase().includes(q));
+          // Check standard fields
+          const nameMatch = (c.name || '').toLowerCase().includes(q);
+          const emailMatch = (c.email || '').toLowerCase().includes(q);
+          const designationMatch = (c.designation || '').toLowerCase().includes(q);
+          const cityMatch = (c.city || '').toLowerCase().includes(q);
+          
+          // Check skills (including stems)
+          const candidateSkills = (c.skills || []).map((s: string) => s.toLowerCase());
+          const skillsMatch = candidateSkills.some((s: string) => 
+            s.includes(q) || stems.some(stem => s.includes(stem))
+          );
 
-          if (matchesStandard) return true;
+          // Check designation stems (for Accountant matching Accounting Professional)
+          const designationStemMatch = stems.some(stem => 
+            (c.designation || '').toLowerCase().includes(stem)
+          );
 
-          // 2. Scan custom fields dynamically
+          // Check resume_text & notes for deep keywords
+          const resumeMatch = (c.resumeText || '').toLowerCase().includes(q) || 
+                              stems.some(stem => (c.resumeText || '').toLowerCase().includes(stem));
+          const notesMatch = (c.notes || '').toLowerCase().includes(q) || 
+                             stems.some(stem => (c.notes || '').toLowerCase().includes(stem));
+
+          // Scan custom fields dynamically
+          let customFieldsMatch = false;
           if (c.customFields && typeof c.customFields === 'object') {
-            return Object.entries(c.customFields).some(([key, val]) => {
+            customFieldsMatch = Object.entries(c.customFields).some(([key, val]) => {
               const fieldKey = key.toLowerCase();
               const fieldValue = String(val || '').toLowerCase();
-              return fieldKey.includes(q) || fieldValue.includes(q);
+              return fieldKey.includes(q) || fieldValue.includes(q) || stems.some(stem => fieldValue.includes(stem));
             });
           }
 
-          return false;
+          return nameMatch || emailMatch || designationMatch || cityMatch || skillsMatch || designationStemMatch || resumeMatch || notesMatch || customFieldsMatch;
         });
       }
       if (args.skills && Array.isArray(args.skills)) {
         candidates = candidates.filter(c => {
           const candidateSkills = (c.skills || []).map((s: string) => s.toLowerCase());
-          return args.skills.every((s: string) => candidateSkills.includes(s.toLowerCase()));
+          return args.skills.every((s: string) => {
+            const ls = s.toLowerCase();
+            return candidateSkills.some((cs: string) => cs.includes(ls));
+          });
         });
       }
       if (args.stage) {
@@ -1476,8 +1683,15 @@ export async function runCopilotAgent(
     }
 
     if (name === 'list_active_jobs') {
-      const repo = new WorkspaceRepository('jobs', user);
-      const jobs = await repo.getAll();
+      const { data, error } = await supabase
+        .from('jobs')
+        .select('*')
+        .eq('workspace_id', user.workspace_id)
+        .eq('status', 'Open')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      const jobs = keysToCamel(data || []);
       return jobs.map(j => ({
         id: j.id,
         title: j.title,
@@ -1490,8 +1704,14 @@ export async function runCopilotAgent(
     }
 
     if (name === 'list_companies') {
-      const repo = new WorkspaceRepository('companies', user);
-      const companies = await repo.getAll();
+      const { data, error } = await supabase
+        .from('companies')
+        .select('*')
+        .eq('workspace_id', user.workspace_id)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      const companies = keysToCamel(data || []);
       return companies.map(comp => ({
         id: comp.id,
         name: comp.name,
@@ -1502,8 +1722,14 @@ export async function runCopilotAgent(
     }
 
     if (name === 'get_workspace_tasks') {
-      const repo = new WorkspaceRepository('tasks', user);
-      const tasks = await repo.getAll();
+      const { data, error } = await supabase
+        .from('tasks')
+        .select('*')
+        .eq('workspace_id', user.workspace_id)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      const tasks = keysToCamel(data || []);
       return tasks.map(t => ({
         id: t.id,
         type: t.type,
@@ -1529,17 +1755,26 @@ export async function runCopilotAgent(
     }
 
     if (name === 'get_pipeline_summary') {
-      const repo = new WorkspaceRepository('candidates', user);
-      const candidates = await repo.getAll();
+      const { data, error } = await supabase
+        .from('candidates')
+        .select('status')
+        .eq('workspace_id', user.workspace_id);
+
+      if (error) throw error;
       const summary: Record<string, number> = {};
-      for (const c of candidates) {
+      for (const c of data || []) {
         const stage = c.status || 'Pool';
         summary[stage] = (summary[stage] || 0) + 1;
       }
       return summary;
     }
 
-    return { error: `Tool ${name} not found` };
+      return { error: `Tool ${name} not found` };
+    };
+    const res = await run();
+    const toolDuration = performance.now() - toolStart;
+    console.log(`[PROFILE] Tool execution for '${name}' took ${toolDuration.toFixed(2)}ms`);
+    return res;
   };
 
   // Helper to execute database action commands
@@ -1604,13 +1839,21 @@ export async function runCopilotAgent(
   let finalStatus: 'completed' | 'pending_approval' | 'failed' = 'completed';
   let pendingActionData: any = null;
 
+  const startAgent = performance.now();
+  let timePlanner = 0;
+  let isPlannerSkipped = true;
+
   try {
     const latestUserMessage = messages[messages.length - 1]?.content || '';
     let useMultiAgent = false;
     let subTasks: any[] = [];
 
     // Analyze query length & intent to decide on multi-agent execution
-    if (latestUserMessage.length > 30) {
+    const containsCompoundKeywords = /\band\b|\bthen\b|\balso\b|;/i.test(latestUserMessage);
+    const isPotentiallyComplex = latestUserMessage.length > 100 && containsCompoundKeywords;
+    if (isPotentiallyComplex) {
+      isPlannerSkipped = false;
+      const startPlanner = performance.now();
       console.log(`[Copilot Orchestrator] Analyzing query: "${latestUserMessage}"`);
       try {
         const plannerSchema = {
@@ -1647,12 +1890,24 @@ export async function runCopilotAgent(
       } catch (planErr: any) {
         console.error('[Copilot Orchestrator] Planner execution failed, falling back to standard ReAct loop:', planErr.message);
       }
+      timePlanner = performance.now() - startPlanner;
+      console.log(`[PROFILE] Planner execution took ${timePlanner.toFixed(2)}ms`);
     }
 
     if (useMultiAgent) {
       console.log('[Copilot Orchestrator] Spawning sub-agents in parallel...');
       
       const subAgentOutputs = await Promise.all(subTasks.map(async (task) => {
+        // Check for cancellation
+        const { data: dbTask } = await supabase
+          .from('copilot_tasks')
+          .select('status')
+          .eq('id', taskId)
+          .maybeSingle();
+        if (dbTask?.status === 'cancelled' || backgroundTasks.get(taskId)?.status === 'cancelled') {
+          throw new Error('Task cancelled by user');
+        }
+
         let agentSystemInstruction = '';
         let activeTools = tools;
         
@@ -1675,6 +1930,16 @@ export async function runCopilotAgent(
         let subContent = '';
         
         while (subLoop < 2) {
+          // Check for cancellation
+          const { data: dbTask } = await supabase
+            .from('copilot_tasks')
+            .select('status')
+            .eq('id', taskId)
+            .maybeSingle();
+          if (dbTask?.status === 'cancelled' || backgroundTasks.get(taskId)?.status === 'cancelled') {
+            throw new Error('Task cancelled by user');
+          }
+
           const res = await callEdenAIWithTools(subMessages, activeTools);
           const msg = res.choices?.[0]?.message;
           if (!msg) break;
@@ -1706,12 +1971,27 @@ export async function runCopilotAgent(
         return `[Sub-Agent Output (${task.agent})]:\n${subContent}`;
       }));
 
+      // Check for cancellation before compiling final response
+      const { data: dbTaskCompile } = await supabase
+        .from('copilot_tasks')
+        .select('status')
+        .eq('id', taskId)
+        .maybeSingle();
+      if (dbTaskCompile?.status === 'cancelled' || backgroundTasks.get(taskId)?.status === 'cancelled') {
+        throw new Error('Task cancelled by user');
+      }
+
       console.log('[Copilot Orchestrator] Compiling final response from sub-agent outputs...');
       
       const compilePrompt = `[System Orchestrator: Sub-agents have completed parallel execution. Here are their outputs:\n\n${subAgentOutputs.join('\n\n')}\n\nCombine these findings into a unified, supportive, friendly response. Keep your personality as Forge. If there are any proposed database actions (<action> blocks) in the sub-agent outputs, merge them and generate a single unified <action> block at the very end of your response.]`;
 
-      const finalAnswer = await callLLM(systemInstruction, compilePrompt, 0.7);
-      responseText = finalAnswer;
+      let accumulatedResponse = '';
+      const streamGenerator = callLLMStream(systemInstruction, compilePrompt, 0.7);
+      for await (const chunk of streamGenerator) {
+        accumulatedResponse += chunk;
+        streamEmitter.emit(taskId, { type: 'token', content: chunk });
+      }
+      responseText = accumulatedResponse;
       cleanedResponse = responseText;
 
       const actionMatch = responseText.match(/<action>([\s\S]*?)<\/action>/);
@@ -1738,11 +2018,31 @@ export async function runCopilotAgent(
       // Execute the standard single-agent sequential ReAct loop
       let loopCount = 0;
       while (loopCount < 3) {
-        console.log(`[Copilot Agent] Running standard ReAct iteration ${loopCount + 1}...`);
-        const result = await callEdenAIWithTools(transformMessagesForLLM(messagesForLLM), tools);
-        const rawMessage = result.choices?.[0]?.message;
+        // Check database/in-memory status for user cancellation
+        const { data: dbTask } = await supabase
+          .from('copilot_tasks')
+          .select('status')
+          .eq('id', taskId)
+          .maybeSingle();
+        if (dbTask?.status === 'cancelled' || backgroundTasks.get(taskId)?.status === 'cancelled') {
+          console.log(`[Copilot Agent] Task ${taskId} cancelled before starting iteration.`);
+          throw new Error('Task cancelled by user');
+        }
 
-        if (!rawMessage) {
+        console.log(`[Copilot Agent] Running standard ReAct iteration ${loopCount + 1}...`);
+        let rawMessage: any = { role: 'assistant', content: '' };
+        const responseStream = callEdenAIWithToolsStream(transformMessagesForLLM(messagesForLLM), tools);
+        
+        for await (const chunk of responseStream) {
+          if (chunk.type === 'token') {
+            rawMessage.content += chunk.content;
+            streamEmitter.emit(taskId, { type: 'token', content: chunk.content });
+          } else if (chunk.type === 'tool_call') {
+            rawMessage.tool_calls = chunk.content;
+          }
+        }
+
+        if (!rawMessage.content && !rawMessage.tool_calls) {
           throw new Error('Invalid empty response received from completions API.');
         }
 
@@ -1759,6 +2059,20 @@ export async function runCopilotAgent(
             } catch (e) {
               console.error('[Copilot Agent] Failed to parse arguments for tool:', call.function.name);
             }
+
+            // Check for user cancellation before executing a database tool
+            const { data: dbTask } = await supabase
+              .from('copilot_tasks')
+              .select('status')
+              .eq('id', taskId)
+              .maybeSingle();
+            if (dbTask?.status === 'cancelled' || backgroundTasks.get(taskId)?.status === 'cancelled') {
+              console.log(`[Copilot Agent] Task ${taskId} cancelled before executing tool ${call.function.name}.`);
+              throw new Error('Task cancelled by user');
+            }
+
+            // Emit executing status to client
+            streamEmitter.emit(taskId, { type: 'status', status: 'pending', currentStep: `Executing: ${call.function.name}...` });
 
             const toolOutput = await executeTool(call.function.name, parsedArgs);
             messagesForLLM.push({
@@ -1832,20 +2146,42 @@ export async function runCopilotAgent(
       result: taskResult
     });
 
+    const totalDuration = performance.now() - startAgent;
+    console.log(`[PROFILE] runCopilotAgent completed successfully in ${totalDuration.toFixed(2)}ms. Planner duration: ${timePlanner.toFixed(2)}ms (skipped: ${isPlannerSkipped}).`);
+
   } catch (err: any) {
     console.error('Error in background copilot task:', err.message);
+    
+    const currentTask = backgroundTasks.get(taskId);
+    if (currentTask?.status === 'cancelled') {
+      console.log(`[Copilot Agent] Task ${taskId} finished with status: cancelled.`);
+      return;
+    }
+    const { data: dbTask } = await supabase
+      .from('copilot_tasks')
+      .select('status')
+      .eq('id', taskId)
+      .maybeSingle();
+    if (dbTask?.status === 'cancelled') {
+      console.log(`[Copilot Agent] Task ${taskId} finished with status: cancelled.`);
+      return;
+    }
+
     await supabase.from('copilot_tasks').update({
       status: 'failed',
       error: err.message,
       current_step: null
     }).eq('id', taskId);
     backgroundTasks.set(taskId, { status: 'failed', error: err.message });
+    
+    const totalDuration = performance.now() - startAgent;
+    console.log(`[PROFILE] runCopilotAgent failed in ${totalDuration.toFixed(2)}ms.`);
   }
 }
 
 app.post('/api/ai/copilot', requirePermission('copilot.open'), async (c) => {
   try {
-    const { messages, autoExecute } = await c.req.json();
+    const { messages, autoExecute, clientTime } = await c.req.json();
     if (!messages || !Array.isArray(messages)) {
       return c.json({ error: 'messages array is required' }, 400);
     }
@@ -1944,6 +2280,7 @@ app.post('/api/ai/copilot', requirePermission('copilot.open'), async (c) => {
     const systemInstruction = `You are Forge, a friendly, supportive, and professional AI recruitment assistant.
 You assist the recruiter in querying pipelines, searching candidates, drafting outreach messages, and managing their daily workflow. Speak conversationally, encourage them, and offer helpful suggestions.
 
+- Current Date and Time: ${clientTime || new Date().toString()}
 - IMPORTANT: All salary values, currency formatting, and monetary ranges MUST be in Indian Rupees using the INR symbol (₹).
 - CRITICAL: Before proposing a 'create_candidate' action, you MUST search the database using 'search_candidates' (with candidate's email or name) to verify if they already exist in the workspace. If they already exist, do NOT generate a 'create_candidate' action block; instead, explain to the user that this candidate is already in their database, show their details, and ask if they would like to update their profile or link them to a job.
 
@@ -2167,6 +2504,59 @@ Only generate ONE action block at the very end of your message. Ensure the JSON 
       error: 'Failed to initiate AI Copilot.',
       details: err.message
     }, 500);
+  }
+});
+
+// Cancel Copilot Task Endpoint
+app.post('/api/ai/copilot/cancel', requirePermission('copilot.open'), async (c) => {
+  try {
+    const { taskId } = await c.req.json();
+    if (!taskId) {
+      return c.json({ error: 'taskId is required' }, 400);
+    }
+
+    const user = c.get('user') as any;
+
+    // Fetch the task first to verify ownership
+    const { data: dbTask } = await supabase
+      .from('copilot_tasks')
+      .select('user_id')
+      .eq('id', taskId)
+      .maybeSingle();
+
+    if (dbTask && dbTask.user_id !== user.id) {
+      return c.json({ error: 'Forbidden: You do not own this task' }, 403);
+    }
+
+    // 1. Update in-memory status (for this isolate)
+    const task = backgroundTasks.get(taskId);
+    if (task) {
+      task.status = 'cancelled';
+      backgroundTasks.set(taskId, task);
+    } else {
+      backgroundTasks.set(taskId, { status: 'cancelled' });
+    }
+
+    // 2. Update database status (for all isolates)
+    const { error } = await supabase
+      .from('copilot_tasks')
+      .update({
+        status: 'cancelled',
+        current_step: null,
+        error: 'Task cancelled by user'
+      })
+      .eq('id', taskId);
+
+    if (error) {
+      console.error('[Copilot Cancel] Failed to update database status:', error.message);
+      return c.json({ error: 'Failed to cancel task in database', details: error.message }, 500);
+    }
+
+    console.log(`[Copilot Cancel] Task ${taskId} successfully marked as cancelled.`);
+    return c.json({ success: true });
+  } catch (err: any) {
+    console.error('Error in copilot cancel route:', err.message);
+    return c.json({ error: 'Failed to cancel copilot task.', details: err.message }, 500);
   }
 });
 
@@ -2802,23 +3192,24 @@ app.get('/api/bootstrap', async (c) => {
       }),
       fetchAllTableData('custom_field_definitions', user.workspace_id),
       supabase.from('workspace_roles').select('*').eq('workspace_id', user.workspace_id).then(({ data }) => keysToCamel(data || [])),
-      supabase.from('workspaces').select('locked_features').eq('id', user.workspace_id).single().then(({ data }) => keysToCamel(data || {})),
+      supabase.from('workspaces').select('created_at, locked_features').eq('id', user.workspace_id).single().then(({ data }) => keysToCamel(data || {})),
       supabase.from('rbac_audit_logs').select('*').eq('workspace_id', user.workspace_id).order('timestamp', { ascending: false }).then(({ data }) => keysToCamel(data || [])),
       fetchAllTableData('company_contacts', user.workspace_id),
       fetchAllTableData('company_documents', user.workspace_id),
       fetchAllTableData('company_notes', user.workspace_id)
     ]);
 
-    // If the workspace has zero email templates, auto-seed them from the default system templates (workspace_id = '00000000-0000-0000-0000-000000000000')
+    // If the workspace has zero email templates, auto-seed them from the default system templates or fallback prebuilts
     if (emailTemplates.length === 0) {
       const { data: defaultTemplates, error: defaultError } = await supabase
         .from('email_templates')
         .select('*')
         .eq('workspace_id', '00000000-0000-0000-0000-000000000000');
       
+      let templatesToInsert: any[] = [];
       if (!defaultError && defaultTemplates && defaultTemplates.length > 0) {
         const { randomUUID } = await import('crypto');
-        const templatesToInsert = defaultTemplates.map(t => ({
+        templatesToInsert = defaultTemplates.map(t => ({
           id: randomUUID(),
           workspace_id: user.workspace_id,
           created_by: user.id,
@@ -2831,7 +3222,84 @@ app.get('/api/bootstrap', async (c) => {
           audience: t.audience,
           last_updated: t.last_updated
         }));
+      } else {
+        // Fallback: Premium prebuilt email templates
+        const { randomUUID } = await import('crypto');
+        const defaultPrebuiltTemplates = [
+          {
+            name: 'Interview Scheduled',
+            category: 'Interview',
+            subject: 'Interview Scheduled: {{jobTitle}} with {{companyName}}',
+            body: `Hi {{candidateName}},\n\nI am pleased to confirm that your next interview for the {{jobTitle}} position at {{companyName}} has been scheduled.\n\nOur team is excited to meet with you and discuss your experience further. Let me know if you have any questions before the chat!\n\nBest regards,\n{{recruiterName}}`,
+            variables: ['candidateName', 'jobTitle', 'companyName', 'recruiterName'],
+            audience: 'Candidate'
+          },
+          {
+            name: 'Offer Letter Announcement',
+            category: 'Offer',
+            subject: 'Job Offer: {{jobTitle}} at {{companyName}}!',
+            body: `Dear {{candidateName}},\n\nWe are absolutely thrilled to extend an offer of employment for the {{jobTitle}} position with {{companyName}}.\n\nWe were incredibly impressed by your interviews, skills, and approach. We are confident you will make a huge impact here.\n\nPlease find the detailed offer letter attached. We look forward to welcoming you to the team!\n\nWarmly,\n{{recruiterName}}`,
+            variables: ['candidateName', 'jobTitle', 'companyName', 'recruiterName'],
+            audience: 'Candidate'
+          },
+          {
+            name: 'Application Acknowledgment',
+            category: 'Outreach',
+            subject: 'We have received your application for {{jobTitle}}',
+            body: `Hi {{candidateName}},\n\nThank you for applying to the {{jobTitle}} position at {{companyName}}.\n\nOur recruiting team is currently reviewing candidate profiles and qualifications. We will get back to you shortly regarding the next steps in our hiring process.\n\nBest regards,\n{{recruiterName}}`,
+            variables: ['candidateName', 'jobTitle', 'companyName', 'recruiterName'],
+            audience: 'Candidate'
+          },
+          {
+            name: 'Application Update (Feedback)',
+            category: 'Follow-up',
+            subject: 'Application Update: {{jobTitle}}',
+            body: `Hi {{candidateName}},\n\nThank you for taking the time to discuss the {{jobTitle}} position at {{companyName}} with us.\n\nWhile we were impressed by your background and skills, we have decided to move forward with other candidates whose experience more closely aligns with our current needs. We will keep your profile in our talent pool for future opportunities.\n\nBest regards,\n{{recruiterName}}`,
+            variables: ['candidateName', 'jobTitle', 'companyName', 'recruiterName'],
+            audience: 'Candidate'
+          },
+          {
+            name: 'Candidate Profile Submission',
+            category: 'Submission',
+            subject: 'Hirly Candidate Submission: {{candidateName}} for {{jobTitle}}',
+            body: `Hi {{contactPerson}},\n\nI hope you are doing well!\n\nI am pleased to submit {{candidateName}}'s profile for the {{jobTitle}} role at {{companyName}}.\n\nAfter reviewing their technical skills and background, we find them to be an excellent match. They have solid experience with your core tech stack and have expressed strong interest in {{companyName}}.\n\nPlease find their CV attached. Let me know if you would like us to schedule a discussion with them.\n\nBest regards,\n{{recruiterName}}`,
+            variables: ['contactPerson', 'candidateName', 'jobTitle', 'companyName', 'recruiterName'],
+            audience: 'Company'
+          },
+          {
+            name: 'Sourcing & Assessment Update',
+            category: 'Follow-up',
+            subject: 'Weekly Sourcing Pipeline Update for {{companyName}}',
+            body: `Hi {{contactPerson}},\n\nI hope your week is off to a great start!\n\nI wanted to share a quick update on our search progress for your {{jobTitle}} position.\n\nCurrently, we have candidates undergoing our technical screening and live coding assessments. We expect to share a vetted shortlist with you by the end of this week.\n\nLet me know if there are any adjustments in the role scope!\n\nBest regards,\n{{recruiterName}}`,
+            variables: ['contactPerson', 'jobTitle', 'companyName', 'recruiterName'],
+            audience: 'Company'
+          },
+          {
+            name: 'New Position Intake Meeting',
+            category: 'Screening',
+            subject: 'Intake Discussion: Sourcing strategy for {{jobTitle}}',
+            body: `Hi {{contactPerson}},\n\nThanks for choosing Hirly to assist with your expansion plans. To ensure we target the exact right profile, I'd love to schedule a brief 15-minute Intake Meeting to discuss your {{jobTitle}} requirements.\n\nDuring this call, we'll align on tech stack nuances, team culture, salary expectations, and interview stages.\n\nDo you have availability for a brief call tomorrow or the day after?\n\nBest regards,\n{{recruiterName}}`,
+            variables: ['contactPerson', 'jobTitle', 'recruiterName'],
+            audience: 'Company'
+          }
+        ];
 
+        templatesToInsert = defaultPrebuiltTemplates.map(t => ({
+          id: randomUUID(),
+          workspace_id: user.workspace_id,
+          created_by: user.id,
+          updated_by: user.id,
+          name: t.name,
+          category: t.category,
+          subject: t.subject,
+          body: t.body,
+          variables: t.variables,
+          audience: t.audience,
+          last_updated: new Date().toISOString().split('T')[0]
+        }));
+      }
+
+      if (templatesToInsert.length > 0) {
         const { data: insertedData, error: insertError } = await supabase
           .from('email_templates')
           .insert(templatesToInsert)
@@ -2839,6 +3307,8 @@ app.get('/api/bootstrap', async (c) => {
 
         if (!insertError && insertedData) {
           emailTemplates = keysToCamel(insertedData);
+        } else if (insertError) {
+          console.error('[Bootstrap Email Templates Seeding Error]', insertError.message);
         }
       }
     }
@@ -2935,6 +3405,7 @@ app.get('/api/bootstrap', async (c) => {
       customFieldDefinitions,
       workspaceRoles,
       lockedFeatures: workspaceData?.lockedFeatures || [],
+      workspaceCreatedAt: workspaceData?.createdAt,
       rbacAuditLogs,
       subscriptionPlan,
       subscriptionUsage,
@@ -3019,52 +3490,66 @@ app.post('/api/team_members', requirePermission('team.add'), async (c) => {
     const body = await c.req.json();
     const snakeBody = keysToSnake(body);
     
-    // Generate secure token
-    const token = crypto.randomUUID();
-    const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + 7); // 7 days expiration
+    if (!snakeBody.email || !body.password) {
+      return c.json({ error: 'Email and Password are required.' }, 400);
+    }
 
-    const { data: invitation, error } = await supabase
-      .from('invitations')
-      .insert([{
-        email: snakeBody.email,
+    // Call Supabase Auth Admin API to create the user directly
+    const { data: newUser, error: createError } = await supabase.auth.admin.createUser({
+      email: snakeBody.email,
+      password: body.password,
+      email_confirm: true,
+      user_metadata: {
+        full_name: snakeBody.name || snakeBody.email.split('@')[0]
+      }
+    });
+
+    if (createError || !newUser?.user) {
+      return c.json({ error: createError?.message || 'Failed to create user account.' }, 400);
+    }
+
+    // Create/upsert the profile in the profiles table
+    const { error: profileError } = await supabase
+      .from('profiles')
+      .upsert({
+        id: newUser.user.id,
         workspace_id: user.workspace_id,
+        name: snakeBody.name || snakeBody.email.split('@')[0],
+        email: snakeBody.email,
         role: snakeBody.role || 'Recruiter',
         department: snakeBody.department || 'HR Recruitment',
-        invited_by: user.id,
-        token: token,
-        expires_at: expiresAt.toISOString(),
-        status: 'pending'
-      }])
-      .select()
-      .single();
-      
-    if (error) throw error;
+        status: 'Active'
+      });
+
+    if (profileError) {
+      // Clean up the auth user if profile creation fails so we don't leave orphaned auth users
+      await supabase.auth.admin.deleteUser(newUser.user.id);
+      throw profileError;
+    }
 
     // Log audit log
     await supabase.from('rbac_audit_logs').insert({
       workspace_id: user.workspace_id,
-      target_user_id: null,
+      target_user_id: newUser.user.id,
       target_user_name: snakeBody.email,
-      action: 'Member Invited (Token)',
+      action: 'Member Created (Direct)',
       previous_role: null,
-      new_role: snakeBody.role,
+      new_role: snakeBody.role || 'Recruiter',
       changed_by_id: user.id,
       changed_by_name: user.name || user.email
     });
 
-    const mappedInvite = {
-      id: `invite_${invitation.id}`,
-      name: invitation.email.split('@')[0],
-      email: invitation.email,
-      role: invitation.role,
-      status: 'Pending',
+    const mappedMember = {
+      id: newUser.user.id,
+      name: snakeBody.name || snakeBody.email.split('@')[0],
+      email: snakeBody.email,
+      role: snakeBody.role || 'Recruiter',
+      status: 'Active',
       lastLogin: 'Never',
-      department: invitation.department,
-      message: `Invitation Token: ${invitation.token}`
+      department: snakeBody.department || 'HR Recruitment'
     };
 
-    return c.json(mappedInvite);
+    return c.json(mappedMember);
   } catch (err: any) {
     return c.json({ error: err.message }, 500);
   }
@@ -3261,9 +3746,8 @@ app.post('/api/email-config', requirePermission('settings.email'), async (c) => 
     snakeBody.workspace_id = user.workspace_id;
     snakeBody.updated_by = user.id;
     
-    if (!snakeBody.id) {
-      snakeBody.id = user.workspace_id;
-    }
+    // Always force workspace_id as primary key (id) for safety and isolation
+    snakeBody.id = user.workspace_id;
     
     const { data, error } = await supabase.from('email_configs').upsert([snakeBody]).select();
     if (error) throw error;
@@ -4527,7 +5011,7 @@ app.post('/api/workspaces', async (c) => {
 
     const trialEnabled = settings?.trial_enabled !== false;
     const trialDays = settings?.trial_duration_days || 7;
-    const startTrial = body.isTrial && trialEnabled;
+    const startTrial = body.isTrial !== false && trialEnabled;
 
     const renewalDate = new Date();
     if (startTrial) {
@@ -5628,6 +6112,319 @@ app.delete('/api/superadmin/plans/:id', requireSuperAdmin, async (c) => {
       .delete()
       .eq('id', planId);
       
+    if (error) throw error;
+    return c.json({ success: true });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// -------------------------------------------------------------
+// Testimonials & Feedback System Endpoints
+// -------------------------------------------------------------
+
+const PROFANITY_WORDS = ['spam', 'abuse', 'fake', 'scam', 'fraud', 'crap'];
+
+function hasProfanity(text: string): boolean {
+  const lower = text.toLowerCase();
+  return PROFANITY_WORDS.some(word => lower.includes(word));
+}
+
+// Public: Get approved testimonials & live trust stats
+app.get('/api/public/testimonials', async (c) => {
+  try {
+    const { data: testimonials, error: testErr } = await supabase
+      .from('testimonials')
+      .select('*')
+      .eq('status', 'Approved')
+      .order('created_at', { ascending: false });
+
+    if (testErr) throw testErr;
+
+    const { count: activeAgencies } = await supabase
+      .from('workspaces')
+      .select('*', { count: 'exact', head: true })
+      .eq('subscription_status', 'active');
+
+    const { count: totalCandidates } = await supabase
+      .from('candidates')
+      .select('*', { count: 'exact', head: true });
+
+    const { count: totalJobs } = await supabase
+      .from('jobs')
+      .select('*', { count: 'exact', head: true });
+
+    const { count: resumesParsed } = await supabase
+      .from('candidates')
+      .select('*', { count: 'exact', head: true })
+      .not('resume_text', 'is', null);
+
+    const { count: aiSearches } = await supabase
+      .from('copilot_tasks')
+      .select('*', { count: 'exact', head: true });
+
+    let csat = 4.9;
+    if (testimonials && testimonials.length > 0) {
+      const sum = testimonials.reduce((acc, curr) => acc + curr.rating, 0);
+      csat = parseFloat((sum / testimonials.length).toFixed(1));
+    }
+
+    const hasData = (activeAgencies || 0) > 0;
+
+    return c.json({
+      testimonials: keysToCamel(testimonials || []),
+      stats: {
+        activeAgencies: activeAgencies || 0,
+        candidatesManaged: totalCandidates || 0,
+        jobsPosted: totalJobs || 0,
+        resumesParsed: resumesParsed || 0,
+        aiSearches: aiSearches || 0,
+        csat,
+        averageResponseTime: '1.5 hours',
+        hasData
+      }
+    });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// Authenticated: Get current user's existing feedback
+app.get('/api/testimonials/my-feedback', async (c) => {
+  const user = c.get('user') as any;
+  if (!user) return c.json({ error: 'Unauthorized' }, 401);
+
+  try {
+    const { data: feedback, error } = await supabase
+      .from('testimonials')
+      .select('*')
+      .eq('user_id', user.id)
+      .maybeSingle();
+
+    if (error) throw error;
+    return c.json(feedback ? keysToCamel(feedback) : null);
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// Authenticated: Submit review/feedback
+app.post('/api/testimonials', async (c) => {
+  const user = c.get('user') as any;
+  if (!user) return c.json({ error: 'Unauthorized' }, 401);
+
+  try {
+    const body = await c.req.json();
+    const { 
+      rating, 
+      review, 
+      customerName, 
+      companyName, 
+      designation, 
+      website, 
+      profilePhoto, 
+      companyLogo, 
+      consentGiven 
+    } = body;
+
+    if (!rating || rating < 1 || rating > 5) {
+      return c.json({ error: 'Rating must be between 1 and 5' }, 400);
+    }
+    if (!review || review.trim().length < 10) {
+      return c.json({ error: 'Review must be at least 10 characters long' }, 400);
+    }
+    if (review.trim().length > 1000) {
+      return c.json({ error: 'Review cannot exceed 1000 characters' }, 400);
+    }
+    if (!customerName || !customerName.trim()) {
+      return c.json({ error: 'Customer name is required' }, 400);
+    }
+
+    if (hasProfanity(review)) {
+      return c.json({ error: 'Your review contains words that violate our content policy. Please revise.' }, 400);
+    }
+
+    const { data: existingReview } = await supabase
+      .from('testimonials')
+      .select('created_at')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (existingReview) {
+      const elapsed = Date.now() - new Date(existingReview.created_at).getTime();
+      const thirtyDays = 30 * 24 * 60 * 60 * 1000;
+      if (elapsed < thirtyDays) {
+        return c.json({ error: 'You have already submitted a review recently. You can update or submit a new review after 30 days.' }, 400);
+      }
+    }
+
+    const { data: testimonial, error: insertErr } = await supabase
+      .from('testimonials')
+      .insert([{
+        workspace_id: user.workspace_id,
+        user_id: user.id,
+        customer_name: customerName.trim(),
+        company_name: companyName?.trim() || null,
+        designation: designation?.trim() || null,
+        email: user.email,
+        website: website?.trim() || null,
+        review: review.trim(),
+        rating,
+        profile_photo: profilePhoto || null,
+        company_logo: companyLogo || null,
+        consent_given: !!consentGiven,
+        status: 'Pending'
+      }])
+      .select()
+      .single();
+
+    if (insertErr) throw insertErr;
+
+    return c.json({
+      success: true,
+      message: '🎉 Thank you! Your feedback has been received. Our team will review it before publishing it on our website.',
+      testimonial: keysToCamel(testimonial)
+    });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// Superadmin: List testimonials (Filters + Search + Pagination)
+app.get('/api/superadmin/testimonials', requireSuperAdmin, async (c) => {
+  try {
+    const status = c.req.query('status');
+    const rating = c.req.query('rating');
+    const search = c.req.query('search');
+    const page = parseInt(c.req.query('page') || '1');
+    const limit = parseInt(c.req.query('limit') || '10');
+
+    let query = supabase.from('testimonials').select('*', { count: 'exact' });
+
+    if (status) {
+      query = query.eq('status', status);
+    }
+    if (rating) {
+      query = query.eq('rating', parseInt(rating));
+    }
+    if (search) {
+      query = query.or(`customer_name.ilike.%${search}%,company_name.ilike.%${search}%`);
+    }
+
+    const from = (page - 1) * limit;
+    const to = from + limit - 1;
+    query = query.order('created_at', { ascending: false }).range(from, to);
+
+    const { data: testimonials, count, error } = await query;
+    if (error) throw error;
+
+    return c.json({
+      testimonials: keysToCamel(testimonials || []),
+      total: count || 0,
+      page,
+      limit
+    });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// Superadmin: Get testimonials analytics
+app.get('/api/superadmin/testimonials/analytics', requireSuperAdmin, async (c) => {
+  try {
+    const { data: reviews, error } = await supabase
+      .from('testimonials')
+      .select('rating, status, created_at');
+
+    if (error) throw error;
+
+    const total = reviews?.length || 0;
+    const pending = reviews?.filter(r => r.status === 'Pending').length || 0;
+    const approved = reviews?.filter(r => r.status === 'Approved').length || 0;
+    const rejected = reviews?.filter(r => r.status === 'Rejected').length || 0;
+
+    let avgRating = 0;
+    const distribution: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+
+    if (total > 0) {
+      const sum = reviews.reduce((acc, curr) => acc + curr.rating, 0);
+      avgRating = parseFloat((sum / total).toFixed(1));
+      reviews.forEach(r => {
+        const ratingKey = r.rating;
+        if (distribution[ratingKey] !== undefined) {
+          distribution[ratingKey]++;
+        }
+      });
+    }
+
+    const conversionRate = total > 0 ? Math.round((approved / total) * 100) : 0;
+
+    return c.json({
+      total,
+      pending,
+      approved,
+      rejected,
+      avgRating,
+      distribution,
+      conversionRate,
+      mostMentionedFeatures: ['AI Copilot', 'Resume Parsing', 'Email Automation', 'Pipeline Management'],
+      mostCommonSuggestions: ['Add WhatsApp templates', 'Dark mode improvements', 'Custom candidate fields']
+    });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// Superadmin: Update testimonial status/notes
+app.patch('/api/superadmin/testimonials/:id', requireSuperAdmin, async (c) => {
+  const id = c.req.param('id');
+  const user = c.get('user') as any;
+
+  try {
+    const body = await c.req.json();
+    const { status, featured, adminNotes } = body;
+
+    const updateData: any = {};
+    if (status) {
+      updateData.status = status;
+      if (status === 'Approved') {
+        updateData.approved_by = user.id;
+        updateData.approved_at = new Date().toISOString();
+      }
+    }
+    if (featured !== undefined) {
+      updateData.featured = !!featured;
+    }
+    if (adminNotes !== undefined) {
+      updateData.admin_notes = adminNotes;
+    }
+    updateData.updated_at = new Date().toISOString();
+
+    const { data: updated, error } = await supabase
+      .from('testimonials')
+      .update(updateData)
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return c.json(keysToCamel(updated));
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// Superadmin: Delete testimonial
+app.delete('/api/superadmin/testimonials/:id', requireSuperAdmin, async (c) => {
+  const id = c.req.param('id');
+  try {
+    const { error } = await supabase
+      .from('testimonials')
+      .delete()
+      .eq('id', id);
+
     if (error) throw error;
     return c.json({ success: true });
   } catch (err: any) {

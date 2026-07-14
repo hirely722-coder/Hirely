@@ -105,6 +105,7 @@ interface AppContextType {
   
   subscriptionPlan: any;
   subscriptionUsage: any;
+  workspaceCreatedAt: string;
   hasAccess: (featureKey: string) => boolean;
   hasReachedLimit: (limitKey: string) => boolean;
   isTrialActive: () => boolean;
@@ -128,6 +129,7 @@ interface AppContextType {
   token: string | null;
   showUpgradeSuccess: boolean;
   setShowUpgradeSuccess: React.Dispatch<React.SetStateAction<boolean>>;
+  realtimeStatus: string;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -156,9 +158,11 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [isSuperAdmin, setIsSuperAdmin] = useState<boolean>(false);
   const [subscriptionPlan, setSubscriptionPlan] = useState<any | null>(null);
   const [subscriptionUsage, setSubscriptionUsage] = useState<any | null>(null);
+  const [workspaceCreatedAt, setWorkspaceCreatedAt] = useState<string>('');
   const [isLoading, setIsLoading] = useState(true);
   const [toast, setToast] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
   const [showUpgradeSuccess, setShowUpgradeSuccess] = useState(false);
+  const [realtimeStatus, setRealtimeStatus] = useState<string>('CONNECTING');
 
   const [companyContacts, setCompanyContacts] = useState<Contact[]>([]);
   const [companyDocuments, setCompanyDocuments] = useState<CompanyDocument[]>([]);
@@ -212,6 +216,11 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   useEffect(() => {
     if (!user) return;
 
+    const getAuthorName = (userId: string) => {
+      const author = teamMembersRef.current.find(m => m.id === userId);
+      return author ? author.name : 'a team member';
+    };
+
     console.log(`Setting up real-time subscription for profile changes: public.profiles.id=eq.${user.id}`);
     const profileChannel = supabase
       .channel(`user-profile-${user.id}`)
@@ -232,12 +241,13 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       )
       .subscribe();
 
-    // Listen to changes to workspace roles in the same workspace
-    let rolesChannel: any = null;
+    // Listen to changes to workspace roles and other objects in the same workspace
+    let workspaceChannel: any = null;
     if (workspaceId) {
-      console.log(`Setting up real-time subscription for role changes in workspace: ${workspaceId}`);
-      rolesChannel = supabase
-        .channel(`workspace-roles-${workspaceId}`)
+      console.log(`Setting up real-time subscription for workspace changes: ${workspaceId}`);
+      workspaceChannel = supabase
+        .channel(`workspace-realtime-${workspaceId}`)
+        // Listen to changes to workspace roles
         .on(
           'postgres_changes',
           {
@@ -253,13 +263,189 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             showToast('⚠️ Workspace roles and permissions have been updated.', 'success');
           }
         )
-        .subscribe();
+        // Listen to candidates changes
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'candidates',
+            filter: `workspace_id=eq.${workspaceId}`
+          },
+          async (payload: any) => {
+            console.log('Real-time candidate change:', payload);
+            await fetchData();
+            if (payload.eventType === 'INSERT') {
+              const cand = payload.new;
+              const authorName = getAuthorName(cand.created_by);
+              addNotification(`🎉 Candidate "${cand.name || 'New Candidate'}" was added to the pipeline by ${authorName}.`);
+              showToast(`🎉 Candidate "${cand.name || 'New Candidate'}" was added to the pipeline by ${authorName}.`, 'success');
+            } else if (payload.eventType === 'UPDATE') {
+              const cand = payload.new;
+              const authorName = getAuthorName(cand.updated_by);
+              addNotification(`✏️ Candidate "${cand.name || 'Candidate'}" details were updated by ${authorName}.`);
+              showToast(`✏️ Candidate "${cand.name || 'Candidate'}" details were updated by ${authorName}.`, 'success');
+            } else if (payload.eventType === 'DELETE') {
+              addNotification(`🗑️ Candidate profile was removed from the pipeline.`);
+              showToast(`🗑️ Candidate profile was removed from the pipeline.`, 'success');
+            }
+          }
+        )
+        // Listen to jobs changes
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'jobs',
+            filter: `workspace_id=eq.${workspaceId}`
+          },
+          async (payload: any) => {
+            console.log('Real-time job change:', payload);
+            await fetchData();
+            if (payload.eventType === 'INSERT') {
+              const job = payload.new;
+              const authorName = getAuthorName(job.created_by);
+              addNotification(`💼 New Job Opening: "${job.title}" has been published by ${authorName}.`);
+              showToast(`💼 New Job Opening: "${job.title}" has been published by ${authorName}.`, 'success');
+            } else if (payload.eventType === 'UPDATE') {
+              const job = payload.new;
+              const authorName = getAuthorName(job.updated_by);
+              addNotification(`✏️ Job Opening "${job.title}" details were updated by ${authorName}.`);
+              showToast(`✏️ Job Opening "${job.title}" details were updated by ${authorName}.`, 'success');
+            } else if (payload.eventType === 'DELETE') {
+              addNotification(`🗑️ Job Opening was removed.`);
+              showToast(`🗑️ Job Opening was removed.`, 'success');
+            }
+          }
+        )
+        // Listen to tasks changes
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'tasks',
+            filter: `workspace_id=eq.${workspaceId}`
+          },
+          async (payload: any) => {
+            console.log('Real-time task change:', payload);
+            await fetchData();
+            if (payload.eventType === 'INSERT') {
+              const task = payload.new;
+              const authorName = getAuthorName(task.created_by);
+              addNotification(`📅 New Task Assigned: "${task.title}" by ${authorName}.`);
+              showToast(`📅 New Task Assigned: "${task.title}" by ${authorName}.`, 'success');
+            } else if (payload.eventType === 'UPDATE') {
+              const task = payload.new;
+              const authorName = getAuthorName(task.updated_by);
+              const statusStr = task.completed ? 'completed' : 'updated';
+              addNotification(`✏️ Task "${task.title}" was marked ${statusStr} by ${authorName}.`);
+              showToast(`✏️ Task "${task.title}" was marked ${statusStr} by ${authorName}.`, 'success');
+            } else if (payload.eventType === 'DELETE') {
+              addNotification(`🗑️ Task was deleted.`);
+              showToast(`🗑️ Task was deleted.`, 'success');
+            }
+          }
+        )
+        // Listen to member roster updates (profiles)
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'profiles',
+            filter: `workspace_id=eq.${workspaceId}`
+          },
+          async (payload: any) => {
+            console.log('Real-time member change detected:', payload);
+            await fetchData();
+            if (payload.eventType === 'INSERT') {
+              const member = payload.new;
+              addNotification(`👤 Team member "${member.name}" was added to the workspace.`);
+              showToast(`👤 Team member "${member.name}" was added to the workspace.`, 'success');
+            } else if (payload.eventType === 'UPDATE') {
+              const oldMember = payload.old;
+              const newMember = payload.new;
+              if (oldMember && oldMember.status !== newMember.status) {
+                addNotification(`👤 Member "${newMember.name}" status updated to "${newMember.status}".`);
+                showToast(`👤 Member "${newMember.name}" status updated to "${newMember.status}".`, 'success');
+              } else {
+                addNotification(`👤 Member "${newMember.name}" profile was updated.`);
+                showToast(`👤 Member "${newMember.name}" profile was updated.`, 'success');
+              }
+            } else if (payload.eventType === 'DELETE') {
+              addNotification(`🗑️ Team member was removed from the roster.`);
+              showToast(`🗑️ Team member was removed from the roster.`, 'success');
+            }
+          }
+        )
+        // Listen to email templates changes
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'email_templates',
+            filter: `workspace_id=eq.${workspaceId}`
+          },
+          async (payload: any) => {
+            console.log('Real-time email template change:', payload);
+            await fetchData();
+            if (payload.eventType === 'INSERT') {
+              const temp = payload.new;
+              const authorName = getAuthorName(temp.created_by);
+              addNotification(`📄 Email Template "${temp.name}" was created by ${authorName}.`);
+              showToast(`📄 Email Template "${temp.name}" was created by ${authorName}.`, 'success');
+            } else if (payload.eventType === 'UPDATE') {
+              const temp = payload.new;
+              const authorName = getAuthorName(temp.updated_by);
+              addNotification(`✏️ Email Template "${temp.name}" was updated by ${authorName}.`);
+              showToast(`✏️ Email Template "${temp.name}" was updated by ${authorName}.`, 'success');
+            } else if (payload.eventType === 'DELETE') {
+              addNotification(`🗑️ Email Template was deleted.`);
+              showToast(`🗑️ Email Template was deleted.`, 'success');
+            }
+          }
+        )
+        // Listen to communication logs additions
+        .on(
+          'postgres_changes',
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'communication_logs',
+            filter: `workspace_id=eq.${workspaceId}`
+          },
+          async (payload: any) => {
+            console.log('Real-time communication log added:', payload);
+            await fetchData();
+            const log = payload.new;
+            const authorName = getAuthorName(log.created_by);
+            const typeStr = log.type === 'Email' ? '📧 Email' : log.type === 'WhatsApp' ? '💬 WhatsApp' : '📞 Call';
+            addNotification(`${typeStr} sent to candidate: "${log.subject || 'Outbound log'}" by ${authorName}.`);
+            showToast(`${typeStr} sent to candidate by ${authorName}.`, 'success');
+          }
+        )
+        .subscribe((status: string, err?: any) => {
+          console.log(`workspaceChannel status for ${workspaceId}: ${status}`, err || '');
+          if (status === 'SUBSCRIBED') {
+            setRealtimeStatus('SUBSCRIBED');
+          } else if (status === 'CLOSED') {
+            setRealtimeStatus('CLOSED');
+          } else if (status === 'CHANNEL_ERROR') {
+            setRealtimeStatus('ERROR');
+            if (err) console.error('Workspace channel error:', err);
+          }
+        });
+    } else {
+      setRealtimeStatus('DISCONNECTED');
     }
 
     return () => {
       supabase.removeChannel(profileChannel);
-      if (rolesChannel) {
-        supabase.removeChannel(rolesChannel);
+      if (workspaceChannel) {
+        supabase.removeChannel(workspaceChannel);
       }
     };
   }, [user, workspaceId]);
@@ -279,6 +465,9 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const candidatesRef = useRef(candidates);
   candidatesRef.current = candidates;
+
+  const teamMembersRef = useRef(teamMembers);
+  teamMembersRef.current = teamMembers;
 
   const showToast = (text: string, type: 'success' | 'error' = 'success') => {
     setToast({ text, type });
@@ -354,7 +543,18 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       ...(options.headers || {}),
       'Authorization': `Bearer ${token}`
     };
-    return fetch(url, { ...options, headers });
+    const response = await fetch(url, { ...options, headers, cache: 'no-store' });
+    if (response.status === 401) {
+      try {
+        const clone = response.clone();
+        const data = await clone.json();
+        if (data.error && data.error.includes('disabled')) {
+          await logout();
+          window.location.href = `/login?error=${encodeURIComponent('Your account has been disabled by the administrator.')}`;
+        }
+      } catch (e) {}
+    }
+    return response;
   };
 
   // Load initial cached data from localStorage (SWR cache resolution)
@@ -463,6 +663,8 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         if (cachedIsSuperAdmin) setIsSuperAdmin(JSON.parse(cachedIsSuperAdmin));
         if (cachedSubPlan) setSubscriptionPlan(JSON.parse(cachedSubPlan));
         if (cachedSubUsage) setSubscriptionUsage(JSON.parse(cachedSubUsage));
+        const cachedWsCreated = localStorage.getItem('hirely_cache_workspace_created_at');
+        if (cachedWsCreated) setWorkspaceCreatedAt(cachedWsCreated);
         
         setIsLoading(false); // SWR: Disable loading state immediately as we have cached data
         console.log('Ingested database records from SWR cache.');
@@ -573,10 +775,13 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
       const subPlanData = payload.subscriptionPlan || null;
       const subUsageData = payload.subscriptionUsage || null;
+      const wsCreatedAt = payload.workspaceCreatedAt || '';
       setSubscriptionPlan(subPlanData);
       setSubscriptionUsage(subUsageData);
+      setWorkspaceCreatedAt(wsCreatedAt);
       localStorage.setItem('hirely_cache_subscription_plan', JSON.stringify(subPlanData));
       localStorage.setItem('hirely_cache_subscription_usage', JSON.stringify(subUsageData));
+      localStorage.setItem('hirely_cache_workspace_created_at', wsCreatedAt);
 
     } catch (err: any) {
       console.error('Failed to fetch bootstrapping data from Hono backend:', err);
@@ -1742,7 +1947,9 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       setNeedsOnboarding,
       token,
       showUpgradeSuccess,
-      setShowUpgradeSuccess
+      setShowUpgradeSuccess,
+      workspaceCreatedAt,
+      realtimeStatus
     }}>
       {children}
     </AppContext.Provider>
