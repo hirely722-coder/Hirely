@@ -57,7 +57,7 @@ export function FeedbackModal({ isOpen, onClose }: FeedbackModalProps) {
     setIsLoading(true);
 
     try {
-      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_API_URL || process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:3001";
+      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_API_URL || process.env.NEXT_PUBLIC_BACKEND_URL || "";
       const res = await fetch(`${backendUrl}/api/testimonials`, {
         method: 'POST',
         headers: {

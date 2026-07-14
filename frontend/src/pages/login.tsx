@@ -166,7 +166,7 @@ export default function Login() {
       } else {
         if (data?.session?.access_token) {
           try {
-            const res = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_API_URL || 'http://localhost:3001'}/api/bootstrap`, {
+            const res = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_API_URL || ''}/api/bootstrap`, {
               headers: {
                 'Authorization': `Bearer ${data.session.access_token}`
               }

@@ -495,7 +495,7 @@ export default function JobsView({
 
       {/* Search & Filter bar */}
       <div className="space-y-3 bg-white p-4 border border-slate-200/80 rounded-xl shadow-xs">
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+        <div className="flex flex-col md:flex-row items-stretch md:items-end justify-between gap-3">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
             <input
@@ -507,33 +507,37 @@ export default function JobsView({
             />
           </div>
           
-          <div className="flex flex-wrap items-center gap-2.5 justify-end">
-            <SearchableDropdown
-              label="Company"
-              options={[{ value: 'All', label: 'All Companies' }, ...companies.map(c => ({ value: c.id, label: c.name }))] }
-              value={companyFilter}
-              onChange={setCompanyFilter}
-              placeholder="Search companies..."
-            />
+          <div className="w-full grid grid-cols-2 gap-2.5 items-end md:flex md:w-auto md:items-end md:gap-2.5 md:justify-end">
+            <div className="w-full md:w-auto">
+              <SearchableDropdown
+                label="Company"
+                options={[{ value: 'All', label: 'All Companies' }, ...companies.map(c => ({ value: c.id, label: c.name }))] }
+                value={companyFilter}
+                onChange={setCompanyFilter}
+                placeholder="Search companies..."
+              />
+            </div>
 
-            <SearchableDropdown
-              label="Status"
-              options={['All', 'Open', 'Closed']}
-              value={statusFilter}
-              onChange={(val) => setStatusFilter(val as any)}
-            />
+            <div className="w-full md:w-auto">
+              <SearchableDropdown
+                label="Status"
+                options={['All', 'Open', 'Closed']}
+                value={statusFilter}
+                onChange={(val) => setStatusFilter(val as any)}
+              />
+            </div>
 
             <button
               type="button"
               onClick={() => setShowFiltersPanel(prev => !prev)}
-              className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold border rounded-lg transition-all cursor-pointer ${
+              className={`w-full col-span-2 md:col-span-1 md:w-auto flex items-center justify-center gap-1.5 px-3.5 py-2 text-xs font-semibold border rounded-lg transition-all cursor-pointer ${
                 showFiltersPanel 
                   ? 'bg-blue-50 border-blue-200 text-blue-700' 
                   : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
               }`}
             >
               <Filter className="h-3.5 w-3.5" />
-              Advanced Filters
+              <span>Advanced Filters</span>
               {(experienceFilter !== 'All' || salaryFilter !== 'All' || locationFilter !== 'All' || skillsFilter !== 'All' || workModeFilter !== 'All' || applicationsCountFilter !== 'All' || requiredSkillsCountFilter !== 'All') && (
                 <span className="ml-1 px-1.5 py-0.2 bg-blue-600 text-white rounded-full text-[9px] font-bold">
                   {[experienceFilter, salaryFilter, locationFilter, skillsFilter, workModeFilter, applicationsCountFilter, requiredSkillsCountFilter].filter(f => f !== 'All').length}
@@ -551,20 +555,20 @@ export default function JobsView({
                   onOpenCSVImport('jobs');
                 }}
                 title="Import jobs from a CSV or Excel file"
-                className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold bg-white border border-slate-200 text-slate-700 rounded-lg hover:bg-slate-50 transition-colors"
+                className="w-full md:w-auto flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold bg-white border border-slate-200 text-slate-700 rounded-lg hover:bg-slate-50 transition-colors"
               >
                 <Upload className="h-3.5 w-3.5 text-slate-500" />
-                Import CSV/Excel
+                <span>Import CSV/Excel</span>
               </button>
             )}
 
             <button 
               onClick={handleExportCSV}
               title="Export full list to CSV sheet"
-              className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold bg-white border border-slate-200 text-slate-700 rounded-lg hover:bg-slate-50 transition-colors"
+              className="w-full md:w-auto flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold bg-white border border-slate-200 text-slate-700 rounded-lg hover:bg-slate-50 transition-colors"
             >
               <FileSpreadsheet className="h-3.5 w-3.5 text-slate-500" />
-              Export List
+              <span>Export List</span>
             </button>
           </div>
         </div>

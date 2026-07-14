@@ -91,6 +91,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const [theme, setTheme] = useState<string>('slate');
   const [showThemeDropdown, setShowThemeDropdown] = useState(false);
   const [showNotificationsDropdown, setShowNotificationsDropdown] = useState(false);
+  const notificationsRef = useRef<HTMLDivElement>(null);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [globalSearch, setGlobalSearch] = useState('');
   const [isCSVImportOpen, setIsCSVImportOpen] = useState(false);
@@ -98,6 +99,20 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
   const [isOffline, setIsOffline] = useState(false);
   const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (notificationsRef.current && !notificationsRef.current.contains(event.target as Node)) {
+        setShowNotificationsDropdown(false);
+      }
+    }
+    if (showNotificationsDropdown) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showNotificationsDropdown]);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -139,7 +154,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
     const checkFeedback = async () => {
       try {
-        const backendUrl = process.env.NEXT_PUBLIC_BACKEND_API_URL || process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:3001";
+        const backendUrl = process.env.NEXT_PUBLIC_BACKEND_API_URL || process.env.NEXT_PUBLIC_BACKEND_URL || "";
         const res = await fetch(`${backendUrl}/api/testimonials/my-feedback`, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
@@ -732,6 +747,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           {isAdminPath && (
             <Link
               href="/dashboard"
+              onClick={() => setIsMobileSidebarOpen(false)}
               className="flex items-center gap-3 px-4 py-2.5 rounded-xl text-xs font-bold text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100/70 border border-blue-100/50 mb-4 shadow-2xs"
             >
               <LayoutDashboard className="h-4 w-4 text-blue-600 shrink-0" />
@@ -761,6 +777,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                     if (isItemLocked) {
                       e.preventDefault();
                       showToast('Upgrade Required: This feature is not included in your current subscription plan.', 'error');
+                    } else {
+                      setIsMobileSidebarOpen(false);
                     }
                   }}
                   className={`w-full flex items-center justify-between px-4 py-2.5 rounded-xl text-xs font-semibold transition-all ${
@@ -920,7 +938,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             <div className="h-4 w-[1px] bg-slate-200" />
 
             {/* Notification alert bells */}
-            <div className="relative">
+            <div className="relative" ref={notificationsRef}>
               <button 
                 onClick={() => setShowNotificationsDropdown(prev => !prev)}
                 className="p-1.5 hover:bg-slate-50 text-slate-400 hover:text-slate-800 rounded-lg transition-colors relative"
