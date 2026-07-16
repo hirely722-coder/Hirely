@@ -1,5 +1,5 @@
-import React from 'react';
-import { Sliders, Paintbrush, Mail, Users, Bell, Database, Shield, Lock, History, CreditCard, Sparkles, X, Check } from 'lucide-react';
+﻿import React from 'react';
+import { Sliders, Paintbrush, Mail, Users, Bell, Database, Shield, Lock, History, CreditCard, Sparkles, X, Check, Briefcase } from 'lucide-react';
 import { TeamMember, EmailConfig } from '../types';
 import ThemeBuilderView from './ThemeBuilderView';
 import { useSettingsState } from './settings/useSettingsState';
@@ -8,6 +8,7 @@ import { supabase } from '../utils/supabase';
 import AnimatedModal from './AnimatedModal';
 import { SettingsGeneralTab } from './settings/SettingsGeneralTab';
 import { SettingsEmailTab } from './settings/SettingsEmailTab';
+import { EmailIntegrationTab } from './settings/EmailIntegrationTab';
 import { SettingsTeamTab } from './settings/SettingsTeamTab';
 import { SettingsNotificationsTab } from './settings/SettingsNotificationsTab';
 import { SettingsCustomFieldsTab } from './settings/SettingsCustomFieldsTab';
@@ -15,6 +16,7 @@ import { SettingsTeamModals } from './settings/SettingsTeamModals';
 import { SettingsRbacTab } from './settings/SettingsRbacTab';
 import { SettingsFeatureLocksTab } from './settings/SettingsFeatureLocksTab';
 import { SettingsSecurityLogsTab } from './settings/SettingsSecurityLogsTab';
+import { RecruiterManagementTab } from './settings/RecruiterManagementTab';
 
 interface SettingsViewProps {
   teamMembers: TeamMember[];
@@ -41,7 +43,7 @@ export default function SettingsView({
   onThemeChanged,
   isLoading = false
 }: SettingsViewProps) {
-  const { subscriptionPlan, isTrialActive, getTrialDaysRemaining, user, token, setShowUpgradeSuccess } = useApp();
+  const { subscriptionPlan, isTrialActive, getTrialDaysRemaining, user, token, setShowUpgradeSuccess, currentUserRole } = useApp();
   const [isPricingModalOpen, setIsPricingModalOpen] = React.useState(false);
   const [isUpgrading, setIsUpgrading] = React.useState(false);
 
@@ -112,6 +114,18 @@ export default function SettingsView({
           </button>
 
           <button
+            onClick={() => state.setActiveTab('email_integration' as any)}
+            className={`w-full flex items-center gap-2.5 px-3 py-2 text-xs font-semibold rounded-lg text-left transition-colors cursor-pointer ${
+              state.activeTab === ('email_integration' as any)
+                ? 'bg-white text-blue-600 shadow-xs border border-slate-200/40'
+                : 'text-slate-505 hover:bg-slate-100 hover:text-slate-800'
+            }`}
+          >
+            <Mail className="h-4 w-4" />
+            Email Integration
+          </button>
+
+          <button
             onClick={() => state.setActiveTab('team')}
             className={`w-full flex items-center gap-2.5 px-3 py-2 text-xs font-semibold rounded-lg text-left transition-colors cursor-pointer ${
               state.activeTab === 'team' 
@@ -125,6 +139,20 @@ export default function SettingsView({
               {teamMembers.length}
             </span>
           </button>
+
+          {(currentUserRole === 'Owner' || currentUserRole === 'Admin') && (
+            <button
+              onClick={() => state.setActiveTab('recruiters')}
+              className={`w-full flex items-center gap-2.5 px-3 py-2 text-xs font-semibold rounded-lg text-left transition-colors cursor-pointer ${
+                state.activeTab === 'recruiters' 
+                  ? 'bg-white text-blue-600 shadow-xs border border-slate-200/40' 
+                  : 'text-slate-55 hover:bg-slate-100 hover:text-slate-800'
+              }`}
+            >
+              <Briefcase className="h-4 w-4" />
+              Recruiter Sourcing
+            </button>
+          )}
 
           <button
             onClick={() => state.setActiveTab('notifications')}
@@ -240,7 +268,12 @@ export default function SettingsView({
             />
           )}
 
-          {/* EMAIL SETUP WIZARD */}
+          {/* EMAIL INTEGRATION (OAuth) */}
+          {state.activeTab === ('email_integration' as any) && (
+            <EmailIntegrationTab showToast={showToast} />
+          )}
+
+          {/* EMAIL SETUP WIZARD (SMTP legacy) */}
           {state.activeTab === 'email' && (
             <SettingsEmailTab
               emailConfig={emailConfig}
@@ -279,6 +312,11 @@ export default function SettingsView({
               handleToggleMemberStatus={state.handleToggleMemberStatus}
               handleRemoveMember={state.handleRemoveMember}
             />
+          )}
+
+          {/* RECRUITER MANAGEMENT */}
+          {state.activeTab === 'recruiters' && (
+            <RecruiterManagementTab />
           )}
 
           {/* NOTIFICATIONS */}
@@ -460,7 +498,7 @@ export default function SettingsView({
                               key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || 'rzp_test_TCVTzrCeGHT0sg',
                               amount: orderData.amount,
                               currency: orderData.currency,
-                              name: "Hirely AI Platform",
+                              name: "Hirly AI Platform",
                               description: "Upgrade License to STANDARD",
                               order_id: orderData.orderId,
                               handler: async function (response: any) {
@@ -561,7 +599,7 @@ export default function SettingsView({
                               key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || 'rzp_test_TCVTzrCeGHT0sg',
                               amount: orderData.amount,
                               currency: orderData.currency,
-                              name: "Hirely AI Platform",
+                              name: "Hirly AI Platform",
                               description: "Upgrade License to AI PRO",
                               order_id: orderData.orderId,
                               handler: async function (response: any) {

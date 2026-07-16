@@ -19,6 +19,8 @@ import {
 } from 'lucide-react';
 import { Candidate, Job, JobCandidate } from '../types';
 import { calculateMatchScore } from '../utils/matching';
+import { ExportCsvButton } from './ui/ExportCsvButton';
+import { ExportColumn } from '../utils/csvExporter';
 
 interface PipelineViewProps {
   candidates: Candidate[];
@@ -122,6 +124,19 @@ export default function PipelineView({
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedJobId, setSelectedJobId] = useState<string>('all');
   const [minExperience, setMinExperience] = useState<string>('all');
+
+  const pipelineExportColumns = useMemo<ExportColumn<any>[]>(() => [
+    { header: 'Candidate Name', key: 'name' },
+    { header: 'Pipeline Stage', key: 'status' },
+    { header: 'Match Score', key: 'aiMatchScore', transform: (val: any) => val || 85 },
+    { header: 'Experience', key: 'experience' },
+    { header: 'Current Company', key: 'currentCompany' },
+    { 
+      header: 'Associated Job', 
+      key: 'jobId', 
+      transform: (val: any, record: any) => jobs.find((j: any) => j.id === record.jobId)?.title || 'All Jobs / General'
+    }
+  ], [jobs]);
 
   const [jobCandidates, setJobCandidates] = useState<JobCandidate[]>([]);
   const [jobCandidatesLoading, setJobCandidatesLoading] = useState(false);
@@ -345,6 +360,13 @@ export default function PipelineView({
             <ArrowLeftRight className="h-3 w-3 text-slate-400 animate-pulse" />
             Drag & Drop enabled
           </span>
+          <ExportCsvButton
+            data={filteredCandidates}
+            columns={pipelineExportColumns}
+            filename="hiring_pipeline_report"
+            permission="candidates.export"
+            className="flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-semibold border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-50 transition-colors bg-white shadow-xs cursor-pointer"
+          />
         </div>
       </div>
 

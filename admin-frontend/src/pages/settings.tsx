@@ -41,11 +41,11 @@ export default function AdminSettings() {
       setSmtpPort(data.smtpPort || 587);
       setSmtpUser(data.smtpUser || '');
       setSmtpPass(data.smtpPass || '');
-      setSmtpSender(data.smtpSender || 'noreply@hirely.com');
+      setSmtpSender(data.smtpSender || 'noreply@hirly.com');
       setEdenaiKey(data.edenaiKey || '');
       setElevenlabsKey(data.elevenlabsKey || '');
       setTelegramToken(data.telegramToken || '');
-      setWhitelabelDomain(data.whitelabelDomain || 'app.hirely.com');
+      setWhitelabelDomain(data.whitelabelDomain || 'app.hirly.com');
       setAllowedDomainsList(data.allowedDomainsList || '*');
       setBackupSchedule(data.backupSchedule || 'Daily');
       setTrialEnabled(data.trialEnabled !== false);
@@ -321,7 +321,7 @@ export default function AdminSettings() {
                   <ShieldCheck className="h-4.5 w-4.5 text-blue-600 shrink-0 mt-0.5" />
                   <div>
                     <span className="font-bold block uppercase tracking-wider">Automated cold backup</span>
-                    <span className="mt-0.5 block">Hirely database snapshots are encrypted via AES-256 and pushed directly to S3 glacier storage. Reclaiming requires 4 hours retrieval delay.</span>
+                    <span className="mt-0.5 block">Hirly database snapshots are encrypted via AES-256 and pushed directly to S3 glacier storage. Reclaiming requires 4 hours retrieval delay.</span>
                   </div>
                 </div>
               </div>

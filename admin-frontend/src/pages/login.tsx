@@ -137,7 +137,7 @@ export default function AdminLogin() {
               <input
                 type="email"
                 required
-                placeholder="admin@hirely.com"
+                placeholder="admin@hirly.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="w-full bg-white border border-slate-200 rounded-2xl pl-11 pr-4 py-3.5 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600 transition-all font-medium font-mono"

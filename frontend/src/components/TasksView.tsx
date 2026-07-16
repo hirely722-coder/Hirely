@@ -19,6 +19,20 @@ interface TasksViewProps {
   isLoading?: boolean;
 }
 
+import { ExportCsvButton } from './ui/ExportCsvButton';
+import { ExportColumn } from '../utils/csvExporter';
+
+const tasksExportColumns: ExportColumn<Task>[] = [
+  { header: 'Task Title', key: 'title' },
+  { header: 'Task Type', key: 'type' },
+  { header: 'Priority', key: 'priority' },
+  { header: 'Status', key: 'status' },
+  { header: 'Due Date', key: 'dueDate' },
+  { header: 'Linked Candidate', key: 'candidateName', transform: (val) => val || 'N/A' },
+  { header: 'Description', key: 'description', transform: (val) => val || '' },
+  { header: 'Notes', key: 'notes', transform: (val) => val || '' }
+];
+
 export default function TasksView({
   tasks,
   candidates,
@@ -140,13 +154,22 @@ export default function TasksView({
           </h1>
           <p className="text-xs text-slate-500 mt-1">Simple, categorized lists with essential candidate contacts. No bloated tabs or extra notes.</p>
         </div>
-        <button 
-          onClick={() => { resetForm(); setShowAddModal(true); }}
-          className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold bg-blue-600 text-white rounded-lg hover:bg-blue-700 shadow-sm transition-colors self-start sm:self-auto"
-        >
-          <Plus className="h-4 w-4" />
-          Create Task
-        </button>
+        <div className="flex items-center gap-2 self-start sm:self-auto">
+          <ExportCsvButton
+            data={filteredTasks}
+            columns={tasksExportColumns}
+            filename="tasks_report"
+            permission="candidates.export"
+            className="flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-semibold border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-50 transition-colors bg-white shadow-xs cursor-pointer"
+          />
+          <button 
+            onClick={() => { resetForm(); setShowAddModal(true); }}
+            className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold bg-blue-600 text-white rounded-lg hover:bg-blue-700 shadow-sm transition-colors"
+          >
+            <Plus className="h-4 w-4" />
+            Create Task
+          </button>
+        </div>
       </div>
 
       {/* Minimal Stats */}

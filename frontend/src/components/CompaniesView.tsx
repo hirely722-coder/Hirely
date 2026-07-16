@@ -6,29 +6,49 @@ import {
 } from 'lucide-react';
 import { Company, Job, Candidate } from '../types';
 import CompanyDetailsPage from './company/CompanyDetailsPage';
+import CompanyFormModal from './company/CompanyFormModal';
 import Portal from './Portal';
 import { SearchableDropdown } from './SearchableDropdown';
 import { usePermission } from '../hooks/usePermission';
 import { useApp } from '../context/AppContext';
+import { ExportCsvButton } from './ui/ExportCsvButton';
+import { ExportColumn } from '../utils/csvExporter';
 
 interface CompaniesViewProps {
   companies: Company[];
   jobs: Job[];
   candidates: Candidate[];
-  onAddCompany: (company: Company) => void;
-  onEditCompany: (company: Company) => void;
+  onAddCompany: (company: Company) => Promise<void>;
+  onEditCompany: (company: Company) => Promise<void>;
   onDeleteCompany: (id: string) => void;
   onNavigateToJobs: (companyId: string) => void;
   onOpenAddJobModal: (companyId: string) => void;
   onEditCandidate: (candidate: Candidate) => void;
-  onAddJob: (job: Job) => void;
-  onEditJob: (job: Job) => void;
+  onAddJob: (job: Job) => Promise<void>;
+  onEditJob: (job: Job) => Promise<void>;
   onDeleteJob: (id: string) => void;
   onComposeEmail?: (candidate: Candidate) => void;
   onComposeWhatsApp?: (candidate: Candidate) => void;
   onOpenCSVImport?: (type: 'companies' | 'jobs' | 'candidates') => void;
   isLoading?: boolean;
 }
+
+const companiesExportColumns: ExportColumn<Company>[] = [
+  { header: 'Company Name', key: 'name' },
+  { header: 'Contact Person', key: 'contactPerson' },
+  { header: 'Email', key: 'email' },
+  { header: 'Phone', key: 'phone' },
+  { header: 'Website', key: 'website' },
+  { header: 'Address', key: 'address' },
+  { header: 'Recruiter Contact', key: 'recContact' },
+  { header: 'Status', key: 'status' },
+  { header: 'Industry', key: 'industry', transform: (val) => val || 'N/A' },
+  { header: 'Company Size', key: 'companySize', transform: (val) => val || 'N/A' },
+  { header: 'Founded Year', key: 'foundedYear', transform: (val) => val || 'N/A' },
+  { header: 'Tier', key: 'tier', transform: (val) => val || 'N/A' },
+  { header: 'LinkedIn URL', key: 'linkedinUrl', transform: (val) => val || 'N/A' },
+  { header: 'Notes', key: 'notes' }
+];
 
 export default function CompaniesView({
   companies,
@@ -48,8 +68,16 @@ export default function CompaniesView({
   onOpenCSVImport,
   isLoading = false
 }: CompaniesViewProps) {
-  const { showToast } = useApp();
+  const { showToast, teamMembers, workspace, token: sessionToken } = useApp();
   const { can } = usePermission();
+
+  const authFetch = (url: string, options: RequestInit = {}) => {
+    const headers = new Headers(options.headers);
+    if (sessionToken) {
+      headers.set('Authorization', `Bearer ${sessionToken}`);
+    }
+    return fetch(url, { ...options, headers });
+  };
 
   // Navigation drilldown state
   const [focusedCompanyId, setFocusedCompanyId] = useState<string | null>(null);
@@ -112,22 +140,6 @@ export default function CompaniesView({
   // Create / Edit Registry modals
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState<Company | null>(null);
-
-  // Form states for modal
-  const [formName, setFormName] = useState('');
-  const [formContact, setFormContact] = useState('');
-  const [formStatus, setFormStatus] = useState<'Active' | 'Inactive'>('Active');
-  const [formEmail, setFormEmail] = useState('');
-  const [formPhone, setFormPhone] = useState('');
-  const [formWebsite, setFormWebsite] = useState('');
-  const [formAddress, setFormAddress] = useState('');
-  const [formNotes, setFormNotes] = useState('');
-  const [formRecContact, setFormRecContact] = useState('Sarah Jenkins');
-  const [formIndustry, setFormIndustry] = useState('');
-  const [formCompanySize, setFormCompanySize] = useState<Company['companySize']>('11-50');
-  const [formFoundedYear, setFormFoundedYear] = useState('');
-  const [formTier, setFormTier] = useState<Company['tier']>('Tier 3');
-  const [formLinkedInUrl, setFormLinkedInUrl] = useState('');
 
   // Local communications pings
   const [localComposeEmailTo, setLocalComposeEmailTo] = useState('');
@@ -240,59 +252,12 @@ export default function CompaniesView({
     }
   };
 
-  const handleSaveAdd = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!formName) return;
-
-    const newCompany: Company = {
-      id: 'c_' + Date.now(),
-      name: formName,
-      contactPerson: formContact,
-      openJobs: 0,
-      status: formStatus,
-      email: formEmail,
-      phone: formPhone,
-      website: formWebsite || 'https://example.com',
-      address: formAddress || 'HQ: San Francisco, California',
-      notes: formNotes || 'Onboarded partner client.',
-      recContact: formRecContact,
-      industry: formIndustry,
-      companySize: formCompanySize,
-      foundedYear: formFoundedYear,
-      tier: formTier,
-      linkedinUrl: formLinkedInUrl
-    };
-
-    onAddCompany(newCompany);
-    resetForm();
-    setShowAddModal(false);
-  };
-
-  const handleSaveEdit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!showEditModal || !formName) return;
-
-    const updated: Company = {
-      ...showEditModal,
-      name: formName,
-      contactPerson: formContact,
-      status: formStatus,
-      email: formEmail,
-      phone: formPhone,
-      website: formWebsite,
-      address: formAddress,
-      notes: formNotes,
-      recContact: formRecContact,
-      industry: formIndustry,
-      companySize: formCompanySize,
-      foundedYear: formFoundedYear,
-      tier: formTier,
-      linkedinUrl: formLinkedInUrl
-    };
-
-    onEditCompany(updated);
-    resetForm();
-    setShowEditModal(null);
+  const startAdd = () => {
+    if (!can('companies.add')) {
+      showToast('❌ Access Denied: You do not have permission to add corporate partners.', 'error');
+      return;
+    }
+    setShowAddModal(true);
   };
 
   const startEdit = (company: Company) => {
@@ -300,61 +265,56 @@ export default function CompaniesView({
       showToast('❌ Access Denied: You do not have permission to edit company registries.', 'error');
       return;
     }
-    setFormName(company.name);
-    setFormContact(company.contactPerson);
-    setFormStatus(company.status);
-    setFormEmail(company.email);
-    setFormPhone(company.phone || '');
-    setFormWebsite(company.website || '');
-    setFormAddress(company.address || '');
-    setFormNotes(company.notes || '');
-    setFormRecContact(company.recContact || 'Sarah Jenkins');
-    setFormIndustry(company.industry || '');
-    setFormCompanySize(company.companySize || '11-50');
-    setFormFoundedYear(company.foundedYear || '');
-    setFormTier(company.tier || 'Tier 3');
-    setFormLinkedInUrl(company.linkedinUrl || '');
     setShowEditModal(company);
   };
 
-  const startAdd = () => {
-    if (!can('companies.add')) {
-      showToast('❌ Access Denied: You do not have permission to add corporate partners.', 'error');
-      return;
+  const handleFormSubmit = async (companyData: Company) => {
+    const isEdit = companies.some(c => c.id === companyData.id);
+    if (isEdit) {
+      await onEditCompany(companyData);
+      setShowEditModal(null);
+      showToast(`✓ Saved changes for ${companyData.name}`, 'success');
+
+      // Sync to database assignments
+      if (workspace && companyData.recContact) {
+        try {
+          const res = await authFetch('/api/company_assignments');
+          const currentCompAssigns = await res.json();
+          const companyAssignmentsForThisCompany = currentCompAssigns.filter((a: any) => a.companyId === companyData.id);
+          await Promise.all(companyAssignmentsForThisCompany.map((a: any) => authFetch(`/api/company_assignments/${a.id}`, { method: 'DELETE' })));
+
+          const selectedRecruiter = teamMembers.find(tm => tm.name === companyData.recContact);
+          if (selectedRecruiter) {
+            await authFetch('/api/company_assignments', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ companyId: companyData.id, userId: selectedRecruiter.id, workspaceId: workspace.id })
+            });
+          }
+        } catch (err: any) {
+          console.error('Failed to sync company assignment edit:', err);
+        }
+      }
+    } else {
+      await onAddCompany(companyData);
+      setShowAddModal(false);
+      showToast(`✓ Registered Partner: ${companyData.name}`, 'success');
+
+      // Sync to database assignments
+      if (workspace && companyData.recContact) {
+        const selectedRecruiter = teamMembers.find(tm => tm.name === companyData.recContact);
+        if (selectedRecruiter) {
+          authFetch('/api/company_assignments', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ companyId: companyData.id, userId: selectedRecruiter.id, workspaceId: workspace.id })
+          }).catch(err => console.error('Failed to sync company assignment:', err));
+        }
+      }
     }
-    resetForm();
-    setShowAddModal(true);
   };
 
-  const resetForm = () => {
-    setFormName('');
-    setFormContact('');
-    setFormStatus('Active');
-    setFormEmail('');
-    setFormPhone('');
-    setFormWebsite('');
-    setFormAddress('');
-    setFormNotes('');
-    setFormRecContact('Sarah Jenkins');
-    setFormIndustry('');
-    setFormCompanySize('11-50');
-    setFormFoundedYear('');
-    setFormTier('Tier 3');
-    setFormLinkedInUrl('');
-  };
 
-  const handleExport = () => {
-    const csvContent = "data:text/csv;charset=utf-8," 
-      + ["Company Name,Contact Person,Email,Status,Recruiter Contact"].join(",") + "\n"
-      + companies.map(c => `"${c.name}","${c.contactPerson}","${c.email}","${c.status}","${c.recContact}"`).join("\n");
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", "companies_export.csv");
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
 
   // Render drilldown detailed workspace if focused
   if (selectedCompany) {
@@ -424,13 +384,11 @@ export default function CompaniesView({
               Import CSV/Excel
             </button>
           )}
-          <button 
-            onClick={handleExport}
-            className="flex flex-1 sm:flex-initial items-center justify-center gap-1.5 px-3.5 py-2 text-xs font-semibold border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-50 transition-colors bg-white shadow-xs"
-          >
-            <Download className="h-4 w-4 text-slate-400" />
-            Export CSV
-          </button>
+          <ExportCsvButton
+            data={filteredCompanies}
+            columns={companiesExportColumns}
+            filename="companies_export"
+          />
           <button 
             onClick={startAdd}
             className="flex flex-1 sm:flex-initial items-center justify-center gap-1.5 px-4 py-2 text-xs font-bold bg-blue-600 text-white rounded-lg hover:bg-blue-700 shadow-sm transition-colors"
@@ -834,309 +792,16 @@ export default function CompaniesView({
         </div>
       </div>
 
-      {showAddModal && (
-        <Portal>
-          <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-xl border border-slate-100 shadow-xl max-w-lg w-full max-h-[90vh] flex flex-col overflow-hidden animate-slide-up">
-            <div className="flex items-center justify-between p-5 border-b border-slate-100 bg-slate-50 shrink-0">
-              <h2 className="text-xs font-bold text-slate-950 font-sans uppercase flex items-center gap-1.5">
-                <Building2 className="h-4 w-4 text-slate-500" />
-                Add New Corporate Partner
-              </h2>
-              <button onClick={() => setShowAddModal(false)} className="text-slate-400 hover:text-slate-600">
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-            
-            <form onSubmit={handleSaveAdd} className="p-5 space-y-4 overflow-y-auto flex-1">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="col-span-2">
-                  <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-wider mb-1">Company Name *</label>
-                  <input
-                    type="text" required value={formName} onChange={(e) => setFormName(e.target.value)}
-                    placeholder="Stripe, Vercel, Retool..."
-                    className="w-full px-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:ring-1 focus:ring-blue-500 bg-slate-50/50"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-wider mb-1">Contact Person *</label>
-                  <input
-                    type="text" required value={formContact} onChange={(e) => setFormContact(e.target.value)}
-                    placeholder="E.g., Jane Miller"
-                    className="w-full px-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:ring-1 focus:ring-blue-500 bg-slate-50/50"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-wider mb-1">Status</label>
-                  <select
-                    value={formStatus} onChange={(e: any) => setFormStatus(e.target.value)}
-                    className="w-full px-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:ring-1 focus:ring-blue-500 bg-white text-slate-700 font-medium"
-                  >
-                    <option value="Active">Active Partner</option>
-                    <option value="Inactive">Inactive Partner</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-wider mb-1">Billing Email</label>
-                  <input
-                    type="email" value={formEmail} onChange={(e) => setFormEmail(e.target.value)}
-                    placeholder="hr@company.com"
-                    className="w-full px-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:ring-1 focus:ring-blue-500 bg-slate-50/50"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-wider mb-1">Phone Number</label>
-                  <input
-                    type="text" value={formPhone} onChange={(e) => setFormPhone(e.target.value)}
-                    placeholder="+1 (555) 012-4411"
-                    className="w-full px-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:ring-1 focus:ring-blue-500 bg-slate-50/50"
-                  />
-                </div>
-
-                <div className="col-span-2">
-                  <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-wider mb-1">Website URL</label>
-                  <input
-                    type="text" value={formWebsite} onChange={(e) => setFormWebsite(e.target.value)}
-                    placeholder="https://company.com"
-                    className="w-full px-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:ring-1 focus:ring-blue-500 bg-slate-50/50"
-                  />
-                </div>
-
-                <div className="col-span-2">
-                  <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-wider mb-1">HQ Address</label>
-                  <input
-                    type="text" value={formAddress} onChange={(e) => setFormAddress(e.target.value)}
-                    placeholder="San Francisco, CA"
-                    className="w-full px-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:ring-1 focus:ring-blue-500 bg-slate-50/50"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-wider mb-1">Industry</label>
-                  <input
-                    type="text" value={formIndustry} onChange={(e) => setFormIndustry(e.target.value)}
-                    placeholder="E.g., SaaS, Fintech, AI"
-                    className="w-full px-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:ring-1 focus:ring-blue-500 bg-slate-50/50"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-wider mb-1">Company Size</label>
-                  <select
-                    value={formCompanySize} onChange={(e: any) => setFormCompanySize(e.target.value)}
-                    className="w-full px-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:ring-1 focus:ring-blue-500 bg-white text-slate-700 font-medium"
-                  >
-                    <option value="1-10">1-10 employees</option>
-                    <option value="11-50">11-50 employees</option>
-                    <option value="51-200">51-200 employees</option>
-                    <option value="201-500">201-500 employees</option>
-                    <option value="500+">500+ employees</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-wider mb-1">Founded Year</label>
-                  <input
-                    type="text" value={formFoundedYear} onChange={(e) => setFormFoundedYear(e.target.value)}
-                    placeholder="E.g., 2018"
-                    className="w-full px-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:ring-1 focus:ring-blue-500 bg-slate-50/50"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-wider mb-1">Partnership Tier</label>
-                  <select
-                    value={formTier} onChange={(e: any) => setFormTier(e.target.value)}
-                    className="w-full px-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:ring-1 focus:ring-blue-500 bg-white text-slate-700 font-medium"
-                  >
-                    <option value="Tier 1">Tier 1 (Key Account)</option>
-                    <option value="Tier 2">Tier 2 (Mid Market)</option>
-                    <option value="Tier 3">Tier 3 (Standard)</option>
-                  </select>
-                </div>
-
-                <div className="col-span-2">
-                  <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-wider mb-1">LinkedIn Page URL</label>
-                  <input
-                    type="text" value={formLinkedInUrl} onChange={(e) => setFormLinkedInUrl(e.target.value)}
-                    placeholder="https://linkedin.com/company/..."
-                    className="w-full px-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:ring-1 focus:ring-blue-500 bg-slate-50/50"
-                  />
-                </div>
-              </div>
-
-              <div className="flex items-center justify-end gap-2 pt-4 border-t border-slate-100">
-                <button
-                  type="button" onClick={() => setShowAddModal(false)}
-                  className="px-4 py-1.5 text-xs font-semibold border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-1.5 text-xs font-bold bg-blue-600 text-white rounded-lg hover:bg-blue-700 shadow-sm"
-                >
-                  Register Partner
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      </Portal>
-      )}
-
-      {showEditModal && (
-        <Portal>
-          <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-xl border border-slate-100 shadow-xl max-w-lg w-full max-h-[90vh] flex flex-col overflow-hidden animate-slide-up">
-            <div className="flex items-center justify-between p-5 border-b border-slate-100 bg-slate-50 shrink-0">
-              <h2 className="text-xs font-bold text-slate-950 font-sans uppercase flex items-center gap-1.5">
-                <Building2 className="h-4 w-4 text-slate-500" />
-                Edit Registry: {showEditModal.name}
-              </h2>
-              <button onClick={() => setShowEditModal(null)} className="text-slate-400 hover:text-slate-600">
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-            
-            <form onSubmit={handleSaveEdit} className="p-5 space-y-4 overflow-y-auto flex-1">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="col-span-2">
-                  <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-wider mb-1">Company Name *</label>
-                  <input
-                    type="text" required value={formName} onChange={(e) => setFormName(e.target.value)}
-                    className="w-full px-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:ring-1 focus:ring-blue-500 bg-slate-50/50"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-wider mb-1">Contact Person *</label>
-                  <input
-                    type="text" required value={formContact} onChange={(e) => setFormContact(e.target.value)}
-                    className="w-full px-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:ring-1 focus:ring-blue-500 bg-slate-50/50"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-wider mb-1">Status</label>
-                  <select
-                    value={formStatus} onChange={(e: any) => setFormStatus(e.target.value)}
-                    className="w-full px-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:ring-1 focus:ring-blue-500 bg-white text-slate-700 font-medium"
-                  >
-                    <option value="Active">Active Partner</option>
-                    <option value="Inactive">Inactive Partner</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-wider mb-1">Billing Email</label>
-                  <input
-                    type="email" value={formEmail} onChange={(e) => setFormEmail(e.target.value)}
-                    className="w-full px-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:ring-1 focus:ring-blue-500 bg-slate-50/50"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-wider mb-1">Phone Number</label>
-                  <input
-                    type="text" value={formPhone} onChange={(e) => setFormPhone(e.target.value)}
-                    className="w-full px-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:ring-1 focus:ring-blue-500 bg-slate-50/50"
-                  />
-                </div>
-
-                <div className="col-span-2">
-                  <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-wider mb-1">Website URL</label>
-                  <input
-                    type="text" value={formWebsite} onChange={(e) => setFormWebsite(e.target.value)}
-                    className="w-full px-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:ring-1 focus:ring-blue-500 bg-slate-50/50"
-                  />
-                </div>
-
-                <div className="col-span-2">
-                  <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-wider mb-1">HQ Address</label>
-                  <input
-                    type="text" value={formAddress} onChange={(e) => setFormAddress(e.target.value)}
-                    className="w-full px-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:ring-1 focus:ring-blue-500 bg-slate-50/50"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-wider mb-1">Industry</label>
-                  <input
-                    type="text" value={formIndustry} onChange={(e) => setFormIndustry(e.target.value)}
-                    placeholder="E.g., SaaS, Fintech, AI"
-                    className="w-full px-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:ring-1 focus:ring-blue-500 bg-slate-50/50"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-wider mb-1">Company Size</label>
-                  <select
-                    value={formCompanySize} onChange={(e: any) => setFormCompanySize(e.target.value)}
-                    className="w-full px-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:ring-1 focus:ring-blue-500 bg-white text-slate-700 font-medium"
-                  >
-                    <option value="1-10">1-10 employees</option>
-                    <option value="11-50">11-50 employees</option>
-                    <option value="51-200">51-200 employees</option>
-                    <option value="201-500">201-500 employees</option>
-                    <option value="500+">500+ employees</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-wider mb-1">Founded Year</label>
-                  <input
-                    type="text" value={formFoundedYear} onChange={(e) => setFormFoundedYear(e.target.value)}
-                    placeholder="E.g., 2018"
-                    className="w-full px-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:ring-1 focus:ring-blue-500 bg-slate-50/50"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-wider mb-1">Partnership Tier</label>
-                  <select
-                    value={formTier} onChange={(e: any) => setFormTier(e.target.value)}
-                    className="w-full px-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:ring-1 focus:ring-blue-500 bg-white text-slate-700 font-medium"
-                  >
-                    <option value="Tier 1">Tier 1 (Key Account)</option>
-                    <option value="Tier 2">Tier 2 (Mid Market)</option>
-                    <option value="Tier 3">Tier 3 (Standard)</option>
-                  </select>
-                </div>
-
-                <div className="col-span-2">
-                  <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-wider mb-1">LinkedIn Page URL</label>
-                  <input
-                    type="text" value={formLinkedInUrl} onChange={(e) => setFormLinkedInUrl(e.target.value)}
-                    placeholder="https://linkedin.com/company/..."
-                    className="w-full px-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:ring-1 focus:ring-blue-500 bg-slate-50/50"
-                  />
-                </div>
-              </div>
-
-              <div className="flex items-center justify-end gap-2 pt-4 border-t border-slate-100">
-                <button
-                  type="button" onClick={() => setShowEditModal(null)}
-                  className="px-4 py-1.5 text-xs font-semibold border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-1.5 text-xs font-bold bg-blue-600 text-white rounded-lg hover:bg-blue-700 shadow-sm"
-                >
-                  Save Changes
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      </Portal>
-      )}
+      <CompanyFormModal
+        isOpen={showAddModal || !!showEditModal}
+        onClose={() => {
+          setShowAddModal(false);
+          setShowEditModal(null);
+        }}
+        onSubmit={handleFormSubmit}
+        company={showEditModal}
+        teamMembers={teamMembers}
+      />
 
       {showLocalEmailModal && (
         <Portal>

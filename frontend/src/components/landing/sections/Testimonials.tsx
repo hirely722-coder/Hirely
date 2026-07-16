@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { motion } from "framer-motion";
 import { Star, Quote, Sparkles, CheckCircle2, ChevronLeft, ChevronRight, Users, Briefcase, FileText, Search, Trophy } from "lucide-react";
 import Link from 'next/link';
@@ -89,7 +89,7 @@ export function Testimonials() {
             <SectionHeading
               eyebrow="Success Stories"
               title="Real Reviews from Recruitment Teams"
-              subtitle="See how Hirely is transforming the hiring workflows of our partners."
+              subtitle="See how Hirly is transforming the hiring workflows of our partners."
             />
 
             {/* Testimonials Slider */}
@@ -190,10 +190,10 @@ export function Testimonials() {
                 🌟 Be One of Our First Success Stories
               </h2>
               <p className="text-slate-600 dark:text-slate-400 text-sm md:text-base leading-relaxed">
-                Hirely is currently welcoming its first recruitment agencies. We're working closely with our early customers to build the best AI-powered recruitment platform.
+                Hirly is currently welcoming its first recruitment agencies. We're working closely with our early customers to build the best AI-powered recruitment platform.
               </p>
               <p className="text-slate-600 dark:text-slate-400 text-sm md:text-base leading-relaxed">
-                Start your <strong>7-day free trial</strong>, explore every feature, and if Hirely helps your hiring process, we'd love to hear your feedback. Your review may be featured here after approval.
+                Start your <strong>7-day free trial</strong>, explore every feature, and if Hirly helps your hiring process, we'd love to hear your feedback. Your review may be featured here after approval.
               </p>
               
               <div className="flex items-center gap-4 pt-2">

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { LayoutDashboard, Users, Briefcase, CheckSquare, Calendar, Building2, Sparkles, Upload, Plus, ArrowRight, Clock, ChevronRight, Check, X, ShieldCheck } from 'lucide-react';
 import { Candidate, Job, Company, Task } from '../types';
 import { useApp } from '../context/AppContext';
@@ -26,6 +26,80 @@ export default function DashboardView({
   const { subscriptionPlan, showToast, isTrialActive, getTrialDaysRemaining, user, token, setShowUpgradeSuccess } = useApp();
   const [isPricingModalOpen, setIsPricingModalOpen] = useState(false);
   const [isUpgrading, setIsUpgrading] = useState(false);
+  const [billingCycle, setBillingCycle] = useState<'monthly' | 'yearly'>('monthly');
+  const [plans, setPlans] = useState<any[]>([
+    {
+      id: 'starter',
+      slug: 'starter',
+      name: 'Free Trial',
+      shortDescription: 'Basic trial version of Hirely',
+      monthlyPrice: 0,
+      yearlyPrice: 0,
+      features: {
+        '3 Active Jobs': true,
+        '100 Candidates Database': true,
+        '2 GB Storage Limit': true,
+        '10 AI parser requests/mo': true,
+        'No advanced analytics': false,
+        'No WhatsApp integrations': false,
+      }
+    },
+    {
+      id: 'growth',
+      slug: 'growth',
+      name: 'Growth Plan',
+      shortDescription: 'Pro Recruiter license for scaling agencies',
+      monthlyPrice: 2000,
+      yearlyPrice: 19200,
+      popularBadge: true,
+      features: {
+        'Unlimited Active Jobs': true,
+        'Unlimited Candidates Database': true,
+        '20 GB Storage Space': true,
+        '500 AI Parser requests/mo': true,
+        'AI Voice commands & search helper': true,
+      }
+    }
+  ]);
+
+  useEffect(() => {
+    if (isPricingModalOpen) {
+      fetch('/api/public/plans')
+        .then((res) => res.json())
+        .then((data) => {
+          if (Array.isArray(data) && data.length > 0) {
+            // Curated feature highlight lists — show clean, short, human-readable features
+            const STARTER_HIGHLIGHTS = [
+              ['3 Active Jobs', true],
+              ['100 Candidates Database', true],
+              ['2 GB Storage Limit', true],
+              ['10 AI parser requests/mo', true],
+              ['Advanced Analytics', false],
+              ['WhatsApp Integrations', false],
+            ] as [string, boolean][];
+
+            const GROWTH_HIGHLIGHTS = [
+              ['Unlimited Active Jobs', true],
+              ['Unlimited Candidates Database', true],
+              ['20 GB Storage Space', true],
+              ['500 AI Parser requests/mo', true],
+              ['AI Voice Commands & Copilot', true],
+              ['Email Templates & Integration', true],
+            ] as [string, boolean][];
+
+            const formatted = data.map(plan => {
+              const highlights = plan.slug === 'growth' ? GROWTH_HIGHLIGHTS : STARTER_HIGHLIGHTS;
+              const featuresObj: Record<string, boolean> = {};
+              highlights.forEach(([label, val]) => { featuresObj[label] = val; });
+              return { ...plan, features: featuresObj };
+            });
+            setPlans(formatted);
+          }
+        })
+        .catch((err) => console.error("Failed to load plans:", err));
+    }
+  }, [isPricingModalOpen]);
+
 
   // Calculations
   const totalCandidates = candidates.length;
@@ -149,6 +223,86 @@ export default function DashboardView({
     );
   }
 
+  const handleUpgrade = async (planSlug: string) => {
+    if (isUpgrading) return;
+    setIsUpgrading(true);
+    try {
+      const orderRes = await fetch('/api/payments/create-order', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ planSlug, cycle: billingCycle }),
+      });
+
+      if (!orderRes.ok) {
+        const errData = await orderRes.json();
+        throw new Error(errData.error || 'Failed to create order');
+      }
+      const orderData = await orderRes.json();
+
+      const options = {
+        key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || 'rzp_test_TCVTzrCeGHT0sg',
+        amount: orderData.amount,
+        currency: orderData.currency,
+        name: "Hirly AI Platform",
+        description: `Upgrade License to ${planSlug.toUpperCase()} (${billingCycle.toUpperCase()})`,
+        order_id: orderData.orderId,
+        handler: async function (response: any) {
+          const verifyRes = await fetch('/api/payments/verify-payment', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+            body: JSON.stringify({
+              razorpayPaymentId: response.razorpay_payment_id,
+              razorpayOrderId: response.razorpay_order_id,
+              razorpaySignature: response.razorpay_signature,
+              planSlug,
+              cycle: billingCycle
+            })
+          });
+
+          if (verifyRes.ok) {
+            setShowUpgradeSuccess(true);
+            setIsPricingModalOpen(false);
+            setTimeout(() => {
+              window.location.reload();
+            }, 3500);
+          } else {
+            const errData = await verifyRes.json();
+            showToast(errData.error || 'Payment verification failed', 'error');
+          }
+        },
+        prefill: {
+          email: user?.email || '',
+          name: user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'User'
+        },
+        theme: {
+          color: "#4f46e5"
+        },
+        modal: {
+          ondismiss: function () {
+            showToast('Upgrade cancelled by user.', 'error');
+          }
+        }
+      };
+
+      const rzp = new (window as any).Razorpay(options);
+      rzp.on('payment.failed', function (resp: any) {
+        showToast(`Payment failed: ${resp.error.description}`, 'error');
+      });
+      rzp.open();
+    } catch (err: any) {
+      console.error(err);
+      showToast(err.message || 'An unexpected error occurred.', 'error');
+    } finally {
+      setIsUpgrading(false);
+    }
+  };
+
   return (
     <div className="space-y-6 animate-fade-in" id="dashboard-view">
       {isTrialActive() && (
@@ -162,7 +316,7 @@ export default function DashboardView({
                 🎉 Welcome to your 7-Day Free Trial
               </h2>
               <p className="text-[11px] text-indigo-100 font-medium mt-0.5 leading-relaxed">
-                You currently have FULL, unrestricted access to every Hirely feature including AI Sourcing, parsing, copilot and templates.
+                You currently have FULL, unrestricted access to every Hirly feature including AI Sourcing, parsing, copilot and templates.
               </p>
             </div>
           </div>
@@ -706,170 +860,236 @@ export default function DashboardView({
       {/* Pricing / Plan Upgrade Modal */}
       <AnimatedModal isOpen={isPricingModalOpen} onClose={() => setIsPricingModalOpen(false)}>
         {(animate) => (
-          <div 
-            className={`bg-white rounded-2xl border border-slate-100 shadow-2xl max-w-3xl w-full overflow-hidden transition-all duration-200 transform ${
+          <div
+            className={`bg-[#0d0d1e] rounded-3xl border border-indigo-500/30 shadow-2xl max-w-3xl w-full my-8 overflow-hidden transition-all duration-200 transform relative ${
               animate ? 'opacity-100 scale-100 translate-y-0' : 'opacity-0 scale-95 translate-y-2'
             }`}
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="px-5 py-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
-              <h4 className="text-xs font-bold text-slate-900 font-sans uppercase">Select License Tier</h4>
-              <button 
-                type="button" 
-                onClick={() => setIsPricingModalOpen(false)} 
-                className="text-slate-400 hover:text-slate-600 p-1 hover:bg-slate-100 rounded-lg cursor-pointer"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
+            {/* Inject marquee keyframe CSS */}
+            <style>{`
+              @keyframes hirely-marquee {
+                0%   { transform: translateX(0); }
+                100% { transform: translateX(-50%); }
+              }
+              .hirely-marquee-track {
+                display: flex;
+                width: max-content;
+                animation: hirely-marquee 28s linear infinite;
+              }
+              .hirely-marquee-track-slow {
+                display: flex;
+                width: max-content;
+                animation: hirely-marquee 38s linear infinite;
+              }
+              .hirely-marquee-track-fast {
+                display: flex;
+                width: max-content;
+                animation: hirely-marquee 20s linear infinite;
+              }
+            `}</style>
 
-            <div className="p-6 space-y-6">
-              <p className="text-xs text-slate-400 font-medium">Upgrade your workspace to unlock advanced recruitment capabilities.</p>
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {/* Starter Plan Card */}
-                <div className="bg-slate-50 border border-slate-200/60 rounded-xl p-5 flex flex-col justify-between">
-                  <div>
-                    <div className="flex justify-between items-center mb-2">
-                      <span className="text-[10px] font-mono text-slate-400 uppercase font-bold tracking-wider">Starter</span>
-                      {subscriptionPlan?.slug !== 'growth' && (
-                        <span className="text-[9px] bg-slate-200 text-slate-700 px-1.5 py-0.5 rounded font-mono font-bold">ACTIVE</span>
-                      )}
-                    </div>
-                    <h4 className="text-sm font-bold text-slate-800 font-sans">Free Trial</h4>
-                    <div className="mt-2 mb-4 flex items-baseline">
-                      <span className="text-xl font-bold text-slate-900">₹0</span>
-                      <span className="text-xs text-slate-400 font-semibold font-sans ml-1">/ forever</span>
-                    </div>
-                    <ul className="space-y-2 text-xs text-slate-600 font-sans border-t border-slate-200/60 pt-4">
-                      <li className="flex items-center gap-2"><Check className="h-4 w-4 text-slate-400 shrink-0" /> <span>3 Active Jobs</span></li>
-                      <li className="flex items-center gap-2"><Check className="h-4 w-4 text-slate-400 shrink-0" /> <span>100 Candidates Database</span></li>
-                      <li className="flex items-center gap-2"><Check className="h-4 w-4 text-slate-400 shrink-0" /> <span>2 GB Storage Limit</span></li>
-                      <li className="flex items-center gap-2"><Check className="h-4 w-4 text-slate-400 shrink-0" /> <span>10 AI parser requests/mo</span></li>
-                      <li className="flex items-center gap-2 text-slate-400"><X className="h-4 w-4 text-slate-300 shrink-0" /> <span>No advanced analytics</span></li>
-                      <li className="flex items-center gap-2 text-slate-400"><X className="h-4 w-4 text-slate-300 shrink-0" /> <span>No WhatsApp integrations</span></li>
-                    </ul>
-                  </div>
-                  <button
-                    disabled
-                    className="w-full mt-6 py-2.5 bg-slate-200 text-slate-500 rounded-lg text-xs font-bold font-sans cursor-not-allowed"
-                  >
-                    {subscriptionPlan?.slug !== 'growth' ? 'Current Plan' : 'Trial Version'}
-                  </button>
-                </div>
+            {/* Ambient glow blobs */}
+            <div className="pointer-events-none absolute -top-20 -right-20 h-64 w-64 rounded-full bg-indigo-500/10 blur-[80px]" />
+            <div className="pointer-events-none absolute -bottom-20 -left-10 h-64 w-64 rounded-full bg-violet-500/10 blur-[80px]" />
 
-                {/* Growth Plan Card */}
-                <div className="bg-gradient-to-b from-blue-50/50 to-white border-2 border-blue-500 rounded-xl p-5 flex flex-col justify-between shadow-xs relative overflow-hidden">
-                  <div className="absolute top-2 right-2">
-                    <span className="text-[8px] bg-blue-600 text-white px-2 py-0.5 rounded-full font-mono font-bold tracking-wider">POPULAR</span>
-                  </div>
-                  <div>
-                    <div className="flex justify-between items-center mb-2">
-                      <span className="text-[10px] font-mono text-blue-600 uppercase font-bold tracking-wider">Pro Recruiter</span>
-                    </div>
-                    <h4 className="text-sm font-bold text-slate-800 font-sans">Growth Plan</h4>
-                    <div className="mt-2 mb-4 flex items-baseline">
-                      <span className="text-xl font-bold text-slate-900">₹2,000</span>
-                      <span className="text-xs text-slate-400 font-semibold font-sans ml-1">/ month</span>
-                    </div>
-                    <ul className="space-y-2 text-xs text-slate-600 font-sans border-t border-blue-100 pt-4">
-                      <li className="flex items-center gap-2 font-semibold text-slate-800"><Check className="h-4 w-4 text-emerald-500 shrink-0" /> <span>Unlimited Active Jobs</span></li>
-                      <li className="flex items-center gap-2 font-semibold text-slate-800"><Check className="h-4 w-4 text-emerald-500 shrink-0" /> <span>Unlimited Candidates Database</span></li>
-                      <li className="flex items-center gap-2"><Check className="h-4 w-4 text-emerald-500 shrink-0" /> <span>20 GB Storage Space</span></li>
-                      <li className="flex items-center gap-2"><Check className="h-4 w-4 text-emerald-500 shrink-0" /> <span>500 AI Parser requests/mo</span></li>
-                      <li className="flex items-center gap-2"><Check className="h-4 w-4 text-emerald-500 shrink-0" /> <span>AI Voice commands & search helper</span></li>
-                    </ul>
-                  </div>
+            {/* ── Header ── */}
+            <div className="px-6 py-4 border-b border-indigo-950/40 bg-[#0d0d21]/60 backdrop-blur-xs flex justify-between items-center relative z-10">
+              <div className="flex items-center gap-2">
+                <Sparkles className="h-4 w-4 text-indigo-400" />
+                <h4 className="text-sm font-bold text-white font-display tracking-wide uppercase">Select License Tier</h4>
+              </div>
+              <div className="flex items-center gap-3">
+                {/* Billing cycle toggle */}
+                <div className="flex items-center gap-1.5 bg-[#06060f] border border-indigo-950/80 p-1 rounded-full text-[9px] font-bold uppercase tracking-wider select-none">
                   <button
                     type="button"
-                    onClick={async () => {
-                      if (isUpgrading) return;
-                      setIsUpgrading(true);
-                      try {
-                        // 1. Fetch order details from Hono Backend
-                        const orderRes = await fetch('/api/payments/create-order', {
-                          method: 'POST',
-                          headers: {
-                            'Content-Type': 'application/json',
-                            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-                          },
-                          body: JSON.stringify({ planSlug: 'growth' }),
-                        });
-
-                        if (!orderRes.ok) {
-                          const errData = await orderRes.json();
-                          throw new Error(errData.error || 'Failed to create order');
-                        }
-                        const orderData = await orderRes.json();
-
-                        // 2. Configure Razorpay Standard Modal options
-                        const options = {
-                          key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || 'rzp_test_TCVTzrCeGHT0sg',
-                          amount: orderData.amount,
-                          currency: orderData.currency,
-                          name: "Hirely AI Platform",
-                          description: "Upgrade License to GROWTH",
-                          order_id: orderData.orderId,
-                          handler: async function (response: any) {
-                            // 3. Send payment details to verification endpoint
-                            const verifyRes = await fetch('/api/payments/verify-payment', {
-                              method: 'POST',
-                              headers: {
-                                'Content-Type': 'application/json',
-                                ...(token ? { Authorization: `Bearer ${token}` } : {}),
-                              },
-                              body: JSON.stringify({
-                                razorpayPaymentId: response.razorpay_payment_id,
-                                razorpayOrderId: response.razorpay_order_id,
-                                razorpaySignature: response.razorpay_signature,
-                                planSlug: 'growth'
-                              })
-                            });
-
-                            if (verifyRes.ok) {
-                              setShowUpgradeSuccess(true);
-                              setIsPricingModalOpen(false);
-                              setTimeout(() => {
-                                window.location.reload();
-                              }, 3500);
-                            } else {
-                              const errData = await verifyRes.json();
-                              showToast(errData.error || 'Payment verification failed', 'error');
-                            }
-                          },
-                          prefill: {
-                            email: user?.email || '',
-                            name: user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'User'
-                          },
-                          theme: {
-                            color: "#3161f5"
-                          },
-                          modal: {
-                            ondismiss: function () {
-                              showToast('Upgrade cancelled by user.', 'error');
-                            }
-                          }
-                        };
-
-                        const rzp = new (window as any).Razorpay(options);
-                        rzp.on('payment.failed', function (resp: any) {
-                          showToast(`Payment failed: ${resp.error.description}`, 'error');
-                        });
-                        rzp.open();
-                      } catch (err: any) {
-                        console.error(err);
-                        showToast(err.message || 'An unexpected error occurred.', 'error');
-                      } finally {
-                        setIsUpgrading(false);
-                      }
-                    }}
-                    disabled={isUpgrading}
-                    className={`w-full mt-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold font-sans cursor-pointer transition-all shadow-2xs flex items-center justify-center gap-2 ${
-                      isUpgrading ? 'opacity-50 cursor-not-allowed' : ''
+                    onClick={() => setBillingCycle('monthly')}
+                    className={`px-3 py-1 rounded-full transition-all cursor-pointer ${
+                      billingCycle === 'monthly' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-300'
                     }`}
                   >
-                    {isUpgrading ? 'Launching Checkout...' : subscriptionPlan?.slug === 'growth' ? 'Repurchase / Renew Plan' : 'Upgrade Workspace to Pro'}
+                    Monthly
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => setBillingCycle('yearly')}
+                    className={`px-3 py-1 rounded-full flex items-center gap-1.5 transition-all cursor-pointer ${
+                      billingCycle === 'yearly' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-300'
+                    }`}
+                  >
+                    Yearly
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsPricingModalOpen(false)}
+                  className="text-slate-400 hover:text-white p-1 hover:bg-white/10 rounded-lg cursor-pointer transition-colors"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* ── Plan Cards ── */}
+            <div className="p-6 relative z-10">
+              <p className="text-[11px] text-slate-500 mb-5 font-medium">Upgrade your workspace to unlock advanced recruitment capabilities.</p>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {plans.map((plan) => {
+                  const price = billingCycle === 'monthly' ? plan.monthlyPrice : plan.yearlyPrice;
+                  const isCurrent = subscriptionPlan?.slug === plan.slug ||
+                    (plan.slug === 'starter' && (!subscriptionPlan || subscriptionPlan.slug === 'starter'));
+
+                  return (
+                    <div
+                      key={plan.id}
+                      className={`relative flex flex-col justify-between overflow-hidden rounded-2xl p-5 border transition-all duration-300 ${
+                        plan.slug === 'growth'
+                          ? 'border-indigo-500/40 bg-gradient-to-b from-indigo-950/40 via-[#121226] to-[#0a0a14] shadow-lg shadow-indigo-950/20'
+                          : 'border-slate-800 bg-[#0a0a16]'
+                      }`}
+                    >
+                      {plan.popularBadge && (
+                        <div className="absolute right-3 top-3 rounded-full bg-gradient-to-r from-amber-400 to-orange-500 px-2 py-0.5 text-[8px] font-bold text-white shadow-sm z-10">
+                          POPULAR
+                        </div>
+                      )}
+
+                      {/* Tier label + active badge */}
+                      <div className="flex justify-between items-center mb-1">
+                        <span className={`text-[9px] font-mono uppercase font-bold tracking-wider ${
+                          plan.slug === 'growth' ? 'text-indigo-400' : 'text-slate-400'
+                        }`}>
+                          {plan.slug === 'growth' ? 'Pro Recruiter' : 'Starter'}
+                        </span>
+                        {isCurrent && (
+                          <span className="text-[8px] bg-indigo-500/25 text-indigo-300 border border-indigo-400/30 px-1.5 py-0.5 rounded font-mono font-bold tracking-wider uppercase">
+                            ACTIVE
+                          </span>
+                        )}
+                      </div>
+
+                      <h4 className="text-sm font-bold text-white">{plan.name}</h4>
+                      <p className="text-[10px] text-slate-400 mt-0.5 leading-relaxed">{plan.shortDescription}</p>
+
+                      {/* Price */}
+                      <div className="mt-4">
+                        <div className="flex items-baseline gap-1.5">
+                          <span className="text-2xl font-extrabold text-white font-mono">
+                            ₹{price.toLocaleString()}
+                          </span>
+                          <span className="text-[10px] text-slate-400">
+                            /{billingCycle === 'monthly' || plan.slug === 'starter' ? 'month' : 'year'}
+                          </span>
+                        </div>
+                        {billingCycle === 'yearly' && plan.slug === 'growth' && (
+                          <p className="mt-0.5 text-[10px] text-slate-400 font-medium">
+                            (₹{Math.round(price / 12).toLocaleString()}/mo)
+                          </p>
+                        )}
+                      </div>
+
+
+                      {/* CTA */}
+                      {plan.slug === 'starter' ? (
+                        <button
+                          disabled
+                          className="w-full mt-5 py-2.5 bg-slate-900 border border-slate-800 text-slate-500 rounded-xl text-xs font-bold cursor-not-allowed"
+                        >
+                          {subscriptionPlan?.slug !== 'growth' ? 'Current Plan' : 'Trial Version'}
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => handleUpgrade(plan.slug)}
+                          disabled={isUpgrading}
+                          className={`w-full mt-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold cursor-pointer transition-all flex items-center justify-center gap-2 ${
+                            isUpgrading ? 'opacity-50 cursor-not-allowed' : ''
+                          }`}
+                        >
+                          {isUpgrading ? 'Launching Checkout…' : isCurrent ? 'Repurchase / Renew' : 'Upgrade Workspace to Pro'}
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* ── Animated Feature Marquees ── */}
+            <div className="border-t border-indigo-950/40 py-5 relative z-10 overflow-hidden bg-[#080812]">
+              <p className="px-6 text-[9px] font-mono font-bold uppercase tracking-widest text-slate-500 mb-4">Everything in Pro Recruiter</p>
+
+              {/* Row 1 — AI & Copilot */}
+              <div className="mb-3 overflow-hidden relative">
+                <div className="absolute left-0 top-0 bottom-0 w-12 bg-gradient-to-r from-[#080812] to-transparent z-10 pointer-events-none" />
+                <div className="absolute right-0 top-0 bottom-0 w-12 bg-gradient-to-l from-[#080812] to-transparent z-10 pointer-events-none" />
+                <div className="hirely-marquee-track">
+                  {[
+                    '🤖 AI Resume Parsing', '🎤 Voice Commands', '🔍 AI Candidate Search',
+                    '💡 AI Copilot', '📄 AI Resume Summary', '🧠 Smart Matching',
+                    '📊 AI Scoring', '🗣️ AI Voice Copilot',
+                  ].concat([
+                    '🤖 AI Resume Parsing', '🎤 Voice Commands', '🔍 AI Candidate Search',
+                    '💡 AI Copilot', '📄 AI Resume Summary', '🧠 Smart Matching',
+                    '📊 AI Scoring', '🗣️ AI Voice Copilot',
+                  ]).map((item, i) => (
+                    <span
+                      key={i}
+                      className="inline-flex items-center gap-1.5 whitespace-nowrap mx-2 px-3 py-1.5 rounded-full text-[11px] font-semibold bg-indigo-500/10 border border-indigo-500/20 text-indigo-300"
+                    >
+                      {item}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              {/* Row 2 — Data & Analytics (slower, slight offset) */}
+              <div className="mb-3 overflow-hidden relative">
+                <div className="absolute left-0 top-0 bottom-0 w-12 bg-gradient-to-r from-[#080812] to-transparent z-10 pointer-events-none" />
+                <div className="absolute right-0 top-0 bottom-0 w-12 bg-gradient-to-l from-[#080812] to-transparent z-10 pointer-events-none" />
+                <div className="hirely-marquee-track-slow" style={{ marginLeft: '-60px' }}>
+                  {[
+                    '📈 Reports & Analytics', '🗂️ Activity Logs', '💾 Backup & Restore',
+                    '📥 CSV & Excel Import', '🏷️ Role-Based Access', '👥 Team Management',
+                    '📊 Dashboard Analytics', '🔒 Data Security',
+                  ].concat([
+                    '📈 Reports & Analytics', '🗂️ Activity Logs', '💾 Backup & Restore',
+                    '📥 CSV & Excel Import', '🏷️ Role-Based Access', '👥 Team Management',
+                    '📊 Dashboard Analytics', '🔒 Data Security',
+                  ]).map((item, i) => (
+                    <span
+                      key={i}
+                      className="inline-flex items-center gap-1.5 whitespace-nowrap mx-2 px-3 py-1.5 rounded-full text-[11px] font-semibold bg-violet-500/10 border border-violet-500/20 text-violet-300"
+                    >
+                      {item}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              {/* Row 3 — Recruitment & Integrations (faster) */}
+              <div className="overflow-hidden relative">
+                <div className="absolute left-0 top-0 bottom-0 w-12 bg-gradient-to-r from-[#080812] to-transparent z-10 pointer-events-none" />
+                <div className="absolute right-0 top-0 bottom-0 w-12 bg-gradient-to-l from-[#080812] to-transparent z-10 pointer-events-none" />
+                <div className="hirely-marquee-track-fast" style={{ marginLeft: '-30px' }}>
+                  {[
+                    '💼 Unlimited Jobs', '🏢 Company CRM', '🔗 Pipeline Kanban',
+                    '📧 Email Templates', '📬 Email Integration', '📤 Resume Upload',
+                    '🌐 Priority Support', '🎨 Custom Branding',
+                  ].concat([
+                    '💼 Unlimited Jobs', '🏢 Company CRM', '🔗 Pipeline Kanban',
+                    '📧 Email Templates', '📬 Email Integration', '📤 Resume Upload',
+                    '🌐 Priority Support', '🎨 Custom Branding',
+                  ]).map((item, i) => (
+                    <span
+                      key={i}
+                      className="inline-flex items-center gap-1.5 whitespace-nowrap mx-2 px-3 py-1.5 rounded-full text-[11px] font-semibold bg-emerald-500/10 border border-emerald-500/20 text-emerald-300"
+                    >
+                      {item}
+                    </span>
+                  ))}
                 </div>
               </div>
             </div>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { Star, X, Sparkles, Upload, CheckCircle } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 
@@ -141,10 +141,10 @@ export function FeedbackModal({ isOpen, onClose }: FeedbackModalProps) {
                   <Sparkles className="h-3 w-3" /> Early Adopter Feedback
                 </div>
                 <h2 className="text-xl md:text-2xl font-extrabold font-display leading-tight">
-                  💬 How's your experience with Hirely?
+                  💬 How's your experience with Hirly?
                 </h2>
                 <p className="text-slate-450 text-xs leading-relaxed">
-                  We're continuously improving Hirely based on feedback from our early customers. Your review helps us build a better recruitment platform.
+                  We're continuously improving Hirly based on feedback from our early customers. Your review helps us build a better recruitment platform.
                 </p>
               </div>
 
@@ -189,7 +189,7 @@ export function FeedbackModal({ isOpen, onClose }: FeedbackModalProps) {
                 <textarea
                   value={review}
                   onChange={(e) => setReview(e.target.value)}
-                  placeholder="Tell us what you liked, what could be improved, and how Hirely helped your recruitment process."
+                  placeholder="Tell us what you liked, what could be improved, and how Hirly helped your recruitment process."
                   required
                   rows={4}
                   className="w-full bg-slate-950 border border-slate-805 rounded-xl p-3.5 text-xs focus:outline-none focus:border-indigo-500 text-slate-100 placeholder-slate-500 resize-none min-h-[100px]"
@@ -309,7 +309,7 @@ export function FeedbackModal({ isOpen, onClose }: FeedbackModalProps) {
                   className="mt-0.5 rounded border-slate-800 bg-slate-950 text-indigo-650 focus:ring-0 focus:ring-offset-0"
                 />
                 <span className="text-[10px] text-slate-400 leading-normal">
-                  I allow Hirely to display my review publicly on its website.
+                  I allow Hirly to display my review publicly on its website.
                 </span>
               </label>
 

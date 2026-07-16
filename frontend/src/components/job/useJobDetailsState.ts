@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Job, Candidate, EmailTemplate, JobCandidate, JobNote, JobInterview, JobCommunication, JobActivity } from '../../types';
 import { supabase } from '../../utils/supabase';
 import { computeCandidateMatchData } from './jobMatchHelpers';
+import { generateCSV, ExportColumn } from '../../utils/csvExporter';
 
 function cleanAndParseJson(jsonStr: string) {
   let cleaned = jsonStr.trim();
@@ -575,19 +576,21 @@ export function useJobDetailsState({
 
   const handleBulkExport = () => {
     if (selectedCandidateIds.length === 0) return;
-    const lines = ['Candidate Name,Email,Match Score,Experience,Current Company,Status'];
-    selectedCandidateIds.forEach(id => {
-      const cand = candidates.find(c => c.id === id);
-      if (cand) {
-        lines.push(`"${cand.name}","${cand.email}",${cand.aiMatchScore || 80},"${cand.experience}","${cand.currentCompany}","${cand.status}"`);
-      }
-    });
-    const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `Job_${job.id}_Candidate_Shortlist.csv`;
-    link.click();
+    
+    const exportData = selectedCandidateIds
+      .map(id => candidates.find(c => c.id === id))
+      .filter((c): c is Candidate => !!c);
+
+    const columns: ExportColumn<Candidate>[] = [
+      { header: 'Candidate Name', key: 'name' },
+      { header: 'Email', key: 'email' },
+      { header: 'Match Score', key: 'aiMatchScore', transform: (val) => val || 80 },
+      { header: 'Experience', key: 'experience' },
+      { header: 'Current Company', key: 'currentCompany' },
+      { header: 'Status', key: 'status' }
+    ];
+
+    generateCSV(exportData, columns, `Job_${job.id}_Candidate_Shortlist`);
     triggerToast('✓ Exported CSV generated and downloaded!');
   };
 
@@ -659,7 +662,7 @@ export function useJobDetailsState({
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token;
 
-      const res = await fetch('/api/ai/job-tool', {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_API_URL || ''}/api/ai/job-tool`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

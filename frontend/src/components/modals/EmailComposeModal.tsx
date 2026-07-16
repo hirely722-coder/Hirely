@@ -126,13 +126,6 @@ export function EmailComposeModal({
   const handleSend = async () => {
     setIsSending(true);
     try {
-      if (!emailConfig.isConnected) {
-        showToast('❌ Email failed: SMTP not verified. Go to Settings → Email Setup Wizard.', 'error');
-        setIsSending(false);
-        handleClose();
-        return;
-      }
-
       const recipientEmail = candidate.email || '';
       if (!recipientEmail) {
         showToast('❌ Candidate has no email address on file.', 'error');
@@ -142,26 +135,38 @@ export function EmailComposeModal({
 
       const backendUrl = process.env.NEXT_PUBLIC_BACKEND_API_URL || '';
 
-      // Send email directly via backend SMTP
+      // Send email (backend tries OAuth first, falls back to SMTP)
       const res = await fetch(`${backendUrl}/api/send-email`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           ...(token ? { Authorization: `Bearer ${token}` } : {})
         },
-        body: JSON.stringify({
-          to: recipientEmail,
-          subject,
-          body,
-          candidateName: candidate.name
-        })
+        body: JSON.stringify({ to: recipientEmail, subject, body })
       });
 
       const data = await res.json();
-
       if (!res.ok || !data.success) {
         throw new Error(data.error || 'Unknown error from server');
       }
+
+      // Persist communication log in the background
+      fetch(`${backendUrl}/api/communication_logs`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify({
+          candidateId: candidate.id,
+          type: 'Email',
+          status: 'Sent',
+          sentBy: 'Sarah Jenkins',
+          subject,
+          message: body,
+          recipient: recipientEmail
+        })
+      }).catch(() => {}); // non-blocking
 
       const log: CommunicationLog = {
         id: 'cl_' + Date.now(),
@@ -201,7 +206,9 @@ export function EmailComposeModal({
               </div>
               <div>
                 <h3 className="text-sm font-bold text-slate-900 font-sans tracking-tight">Compose Email</h3>
-                <p className="text-[10px] text-slate-500 font-mono">Outbox Service: {emailConfig.provider}</p>
+                <p className="text-[10px] text-slate-500 font-mono">
+                {emailConfig.isConnected ? `Outbox: ${emailConfig.provider}` : 'Outbox: OAuth / SMTP'}
+              </p>
               </div>
             </div>
             <button 
@@ -214,16 +221,6 @@ export function EmailComposeModal({
 
           <div className="p-6 grid grid-cols-1 lg:grid-cols-2 gap-6 max-h-[75vh] overflow-y-auto">
             <div className="space-y-4">
-              {!emailConfig.isConnected && (
-                <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl flex gap-2.5 text-amber-800">
-                  <AlertCircle className="h-4.5 w-4.5 shrink-0 text-amber-600 mt-0.5" />
-                  <div>
-                    <p className="font-semibold text-xs text-amber-900">Email Setup Unverified</p>
-                    <p className="text-[10px] text-amber-700 mt-0.5 leading-relaxed font-sans">Your email credentials have not been saved. Please configure SMTP in Settings to avoid delivery failures.</p>
-                  </div>
-                </div>
-              )}
-
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                 <div>
                   <label className="block text-[10px] font-mono text-slate-500 uppercase tracking-wider mb-1.5 font-bold">
@@ -495,7 +492,7 @@ export function EmailComposeModal({
           <div className="p-4 border-t border-slate-150 flex items-center justify-between bg-slate-50 shrink-0">
             <div className="flex items-center gap-1.5 text-[10px] text-slate-505 font-sans">
               <HelpCircle className="h-3.5 w-3.5 text-slate-400" />
-              <span>Sends via integrated {emailConfig.provider} connection.</span>
+              <span>Sends directly via your connected email integration (OAuth or SMTP).</span>
             </div>
 
             <div className="flex items-center gap-2">

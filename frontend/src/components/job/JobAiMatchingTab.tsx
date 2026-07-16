@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { 
   Sparkles, RefreshCw, X, CheckCircle2, AlertTriangle, 
-  Eye, Mail, Phone, ArrowRight, Calendar, IndianRupee, MapPin, Clock, Check 
+  Eye, Mail, Phone, ArrowRight, IndianRupee, MapPin, Clock, Check 
 } from 'lucide-react';
 import { Job, Candidate } from '../../types';
 import { CandidateMatchResult } from './jobMatchHelpers';
@@ -32,10 +32,6 @@ interface JobAiMatchingTabProps {
   setShowWhatsAppModal: (show: boolean) => void;
   onUpdateCandidateStage: (id: string, stage: Candidate['status']) => void;
   triggerToast: (msg: string) => void;
-  setInterviewCandidate: (cand: Candidate | null) => void;
-  setInterviewDate: (date: string) => void;
-  setInterviewTime: (time: string) => void;
-  setShowInterviewModal: (show: boolean) => void;
   onRefreshCandidates?: () => void;
 }
 
@@ -64,10 +60,6 @@ export function JobAiMatchingTab({
   setShowWhatsAppModal,
   onUpdateCandidateStage,
   triggerToast,
-  setInterviewCandidate,
-  setInterviewDate,
-  setInterviewTime,
-  setShowInterviewModal,
   onRefreshCandidates
 }: JobAiMatchingTabProps) {
   const [pipelineModalCandidate, setPipelineModalCandidate] = useState<Candidate | null>(null);
@@ -429,17 +421,7 @@ export function JobAiMatchingTab({
                     >
                       <ArrowRight className="h-3.5 w-3.5 text-slate-400" /> Pipeline
                     </button>
-                    <button 
-                      onClick={() => {
-                        setInterviewCandidate(item.candidate);
-                        setInterviewDate(new Date(Date.now() + 24*60*60*1000).toISOString().split('T')[0]);
-                        setInterviewTime('11:00 AM');
-                        setShowInterviewModal(true);
-                      }}
-                      className="flex-1 min-w-[90px] px-2.5 py-1.5 text-[10px] font-bold bg-slate-900 hover:bg-slate-800 text-white rounded-lg transition-all flex items-center justify-center gap-1 border border-transparent shadow-sm cursor-pointer font-sans"
-                    >
-                      <Calendar className="h-3.5 w-3.5 text-emerald-400" /> Interview
-                    </button>
+
                   </div>
                 </div>
               );

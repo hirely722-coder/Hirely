@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
+﻿import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { Company, Job, Candidate, Task, EmailTemplate, ActivityLog, TeamMember, CommunicationLog, EmailConfig, CustomFieldDefinition, WorkspaceRole, RbacAuditLog, Contact, CompanyDocument, Note } from '../types';
 import { ImportTask, ImportHistoryItem, cleanEmail, cleanPhone, cleanName, cleanSkills, cleanExperience, cleanSalary, validateRecord, addImportHistoryItem } from '../utils/importEngine';
 import { supabase } from '../utils/supabase';
@@ -130,6 +130,8 @@ interface AppContextType {
   showUpgradeSuccess: boolean;
   setShowUpgradeSuccess: React.Dispatch<React.SetStateAction<boolean>>;
   realtimeStatus: string;
+  workspace: any;
+  handleUpdateWorkspace: (updatedWs: any) => Promise<void>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -163,6 +165,7 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [toast, setToast] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
   const [showUpgradeSuccess, setShowUpgradeSuccess] = useState(false);
   const [realtimeStatus, setRealtimeStatus] = useState<string>('CONNECTING');
+  const [workspace, setWorkspace] = useState<any | null>(null);
 
   const [companyContacts, setCompanyContacts] = useState<Contact[]>([]);
   const [companyDocuments, setCompanyDocuments] = useState<CompanyDocument[]>([]);
@@ -750,6 +753,7 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       setCompanyContacts(companyContactsData);
       setCompanyDocuments(companyDocumentsData);
       setCompanyNotes(companyNotesData);
+      setWorkspace(payload.workspace || null);
 
       // Save to localStorage cache
       localStorage.setItem('hirely_cache_companies', JSON.stringify(companiesData));
@@ -867,7 +871,7 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         if (!hasNotif) {
           const text = daysRemaining === 0 
             ? "🚨 Welcome to your trial's last day! Your 7-day free trial expires today. Upgrade now to ensure uninterrupted access." 
-            : `🎉 You have ${daysRemaining} days remaining on your Hirely Free Trial with full feature access. Upgrade anytime!`;
+            : `🎉 You have ${daysRemaining} days remaining on your Hirly Free Trial with full feature access. Upgrade anytime!`;
           
           setNotifications(prev => [
             {
@@ -1949,7 +1953,27 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       showUpgradeSuccess,
       setShowUpgradeSuccess,
       workspaceCreatedAt,
-      realtimeStatus
+      realtimeStatus,
+      workspace,
+      handleUpdateWorkspace: async (updatedWs: any) => {
+        try {
+          const response = await fetchWithAuth(`${API_URL}/api/workspaces/${updatedWs.id}`, {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(updatedWs)
+          });
+          if (!response.ok) {
+            throw new Error('Failed to update workspace settings');
+          }
+          const data = await response.json();
+          setWorkspace(data);
+          showToast('✓ Settings saved successfully!', 'success');
+        } catch (err: any) {
+          showToast(err.message || 'Failed to update workspace settings', 'error');
+        }
+      }
     }}>
       {children}
     </AppContext.Provider>

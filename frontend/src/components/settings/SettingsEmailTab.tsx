@@ -1,4 +1,4 @@
-import React from 'react';
+﻿import React from 'react';
 import { Info, CheckCircle } from 'lucide-react';
 import { EmailConfig } from '../../types';
 
@@ -272,7 +272,7 @@ export function SettingsEmailTab({
                       <li>Go to your <a href="https://myaccount.google.com/" target="_blank" rel="noopener noreferrer" className="text-blue-650 hover:underline font-semibold">Google Account Settings</a>.</li>
                       <li>Go to <strong>Security</strong> and turn on <strong>2-Step Verification</strong>.</li>
                       <li>Search for <strong>"App passwords"</strong> in the top search bar (or go to Security &rarr; App passwords).</li>
-                      <li>Create a new app password (select <em>Other</em> and name it <strong>Hirely</strong>).</li>
+                      <li>Create a new app password (select <em>Other</em> and name it <strong>Hirly</strong>).</li>
                       <li>Copy the generated 16-character code and paste it into the <strong>Password</strong> field below.</li>
                       <li>Keep host as <code className="bg-slate-100 px-1 rounded text-slate-800 font-mono text-[10px]">smtp.gmail.com</code> and port as <code className="bg-slate-100 px-1 rounded text-slate-800 font-mono text-[10px]">587</code>.</li>
                     </>

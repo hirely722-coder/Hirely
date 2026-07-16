@@ -1072,7 +1072,7 @@ export default function CopilotView({
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token;
 
-      const response = await fetch('/api/ai/parse-file', {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_API_URL || ''}/api/ai/parse-file`, {
         method: 'POST',
         headers: {
           ...(token ? { Authorization: `Bearer ${token}` } : {})
@@ -1157,7 +1157,7 @@ export default function CopilotView({
       const abortController = new AbortController();
       activeFetchControllerRef.current = abortController;
 
-      const response = await fetch('/api/ai/copilot', {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_API_URL || ''}/api/ai/copilot`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1367,7 +1367,7 @@ export default function CopilotView({
         id: msg.pendingAction.id
       } : undefined;
 
-      const res = await fetch('/api/ai/copilot/approve', {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_API_URL || ''}/api/ai/copilot/approve`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

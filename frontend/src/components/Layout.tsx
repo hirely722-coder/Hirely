@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useRef } from 'react';
+﻿import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { 
   LayoutDashboard, Building2, Briefcase, Users, GitMerge, Mail, Sparkles, Settings, 
   LogOut, Shield, ChevronDown, Bell, Menu, X, CheckSquare, Plus, CreditCard, Activity, Database, MessageSquare, Lock,
-  Search, Palette, Check, User, ChevronRight, ShieldAlert, Zap
+  Search, Palette, Check, User, ChevronRight, ShieldAlert, Zap, UserCheck
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { supabase } from '../utils/supabase';
@@ -462,6 +462,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     { name: 'Tasks', path: '/tasks', icon: CheckSquare, badge: Array.isArray(tasks) ? tasks.filter(t => t.status === 'Pending').length : 0 },
     { name: 'Templates', path: '/templates', icon: Mail },
     { name: 'Hirly Forge', path: '/copilot', icon: Zap },
+    { name: 'Recruiters', path: '/recruiters', icon: UserCheck },
     { name: 'Support', path: '/support', icon: MessageSquare },
     { name: 'Settings', path: '/settings', icon: Settings },
   ];
@@ -521,6 +522,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     if (path === '/templates') return can('templates.view');
     if (path === '/copilot') return can('copilot.open');
     if (path === '/settings') return can('settings.view');
+    if (path === '/recruiters') return can('team.view');
     return true;
   };
 
@@ -534,6 +536,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     if (item.path === '/templates') return can('templates.view') && !isLocked('disable_templates');
     if (item.path === '/copilot') return can('copilot.open') && !isLocked('disable_copilot') && !isLocked('disable_ai');
     if (item.path === '/settings') return can('settings.view');
+    if (item.path === '/recruiters') return can('team.view');
     return true;
   });
 
@@ -553,7 +556,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             </h2>
             <p className="text-slate-400 text-xs md:text-sm font-medium max-w-xl mx-auto leading-relaxed">
               {isTrial 
-                ? 'We hope you enjoyed Hirely! All your data is safe, but you need to select a plan to unlock full recruitment dashboard capabilities.' 
+                ? 'We hope you enjoyed Hirly! All your data is safe, but you need to select a plan to unlock full recruitment dashboard capabilities.' 
                 : 'Your one-month subscription has ended. All your data is safe, but you need to repurchase a plan to continue using your recruitment portal.'}
             </p>
           </div>
@@ -626,7 +629,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                             key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || 'rzp_test_TCVTzrCeGHT0sg',
                             amount: orderData.amount,
                             currency: orderData.currency,
-                            name: "Hirely AI Platform",
+                            name: "Hirly AI Platform",
                             description: `Upgrade License to ${plan.name.toUpperCase()}`,
                             order_id: orderData.orderId,
                             handler: async function (response: any) {
@@ -1058,15 +1061,15 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           candidate={whatsappComposeCandidate}
           candidates={candidates}
           jobs={jobs}
-          companyName="Hirely"
+          companyName="Hirly"
           preselectedJob={whatsappComposePreselectedJob || undefined}
           onClose={() => {
             setWhatsappComposeCandidate(null);
             setWhatsappComposePreselectedJob(null);
           }}
           onSend={(log) => {
-            useApp().handleAddCommunicationLog(log);
-            useApp().addActivityLog('Candidate', `Sent WhatsApp message to ${whatsappComposeCandidate.name}.`);
+            handleAddCommunicationLog(log);
+            addActivityLog('Candidate', `Sent WhatsApp message to ${whatsappComposeCandidate.name}.`);
           }}
           showToast={showToast}
         />
@@ -1078,7 +1081,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           jobs={jobs}
           onClose={() => setScheduleInterviewCandidate(null)}
           onSchedule={(title, date, log) => {
-            useApp().handleAddCommunicationLog(log);
+            handleAddCommunicationLog(log);
             const newTask: Task = {
               id: 't_' + Date.now(),
               type: 'Interview',
@@ -1090,7 +1093,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               dueDate: date.split(' ')[0]
             };
             handleAddTask(newTask);
-            useApp().addActivityLog('Candidate', `Scheduled interview with ${scheduleInterviewCandidate.name} on ${date}.`);
+            addActivityLog('Candidate', `Scheduled interview with ${scheduleInterviewCandidate.name} on ${date}.`);
           }}
           showToast={showToast}
         />
@@ -1102,7 +1105,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           onClose={() => setAddTaskCandidate(null)}
           onAddTask={(task) => {
             handleAddTask(task);
-            useApp().addActivityLog('Candidate', `Created task: "${task.title}" for ${addTaskCandidate.name}.`);
+            addActivityLog('Candidate', `Created task: "${task.title}" for ${addTaskCandidate.name}.`);
           }}
           showToast={showToast}
         />

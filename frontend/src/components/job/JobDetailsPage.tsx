@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { 
-  ArrowRight, Sparkles, Calendar, Mail, Phone, Share2, Trash2, Copy, Search 
+  ArrowRight, Sparkles, Mail, Phone, Share2, Trash2, Copy, Search 
 } from 'lucide-react';
 import { Job, Company, Candidate, EmailTemplate, JobCandidate } from '../../types';
 import { useJobDetailsState } from './useJobDetailsState';
@@ -9,10 +9,8 @@ import { JobOverviewTab } from './JobOverviewTab';
 import { JobAiMatchingTab } from './JobAiMatchingTab';
 import { JobCandidatesTab } from './JobCandidatesTab';
 import { JobPipelineTab } from './JobPipelineTab';
-import { JobInterviewsTab } from './JobInterviewsTab';
 import { JobLogsTab } from './JobLogsTab';
 import { JobNotesModal } from './JobNotesModal';
-import { JobInterviewModal } from './JobInterviewModal';
 import { JobOutreachModals } from './JobOutreachModals';
 import { CandidateDetailsModal } from './CandidateDetailsModal';
 import { JobBudgetTab } from './JobBudgetTab';
@@ -29,7 +27,7 @@ interface JobDetailsPageProps {
   onUpdateCandidateStage: (candidateId: string, newStage: Candidate['status']) => void;
 }
 
-type TabType = 'overview' | 'ai-matching' | 'candidates' | 'pipeline' | 'interviews' | 'budget' | 'notes' | 'communication' | 'activity';
+type TabType = 'overview' | 'ai-matching' | 'candidates' | 'pipeline' | 'budget' | 'notes' | 'communication' | 'activity';
 
 export default function JobDetailsPage(props: JobDetailsPageProps) {
   const { job, candidates, onBack } = props;
@@ -127,14 +125,6 @@ export default function JobDetailsPage(props: JobDetailsPageProps) {
       n.author.toLowerCase().includes(state.detailSearch.toLowerCase())
     );
   }, [state.notes, state.detailSearch]);
-
-  const filteredInterviews = useMemo(() => {
-    return state.interviews.filter(i => 
-      i.candidateName.toLowerCase().includes(state.detailSearch.toLowerCase()) ||
-      i.round.toLowerCase().includes(state.detailSearch.toLowerCase()) ||
-      i.interviewer.toLowerCase().includes(state.detailSearch.toLowerCase())
-    );
-  }, [state.interviews, state.detailSearch]);
 
   const filteredCommunications = useMemo(() => {
     return state.communications.filter(c => 
@@ -265,7 +255,7 @@ export default function JobDetailsPage(props: JobDetailsPageProps) {
         {/* Tab content area */}
         <div className="lg:col-span-3 space-y-6">
           <div className="flex border-b border-slate-200 overflow-x-auto scrollbar-none bg-slate-50/50 p-1 rounded-xl border">
-            {(['overview', 'ai-matching', 'candidates', 'pipeline', 'interviews', 'budget', 'notes', 'communication', 'activity'] as TabType[]).map((tab) => (
+            {(['overview', 'ai-matching', 'candidates', 'pipeline', 'budget', 'notes', 'communication', 'activity'] as TabType[]).map((tab) => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
@@ -329,10 +319,6 @@ export default function JobDetailsPage(props: JobDetailsPageProps) {
                 setShowWhatsAppModal={state.setShowWhatsAppModal}
                 onUpdateCandidateStage={props.onUpdateCandidateStage}
                 triggerToast={state.triggerToast}
-                setInterviewCandidate={state.setInterviewCandidate}
-                setInterviewDate={state.setInterviewDate}
-                setInterviewTime={state.setInterviewTime}
-                setShowInterviewModal={state.setShowInterviewModal}
                 onRefreshCandidates={fetchJobCandidates}
               />
             )}
@@ -364,19 +350,6 @@ export default function JobDetailsPage(props: JobDetailsPageProps) {
                 handleDragStart={state.handleDragStart}
                 handleDragOver={state.handleDragOver}
                 handleDrop={state.handleDrop}
-              />
-            )}
-
-            {activeTab === 'interviews' && (
-              <JobInterviewsTab
-                candidates={candidates}
-                filteredInterviews={filteredInterviews}
-                setInterviewCandidate={state.setInterviewCandidate}
-                setInterviewDate={state.setInterviewDate}
-                setInterviewTime={state.setInterviewTime}
-                setShowInterviewModal={state.setShowInterviewModal}
-                handleUpdateInterviewStatus={state.handleUpdateInterviewStatus}
-                generateMeetingLink={state.generateMeetingLink}
               />
             )}
 
@@ -419,16 +392,6 @@ export default function JobDetailsPage(props: JobDetailsPageProps) {
               >
                 <span>Find Matches</span>
                 <Sparkles className="h-3.5 w-3.5 text-blue-400" />
-              </button>
-              <button 
-                onClick={() => {
-                  state.setInterviewCandidate(candidates[0] || null);
-                  state.setShowInterviewModal(true);
-                }}
-                className="w-full text-left py-2 px-3 hover:bg-slate-800 text-white font-semibold transition-colors flex items-center justify-between bg-slate-800/40 rounded-lg border border-slate-800 cursor-pointer"
-              >
-                <span>Schedule Interview</span>
-                <Calendar className="h-3.5 w-3.5 text-slate-400" />
               </button>
               <button 
                 onClick={() => {
@@ -490,23 +453,6 @@ export default function JobDetailsPage(props: JobDetailsPageProps) {
         handleSaveNote={state.handleSaveNote}
       />
 
-      <JobInterviewModal
-        isOpen={state.showInterviewModal}
-        onClose={() => state.setShowInterviewModal(false)}
-        candidates={candidates}
-        interviewCandidate={state.interviewCandidate}
-        setInterviewCandidate={state.setInterviewCandidate}
-        interviewDate={state.interviewDate}
-        setInterviewDate={state.setInterviewDate}
-        interviewTime={state.interviewTime}
-        setInterviewTime={state.setInterviewTime}
-        interviewerName={state.interviewerName}
-        setInterviewerName={state.setInterviewerName}
-        interviewRound={state.interviewRound}
-        setInterviewRound={state.setInterviewRound}
-        handleScheduleSubmit={state.handleScheduleSubmit}
-      />
-
       <JobOutreachModals
         job={job}
         showEmailModal={state.showEmailModal}
@@ -540,10 +486,6 @@ export default function JobDetailsPage(props: JobDetailsPageProps) {
         viewedCandidate={state.viewedCandidate}
         onUpdateCandidateStage={props.onUpdateCandidateStage}
         triggerToast={state.triggerToast}
-        setInterviewCandidate={state.setInterviewCandidate}
-        setInterviewDate={state.setInterviewDate}
-        setInterviewTime={state.setInterviewTime}
-        setShowInterviewModal={state.setShowInterviewModal}
         setEmailCandidate={state.setEmailCandidate}
         setEmailSubject={state.setEmailSubject}
         setEmailBody={state.setEmailBody}

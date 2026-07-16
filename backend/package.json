@@ -13,7 +13,6 @@
     "dotenv": "^16.4.5",
     "hono": "^4.4.7",
     "nodemailer": "^9.0.3",
-    "pdf-parse": "^2.4.5",
     "razorpay": "^2.9.6",
     "unpdf": "^1.6.2"
   },

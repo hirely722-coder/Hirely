@@ -8,6 +8,8 @@ import { CandidateDetailsView } from './CandidateDetailsView';
 import { CandidateFormModal } from './CandidateFormModal';
 import { BulkUploadModal } from './BulkUploadModal';
 import { usePermission } from '../hooks/usePermission';
+import { ExportCsvButton } from './ui/ExportCsvButton';
+import { ExportColumn } from '../utils/csvExporter';
 import { 
   extractUniqueDesignations, 
   extractUniqueCities, 
@@ -63,6 +65,43 @@ export default function CandidatesView(props: CandidatesViewProps) {
 
   const { customFieldDefinitions } = useApp();
   const { can } = usePermission();
+
+  const candidatesExportColumns = useMemo<ExportColumn<Candidate>[]>(() => {
+    const baseCols: ExportColumn<Candidate>[] = [
+      { header: 'Name', key: 'name' },
+      { header: 'Email', key: 'email' },
+      { header: 'Phone', key: 'phone' },
+      { header: 'Experience', key: 'experience' },
+      { header: 'Designation', key: 'designation', transform: (val) => val || 'N/A' },
+      { header: 'Current Company', key: 'currentCompany' },
+      { header: 'Pipeline Stage', key: 'status' },
+      { header: 'AI Match Score', key: 'aiMatchScore', transform: (val) => val || 85 },
+      { header: 'Education', key: 'education' },
+      { header: 'City', key: 'city', transform: (val) => val || 'N/A' },
+      { header: 'Gender', key: 'gender', transform: (val) => val || 'N/A' },
+      { header: 'Expected Salary', key: 'expectedSalary', transform: (val) => val || 'N/A' },
+      { header: 'Notice Period', key: 'noticePeriod', transform: (val) => val || 'N/A' },
+      { header: 'Applied Date', key: 'appliedDate' },
+      { header: 'Notes', key: 'notes' }
+    ];
+
+    if (customFieldDefinitions && customFieldDefinitions.length > 0) {
+      customFieldDefinitions.forEach((def: any) => {
+        baseCols.push({
+          header: def.name,
+          key: `cf_${def.key}`,
+          transform: (_, record) => {
+            const val = record.customFields?.[def.key];
+            if (val === null || val === undefined) return '';
+            if (typeof val === 'boolean') return val ? 'Yes' : 'No';
+            return String(val);
+          }
+        });
+      });
+    }
+
+    return baseCols;
+  }, [customFieldDefinitions]);
 
   // Wrapped actions with permission checks
   const handleCSVImport = () => {
@@ -253,6 +292,14 @@ export default function CandidatesView(props: CandidatesViewProps) {
                 Import Resume
               </button>
               
+              <ExportCsvButton
+                data={filteredCandidates}
+                columns={candidatesExportColumns}
+                filename="candidates_export"
+                permission="candidates.export"
+                className="flex flex-1 sm:flex-none items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-50 transition-colors cursor-pointer bg-white"
+              />
+
               <button 
                 onClick={handleAddCandidate}
                 className="flex flex-1 sm:flex-none items-center justify-center gap-1.5 px-4 py-2 text-xs font-semibold bg-blue-600 text-white rounded-lg hover:bg-blue-700 shadow-sm transition-colors cursor-pointer"

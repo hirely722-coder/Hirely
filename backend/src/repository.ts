@@ -17,11 +17,22 @@ export class WorkspaceRepository {
     const limit = 1000;
     let hasMore = true;
 
+    const filters = await this.getAssignmentFilters();
+    const useMemoryFilter = filters.isRestricted && 
+      (this.tableName === 'candidates' || this.tableName === 'communication_logs') && 
+      filters.candidateIds.length > 300;
+
     while (hasMore) {
-      const { data, error } = await supabase
+      let query = supabase
         .from(this.tableName)
         .select('*')
-        .eq('workspace_id', this.user.workspace_id)
+        .eq('workspace_id', this.user.workspace_id);
+
+      if (filters.isRestricted && !useMemoryFilter) {
+        query = this.applyQueryFilters(query, filters);
+      }
+
+      const { data, error } = await query
         .order('created_at', { ascending: false })
         .range(start, start + limit - 1);
 
@@ -30,7 +41,15 @@ export class WorkspaceRepository {
       if (!data || data.length === 0) {
         hasMore = false;
       } else {
-        allData.push(...data);
+        let dataToAppend = data;
+        if (useMemoryFilter) {
+          if (this.tableName === 'candidates') {
+            dataToAppend = data.filter((c: any) => filters.candidateIds.includes(c.id) || c.created_by === this.user.id);
+          } else if (this.tableName === 'communication_logs') {
+            dataToAppend = data.filter((log: any) => filters.candidateIds.includes(log.candidate_id) || log.created_by === this.user.id);
+          }
+        }
+        allData.push(...dataToAppend);
         if (data.length < limit) {
           hasMore = false;
         } else {
@@ -47,11 +66,20 @@ export class WorkspaceRepository {
     const limit = 1000;
     let hasMore = true;
 
+    const filters = await this.getAssignmentFilters();
+    const useMemoryFilter = filters.isRestricted && 
+      (this.tableName === 'candidates' || this.tableName === 'communication_logs') && 
+      filters.candidateIds.length > 300;
+
     while (hasMore) {
       let query = supabase
         .from(this.tableName)
         .select(selectClause)
         .eq('workspace_id', this.user.workspace_id);
+
+      if (filters.isRestricted && !useMemoryFilter) {
+        query = this.applyQueryFilters(query, filters);
+      }
 
       for (const [key, val] of Object.entries(matchFilters)) {
         query = query.eq(key, val);
@@ -65,7 +93,15 @@ export class WorkspaceRepository {
       if (!data || data.length === 0) {
         hasMore = false;
       } else {
-        allData.push(...data);
+        let dataToAppend = data;
+        if (useMemoryFilter) {
+          if (this.tableName === 'candidates') {
+            dataToAppend = data.filter((c: any) => filters.candidateIds.includes(c.id) || c.created_by === this.user.id);
+          } else if (this.tableName === 'communication_logs') {
+            dataToAppend = data.filter((log: any) => filters.candidateIds.includes(log.candidate_id) || log.created_by === this.user.id);
+          }
+        }
+        allData.push(...dataToAppend);
         if (data.length < limit) {
           hasMore = false;
         } else {
@@ -103,11 +139,17 @@ export class WorkspaceRepository {
       snakeBody.id = crypto.randomUUID();
     }
     snakeBody.workspace_id = this.user.workspace_id;
-    if (this.tableName !== 'profiles' && this.tableName !== 'workspace_roles' && this.tableName !== 'workspaces') {
+    // Assignment tables have no created_by/updated_by columns — skip injecting them
+    const AUDIT_EXEMPT = ['profiles', 'workspace_roles', 'workspaces', 'job_assignments', 'company_assignments'];
+    if (!AUDIT_EXEMPT.includes(this.tableName)) {
       snakeBody.created_by = this.user.id;
       snakeBody.updated_by = this.user.id;
     }
-    delete snakeBody.user_id;
+    // Preserve user_id for assignment tables — it IS the payload (who the job/company is assigned to)
+    const USER_ID_TABLES = ['job_assignments', 'company_assignments'];
+    if (!USER_ID_TABLES.includes(this.tableName)) {
+      delete snakeBody.user_id;
+    }
 
     const { data, error } = await supabase.from(this.tableName).insert([snakeBody]).select();
     if (error) throw error;
@@ -144,12 +186,17 @@ export class WorkspaceRepository {
     delete snakeBody.created_at;
     delete snakeBody.workspace_id;
     delete snakeBody.created_by;
-    delete snakeBody.user_id;
-
-    if (this.tableName !== 'profiles' && this.tableName !== 'workspace_roles' && this.tableName !== 'workspaces') {
-      snakeBody.updated_by = this.user.id;
+    const USER_ID_TABLES = ['job_assignments', 'company_assignments'];
+    if (!USER_ID_TABLES.includes(this.tableName)) {
+      delete snakeBody.user_id;
     }
-    snakeBody.updated_at = new Date().toISOString();
+
+    // Assignment tables have no updated_by/updated_at columns — skip injecting them
+    const AUDIT_EXEMPT_UPDATE = ['profiles', 'workspace_roles', 'workspaces', 'job_assignments', 'company_assignments'];
+    if (!AUDIT_EXEMPT_UPDATE.includes(this.tableName)) {
+      snakeBody.updated_by = this.user.id;
+      snakeBody.updated_at = new Date().toISOString();
+    }
 
     // Clean up any transient/temporary UI keys starting with '_' for all tables
     Object.keys(snakeBody).forEach(key => {
@@ -173,12 +220,36 @@ export class WorkspaceRepository {
       });
     }
 
-    const { data, error } = await supabase
+    const filters = await this.getAssignmentFilters();
+    const useMemoryFilter = filters.isRestricted && 
+      (this.tableName === 'candidates' || this.tableName === 'communication_logs') && 
+      filters.candidateIds.length > 300;
+
+    if (useMemoryFilter) {
+      if (this.tableName === 'candidates') {
+        const { data: recordCheck } = await supabase.from('candidates').select('id, created_by').eq('id', id).eq('workspace_id', this.user.workspace_id).maybeSingle();
+        if (!recordCheck || (!filters.candidateIds.includes(recordCheck.id) && recordCheck.created_by !== this.user.id)) {
+          throw new Error('Record not found or access denied');
+        }
+      } else if (this.tableName === 'communication_logs') {
+        const { data: recordCheck } = await supabase.from('communication_logs').select('id, candidate_id, created_by').eq('id', id).eq('workspace_id', this.user.workspace_id).maybeSingle();
+        if (!recordCheck || (!filters.candidateIds.includes(recordCheck.candidate_id) && recordCheck.created_by !== this.user.id)) {
+          throw new Error('Record not found or access denied');
+        }
+      }
+    }
+
+    let query = supabase
       .from(this.tableName)
       .update(snakeBody)
       .eq('id', id)
-      .eq('workspace_id', this.user.workspace_id)
-      .select();
+      .eq('workspace_id', this.user.workspace_id);
+
+    if (filters.isRestricted && !useMemoryFilter) {
+      query = this.applyQueryFilters(query, filters);
+    }
+
+    const { data, error } = await query.select();
 
     if (error) throw error;
     if (!data || data.length === 0) throw new Error('Record not found or access denied');
@@ -188,11 +259,36 @@ export class WorkspaceRepository {
   }
 
   async delete(id: string) {
-    const { error } = await supabase
+    const filters = await this.getAssignmentFilters();
+    const useMemoryFilter = filters.isRestricted && 
+      (this.tableName === 'candidates' || this.tableName === 'communication_logs') && 
+      filters.candidateIds.length > 300;
+
+    if (useMemoryFilter) {
+      if (this.tableName === 'candidates') {
+        const { data: recordCheck } = await supabase.from('candidates').select('id, created_by').eq('id', id).eq('workspace_id', this.user.workspace_id).maybeSingle();
+        if (!recordCheck || (!filters.candidateIds.includes(recordCheck.id) && recordCheck.created_by !== this.user.id)) {
+          throw new Error('Record not found or access denied');
+        }
+      } else if (this.tableName === 'communication_logs') {
+        const { data: recordCheck } = await supabase.from('communication_logs').select('id, candidate_id, created_by').eq('id', id).eq('workspace_id', this.user.workspace_id).maybeSingle();
+        if (!recordCheck || (!filters.candidateIds.includes(recordCheck.candidate_id) && recordCheck.created_by !== this.user.id)) {
+          throw new Error('Record not found or access denied');
+        }
+      }
+    }
+
+    let query = supabase
       .from(this.tableName)
       .delete()
       .eq('id', id)
       .eq('workspace_id', this.user.workspace_id);
+
+    if (filters.isRestricted && !useMemoryFilter) {
+      query = this.applyQueryFilters(query, filters);
+    }
+
+    const { error } = await query;
 
     if (error) throw error;
 
@@ -231,6 +327,117 @@ export class WorkspaceRepository {
       await supabase.from('activity_logs').insert([log]);
     } catch (err: any) {
       console.error('Failed to log audit activity:', err.message);
+    }
+  }
+
+  private async getAssignmentFilters(): Promise<{
+    isRestricted: boolean;
+    companyIds: string[];
+    jobIds: string[];
+    candidateIds: string[];
+  }> {
+    const userRole = (this.user.role || '').toLowerCase();
+    const strategy = this.user.recruiter_assignment_strategy || 'global';
+    
+    if (userRole === 'owner' || userRole === 'admin' || strategy === 'global' || this.user.is_super_admin) {
+      return { isRestricted: false, companyIds: [], jobIds: [], candidateIds: [] };
+    }
+
+    // 1. Fetch direct company assignments
+    let assignedCompanyIds: string[] = [];
+    if (strategy === 'company' || strategy === 'hybrid') {
+      const { data: compAssigns } = await supabase
+        .from('company_assignments')
+        .select('company_id')
+        .eq('user_id', this.user.id)
+        .eq('workspace_id', this.user.workspace_id);
+      assignedCompanyIds = (compAssigns || []).map(a => a.company_id);
+    }
+
+    // 2. Fetch direct job assignments
+    let assignedJobIds: string[] = [];
+    if (strategy === 'job' || strategy === 'hybrid') {
+      const { data: jobAssigns } = await supabase
+        .from('job_assignments')
+        .select('job_id')
+        .eq('user_id', this.user.id)
+        .eq('workspace_id', this.user.workspace_id);
+      assignedJobIds = (jobAssigns || []).map(a => a.job_id);
+    }
+
+    // 3. If company-based, resolve jobs under assigned companies
+    if (assignedCompanyIds.length > 0) {
+      const { data: companyJobs } = await supabase
+        .from('jobs')
+        .select('id')
+        .in('company_id', assignedCompanyIds)
+        .eq('workspace_id', this.user.workspace_id);
+      if (companyJobs) {
+        const cJobIds = companyJobs.map(j => j.id);
+        assignedJobIds = Array.from(new Set([...assignedJobIds, ...cJobIds]));
+      }
+    }
+
+    // 4. If job-based, resolve companies of assigned jobs
+    if (assignedJobIds.length > 0) {
+      const { data: jobCompanyIds } = await supabase
+        .from('jobs')
+        .select('company_id')
+        .in('id', assignedJobIds)
+        .eq('workspace_id', this.user.workspace_id);
+      if (jobCompanyIds) {
+        const compIds = jobCompanyIds.map(jc => jc.company_id).filter(Boolean) as string[];
+        assignedCompanyIds = Array.from(new Set([...assignedCompanyIds, ...compIds]));
+      }
+    }
+
+    // 5. Resolve candidate IDs linked to these jobs
+    let linkedCandidateIds: string[] = [];
+    if (assignedJobIds.length > 0) {
+      const { data: jobCandLinks } = await supabase
+        .from('job_candidates')
+        .select('candidate_id')
+        .in('job_id', assignedJobIds)
+        .eq('workspace_id', this.user.workspace_id);
+      linkedCandidateIds = (jobCandLinks || []).map(jc => jc.candidate_id);
+    }
+
+    return {
+      isRestricted: true,
+      companyIds: assignedCompanyIds,
+      jobIds: assignedJobIds,
+      candidateIds: linkedCandidateIds
+    };
+  }
+
+  private applyQueryFilters(query: any, filters: { companyIds: string[]; jobIds: string[]; candidateIds: string[] }): any {
+    const companyIds = filters.companyIds.length > 0 ? filters.companyIds : ['00000000-0000-0000-0000-000000000000'];
+    const jobIds = filters.jobIds.length > 0 ? filters.jobIds : ['00000000-0000-0000-0000-000000000000'];
+    const candidateIds = filters.candidateIds.length > 0 ? filters.candidateIds : ['00000000-0000-0000-0000-000000000000'];
+
+    switch (this.tableName) {
+      case 'companies':
+        return query.in('id', companyIds);
+      case 'jobs':
+        return query.in('id', jobIds);
+      case 'candidates':
+        return query.or(`id.in.(${candidateIds.join(',')}),created_by.eq.${this.user.id}`);
+      case 'job_candidates':
+        return query.in('job_id', jobIds);
+      case 'tasks':
+        return query.or(`user_id.eq.${this.user.id},created_by.eq.${this.user.id},candidate_id.in.(${candidateIds.join(',')})`);
+      case 'interviews':
+        return query.or(`created_by.eq.${this.user.id},user_id.eq.${this.user.id},job_id.in.(${jobIds.join(',')})`);
+      case 'job_notes':
+        return query.in('job_id', jobIds);
+      case 'company_contacts':
+      case 'company_documents':
+      case 'company_notes':
+        return query.in('company_id', companyIds);
+      case 'communication_logs':
+        return query.or(`candidate_id.in.(${candidateIds.join(',')}),created_by.eq.${this.user.id}`);
+      default:
+        return query;
     }
   }
 }

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { useApp } from '../context/AppContext';
 import { Sparkles, Building2, Ticket, ArrowRight, AlertCircle, LogOut } from 'lucide-react';
@@ -65,7 +65,7 @@ export default function Onboarding() {
       localStorage.removeItem('hirely_setup_cycle');
       localStorage.removeItem('hirely_setup_trial');
 
-      showToast('✓ Workspace created successfully! Welcome to Hirely.');
+      showToast('✓ Workspace created successfully! Welcome to Hirly.');
       // Refetch user profile details
       await fetchData();
       router.replace('/dashboard');
@@ -137,7 +137,7 @@ export default function Onboarding() {
           
           <div className="flex items-center justify-center gap-2 mb-2">
             <h1 className="text-2xl font-black text-white tracking-tight font-display">
-              Welcome to Hirely AI
+              Welcome to Hirly AI
             </h1>
           </div>
           

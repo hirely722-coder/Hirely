@@ -11,7 +11,13 @@ export async function processPdfFile(file: File): Promise<ParsePdfResult> {
     const pdfjsLib = await import('pdfjs-dist');
 
     // Set worker source to unpkg matching the version installed
-    pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
+    const workerUrl = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
+    
+    // Fetch and create a blob URL to bypass CORS/cross-origin worker restrictions
+    const workerRes = await fetch(workerUrl);
+    const workerBlob = await workerRes.blob();
+    const blobUrl = URL.createObjectURL(workerBlob);
+    pdfjsLib.GlobalWorkerOptions.workerSrc = blobUrl;
 
     const arrayBuffer = await file.arrayBuffer();
     

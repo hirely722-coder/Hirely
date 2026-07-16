@@ -63,6 +63,7 @@ export interface Candidate {
   _dupeEmail?: string;
   _dupePhone?: string;
   customFields?: Record<string, any>;
+  createdBy?: string;
 }
 
 export interface JobCandidate {
@@ -112,6 +113,8 @@ export interface ActivityLog {
   type: string;
   description: string;
   user: string;
+  userId?: string;
+  userName?: string;
 }
 
 export interface TeamMember {
@@ -132,6 +135,8 @@ export interface TeamMember {
   password?: string;
   customPermissions?: string[];
   restrictedFeatures?: string[];
+  incentiveRate?: number;
+  incentiveType?: 'Percentage' | 'Fixed';
 }
 
 export interface EmailConfig {
@@ -327,4 +332,15 @@ export interface JobActivity {
   user: string;
 }
 
-
+export interface Workspace {
+  id: string;
+  name: string;
+  slug: string;
+  logo?: string;
+  ownerId: string;
+  recruiterAssignmentStrategy: 'global' | 'company' | 'job' | 'hybrid';
+  createdAt: string;
+  updatedAt: string;
+  lockedFeatures?: string[];
+  showWorkloadLimitToRecruiters?: boolean;
+}

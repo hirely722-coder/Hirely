@@ -1,4 +1,6 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
+import CompanyFormModal from './CompanyFormModal';
+import { useApp } from '../../context/AppContext';
 import { 
   ChevronLeft, Building2, Globe, Mail, Phone, MapPin, Plus, Edit2, Sparkles, 
   Trash, MessageSquare, Briefcase, Users, FileText, CheckCircle, Clock, 
@@ -73,6 +75,9 @@ export default function CompanyDetailsPage(props: CompanyDetailsPageProps) {
     onComposeEmail,
     onComposeWhatsApp
   });
+
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const { teamMembers } = useApp();
 
   // Pure helper workspace search filters
   const filteredJobs = useMemo(() => {
@@ -172,7 +177,7 @@ export default function CompanyDetailsPage(props: CompanyDetailsPageProps) {
         </div>
 
         <button 
-          onClick={() => state.showLocalToast('Edit company features available inside the central registry.', 'error')}
+          onClick={() => setIsEditModalOpen(true)}
           className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-50 transition-all font-sans cursor-pointer bg-white"
         >
           <Edit2 className="h-3.5 w-3.5" />
@@ -468,6 +473,18 @@ export default function CompanyDetailsPage(props: CompanyDetailsPageProps) {
         composerWABody={state.composerWABody}
         setComposerWABody={state.setComposerWABody}
         handleSendWhatsApp={state.handleSendWhatsApp}
+      />
+
+      <CompanyFormModal
+        isOpen={isEditModalOpen}
+        onClose={() => setIsEditModalOpen(false)}
+        onSubmit={async (updated) => {
+          await onEditCompany(updated);
+          setIsEditModalOpen(false);
+          state.showLocalToast('✓ Company profile updated successfully!', 'success');
+        }}
+        company={company}
+        teamMembers={teamMembers}
       />
 
     </div>

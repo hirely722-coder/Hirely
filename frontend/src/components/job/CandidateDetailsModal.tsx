@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Mail, Phone, MapPin, IndianRupee, Clock, CheckCircle2, AlertTriangle, ArrowRight, Calendar, Check, Eye } from 'lucide-react';
+import { X, Mail, Phone, MapPin, IndianRupee, Clock, CheckCircle2, AlertTriangle, ArrowRight, Check, Eye } from 'lucide-react';
 import { Candidate, Job } from '../../types';
 import AnimatedModal from '../AnimatedModal';
 import { calculateMatchScore } from '../../utils/matching';
@@ -11,10 +11,6 @@ interface CandidateDetailsModalProps {
   viewedCandidate: Candidate | null;
   onUpdateCandidateStage: (id: string, stage: Candidate['status']) => void;
   triggerToast: (msg: string) => void;
-  setInterviewCandidate: (cand: Candidate | null) => void;
-  setInterviewDate: (date: string) => void;
-  setInterviewTime: (time: string) => void;
-  setShowInterviewModal: (show: boolean) => void;
   setEmailCandidate: (cand: Candidate | null) => void;
   setEmailSubject: (sub: string) => void;
   setEmailBody: (body: string) => void;
@@ -31,10 +27,6 @@ export function CandidateDetailsModal({
   viewedCandidate,
   onUpdateCandidateStage,
   triggerToast,
-  setInterviewCandidate,
-  setInterviewDate,
-  setInterviewTime,
-  setShowInterviewModal,
   setEmailCandidate,
   setEmailSubject,
   setEmailBody,
@@ -349,18 +341,6 @@ export function CandidateDetailsModal({
                 className="px-3.5 py-2 text-xs font-bold border border-slate-200 text-slate-700 bg-white rounded-xl hover:bg-slate-50 transition-all flex items-center gap-1.5 cursor-pointer font-sans"
               >
                 <ArrowRight className="h-4 w-4 text-slate-400" /> Shortlist
-              </button>
-              <button
-                onClick={() => {
-                  setInterviewCandidate(viewedCandidate);
-                  setInterviewDate(new Date(Date.now() + 24*60*60*1000).toISOString().split('T')[0]);
-                  setInterviewTime('11:00 AM');
-                  handleClose();
-                  setShowInterviewModal(true);
-                }}
-                className="px-3.5 py-2 text-xs font-bold border border-slate-200 text-slate-700 bg-white rounded-xl hover:bg-slate-50 transition-all flex items-center gap-1.5 cursor-pointer font-sans"
-              >
-                <Calendar className="h-4 w-4 text-slate-400" /> Interview
               </button>
             </div>
 

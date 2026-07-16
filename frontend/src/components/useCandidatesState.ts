@@ -362,7 +362,7 @@ export function useCandidatesState({
             const formData = new FormData();
             formData.append('file', uploadFile, uploadFileName);
 
-            const response = await fetch('/api/ai/parse-resume', {
+            const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_API_URL || ''}/api/ai/parse-resume`, {
               method: 'POST',
               body: formData,
               headers: token ? { Authorization: `Bearer ${token}` } : {}
