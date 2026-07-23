@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Plus, X, Edit2, Trash2 } from 'lucide-react';
 import { CustomFieldDefinition } from '../../types';
 import { useApp } from '../../context/AppContext';
+import { Checkbox } from '../ui/Checkbox';
 
 export function SettingsCustomFieldsTab() {
   const { candidates, customFieldDefinitions, handleAddCustomFieldDef, handleUpdateCustomFieldDef, handleDeleteCustomFieldDef } = useApp();
@@ -141,11 +142,9 @@ export function SettingsCustomFieldsTab() {
             </div>
             <div className="flex items-center mt-6">
               <label className="flex items-center gap-2 cursor-pointer select-none">
-                <input
-                  type="checkbox"
+                <Checkbox
                   checked={isRequired}
-                  onChange={(e) => setIsRequired(e.target.checked)}
-                  className="rounded text-blue-600 focus:ring-0 cursor-pointer"
+                  onCheckedChange={(checked) => setIsRequired(checked)}
                 />
                 <span className="text-xs font-semibold text-slate-705">Make this field mandatory</span>
               </label>

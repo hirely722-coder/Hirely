@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { X, MessageSquare, Sparkles, Plus, Phone, CheckCheck, HelpCircle, ExternalLink, AlertCircle } from 'lucide-react';
 import { Candidate, Job, CommunicationLog } from '../../types';
 import AnimatedModal from '../AnimatedModal';
+import { useApp } from '../../context/AppContext';
 
 interface WhatsAppComposeModalProps {
   candidate: Candidate;
@@ -24,6 +25,8 @@ export function WhatsAppComposeModal({
   onSend,
   showToast
 }: WhatsAppComposeModalProps) {
+  const { user } = useApp();
+  const currentUserName = user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'Your Recruiter';
   const [isOpen, setIsOpen] = useState(true);
   const handleClose = () => {
     setIsOpen(false);
@@ -69,7 +72,7 @@ export function WhatsAppComposeModal({
         }
         break;
       case 'generic':
-        text = `Hello ${name},\n\nHope your week is off to a great start! Just checking in to see if you are currently open to exploring new professional opportunities.\n\nLet me know if we can share a few roles that might fit your profile.\n\nBest regards,\nSarah Jenkins\nHirly Recruitment`;
+        text = `Hello ${name},\n\nHope your week is off to a great start! Just checking in to see if you are currently open to exploring new professional opportunities.\n\nLet me know if we can share a few roles that might fit your profile.\n\nBest regards,\n${currentUserName}\nHirly Recruitment`;
         break;
       case 'partnership':
         text = `Hello ${name},\n\nI hope you're having a great week! I've been following *${compName}* and noticed you are expanding your engineering teams.\n\nAt Hirly, we specialize in sourcing top-tier technical talent. We have 3 exceptionally strong developers in our active pipeline this week who match your industry focus.\n\nAre you open to a brief WhatsApp sync or 10-minute call to see if we can streamline your hiring?`;
@@ -78,7 +81,7 @@ export function WhatsAppComposeModal({
         text = `Hi ${name}!\n\nI wanted to share a quick profile with you. We are currently representing an outstanding Senior Engineer with extensive React & Node.js experience who is highly interested in *${compName}*.\n\nThey have successfully scaled platforms from zero to millions of active users and are looking for their next challenge.\n\nShould I send over their anonymized resume for your team to review?`;
         break;
       case 'generic_company':
-        text = `Hello ${name},\n\nHope your week is going great! Just checking in to see how your current tech hiring is progressing at *${compName}*.\n\nLet me know if there are any urgent backend or frontend roles you need support filling this month.\n\nBest regards,\nSarah Jenkins\nLead Partner, Hirly`;
+        text = `Hello ${name},\n\nHope your week is going great! Just checking in to see how your current tech hiring is progressing at *${compName}*.\n\nLet me know if there are any urgent backend or frontend roles you need support filling this month.\n\nBest regards,\n${currentUserName}\nLead Partner, Hirly`;
         break;
     }
     setMessage(text);
@@ -115,7 +118,7 @@ export function WhatsAppComposeModal({
         type: 'WhatsApp',
         date: new Date().toISOString().replace('T', ' ').substring(0, 16),
         status: 'Sent',
-        sentBy: 'Sarah Jenkins',
+        sentBy: currentUserName,
         subject: 'WhatsApp Outreach Message',
         message: message
       };
@@ -163,7 +166,7 @@ export function WhatsAppComposeModal({
   };
 
   const handleInsertSignature = () => {
-    const signatureText = `Warmly,\nSarah Jenkins\nPrincipal Talent Partner | Hirly`;
+    const signatureText = `Warmly,\n${currentUserName}\nPrincipal Talent Partner | Hirly`;
     appendText(signatureText);
     showToast('✓ Professional signature appended!', 'success');
   };

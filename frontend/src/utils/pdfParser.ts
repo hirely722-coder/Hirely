@@ -3,6 +3,48 @@ export interface ParsePdfResult {
   file: File | Blob;
   fileName: string;
   textContent: string;
+  confidenceScore?: number;
+  docType?: 'Resume' | 'Invoice' | 'Aadhaar' | 'Offer Letter' | 'Other';
+}
+
+export function evaluateDocumentFootprint(text: string, fileName: string = ''): { score: number; docType: 'Resume' | 'Invoice' | 'Aadhaar' | 'Offer Letter' | 'Other' } {
+  const combined = (fileName + ' ' + text).toLowerCase();
+  
+  const hasContact = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/.test(combined) || /[0-9]{7,}/.test(combined) || combined.includes('linkedin.com') || combined.includes('github.com');
+  const hasExperience = combined.includes('experience') || combined.includes('employment') || combined.includes('work history') || combined.includes('career summary');
+  const hasEducation = combined.includes('education') || combined.includes('qualification') || combined.includes('degree') || combined.includes('university') || combined.includes('college');
+  const hasSkills = combined.includes('skills') || combined.includes('technologies') || combined.includes('proficiencies') || combined.includes('competencies') || combined.includes('projects');
+  const hasDates = /[2][0][0-9]{2}\s*[-–\s]\s*([2][0][0-9]{2}|present|current)/i.test(combined);
+
+  let score = 30;
+  if (hasContact) score += 20;
+  if (hasExperience) score += 25;
+  if (hasEducation) score += 20;
+  if (hasSkills) score += 20;
+  if (hasDates) score += 15;
+
+  if (fileName.toLowerCase().includes('resume') || fileName.toLowerCase().includes('cv')) {
+    score += 15;
+  }
+
+  let docType: 'Resume' | 'Invoice' | 'Aadhaar' | 'Offer Letter' | 'Other' = 'Resume';
+  const isInvoice = (combined.includes('invoice #') || combined.includes('bill to') || combined.includes('total due') || combined.includes('payment terms') || combined.includes('vat id') || combined.includes('subtotal')) && !hasExperience && !hasEducation;
+
+  if (isInvoice) {
+    docType = 'Invoice';
+    score = 10;
+  } else if (combined.includes('aadhaar') || combined.includes('passport no') || combined.includes('driver license')) {
+    docType = 'Aadhaar';
+    score = 15;
+  } else if (combined.includes('offer letter') || combined.includes('joining letter')) {
+    docType = 'Offer Letter';
+    score = 40;
+  }
+
+  return {
+    score: Math.min(100, Math.max(0, score)),
+    docType
+  };
 }
 
 export async function processPdfFile(file: File): Promise<ParsePdfResult> {
@@ -37,11 +79,14 @@ export async function processPdfFile(file: File): Promise<ParsePdfResult> {
 
     // If text is not empty, it's a standard PDF
     if (totalText.trim().length > 0) {
+      const evalResult = evaluateDocumentFootprint(totalText, file.name);
       return {
         isScanned: false,
         file,
         fileName: file.name,
-        textContent: totalText
+        textContent: totalText,
+        confidenceScore: evalResult.score,
+        docType: evalResult.docType
       };
     }
 

@@ -199,9 +199,9 @@ export default function JobsTable({
                     <td className="p-4">
                       <div className="flex items-center gap-1.5">
                         <span className="h-5 w-5 rounded-full bg-slate-900 text-white font-mono flex items-center justify-center text-[9px] font-bold">
-                          {(job.recruiterName || 'Sarah Jenkins').split(' ').map(n => n[0]).join('').toUpperCase()}
+                          {(job.recruiterName || 'Unassigned').split(' ').map(n => n[0]).join('').toUpperCase()}
                         </span>
-                        <span className="text-slate-600 font-semibold">{job.recruiterName || 'Sarah Jenkins'}</span>
+                        <span className="text-slate-600 font-semibold">{job.recruiterName || 'Unassigned'}</span>
                       </div>
                     </td>
                     <td className="p-4 text-slate-400 font-mono text-[10px]">2026-06-24</td>

@@ -5,6 +5,7 @@ import { errorHandler } from './middleware/errorHandler';
 import { authMiddleware, requirePermission } from './middleware/auth';
 import { runBackgroundQueueWorker, startTelegramBotPolling } from './services/worker';
 import { registerEmailIntegrationRoutes } from './email_integration_routes';
+import { registerEmailCenterRoutes } from './email_center_routes';
 
 // Import routers
 import { aiRouter } from './routes/ai.routes';
@@ -50,6 +51,7 @@ app.route('/api', publicRouter);
 
 // Register Email Integration routes
 registerEmailIntegrationRoutes(app, requirePermission);
+registerEmailCenterRoutes(app);
 
 // Start Telegram Bot update polling
 startTelegramBotPolling();

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Eye, Mail, Phone, Plus, RefreshCw, Loader2, X, Search } from 'lucide-react';
 import { Job, Candidate, JobCandidate } from '../../types';
 import { supabase } from '../../utils/supabase';
+import { Select } from '../ui/Select';
 
 interface JobCandidatesTabProps {
   job: Job;
@@ -217,15 +218,11 @@ export function JobCandidatesTab({
                       <p className="text-[10px] text-slate-400 mt-0.5">{cand.email}</p>
                     </td>
                     <td className="p-3">
-                      <select
+                      <Select
                         value={jc.stage}
-                        onChange={(e) => handleUpdateStage(jc, e.target.value as JobCandidate['stage'])}
-                        className="text-[10px] border border-slate-200 rounded px-1.5 py-0.5 bg-white font-medium focus:outline-none focus:ring-1 focus:ring-slate-400 cursor-pointer"
-                      >
-                        {PIPELINE_STAGES.map(s => (
-                          <option key={s} value={s}>{s}</option>
-                        ))}
-                      </select>
+                        onChange={(val) => handleUpdateStage(jc, val as JobCandidate['stage'])}
+                        options={PIPELINE_STAGES.map(s => ({ value: s, label: s }))}
+                      />
                     </td>
                     <td className="p-3 font-mono font-medium text-slate-600">{cand.experience}</td>
                     <td className="p-3 text-slate-400 font-mono text-[10px]">{jc.addedDate}</td>

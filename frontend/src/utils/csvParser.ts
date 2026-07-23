@@ -74,13 +74,13 @@ export function normalizeHeader(h: string): string {
 export const CSV_TEMPLATES = {
   companies: [
     ['Company Name', 'Contact Person', 'Email', 'Phone', 'Website', 'Address', 'Notes', 'Recruiter Contact', 'Industry', 'Company Size', 'Founded Year', 'Partnership Tier', 'LinkedIn URL'],
-    ['Acme Corp', 'John Doe', 'john@acme.com', '+1-555-0199', 'https://acme.com', '123 Tech Lane, San Francisco, CA', 'Key potential partner in enterprise AI.', 'Sarah Jenkins', 'SaaS', '201-500', '2019', 'Tier 1', 'https://linkedin.com/company/acme'],
-    ['Stark Industries', 'Pepper Potts', 'pepper@stark.com', '+1-555-0100', 'https://stark.com', 'Malibu, California', 'Excellent engineering partner.', 'Sarah Jenkins', 'Robotics', '500+', '1998', 'Tier 1', 'https://linkedin.com/company/stark']
+    ['Acme Corp', 'John Doe', 'john@acme.com', '+1-555-0199', 'https://acme.com', '123 Tech Lane, San Francisco, CA', 'Key potential partner in enterprise AI.', 'Your Name', 'SaaS', '201-500', '2019', 'Tier 1', 'https://linkedin.com/company/acme'],
+    ['Stark Industries', 'Pepper Potts', 'pepper@stark.com', '+1-555-0100', 'https://stark.com', 'Malibu, California', 'Excellent engineering partner.', 'Your Name', 'Robotics', '500+', '1998', 'Tier 1', 'https://linkedin.com/company/stark']
   ],
   jobs: [
     ['Job Title', 'Company Name', 'Experience', 'Location', 'Salary Range', 'Status', 'Description', 'Required Skills', 'Employment Type', 'Department', 'Urgency', 'Assigned Recruiter'],
-    ['Senior React Developer', 'Acme Corp', '5+ Years', 'San Francisco, CA / Hybrid', '₹140,000 - ₹170,000', 'Open', 'Looking for an expert React and TypeScript engineer.', 'React, TypeScript, Tailwind CSS, Webpack', 'Full-time', 'Engineering', 'High', 'Sarah Jenkins'],
-    ['Junior HR Specialist', 'Stark Industries', '1-3 Years', 'Malibu, CA / Remote', '₹75,000 - ₹95,000', 'Open', 'Support global talent operations and scheduling.', 'Recruiting, Sourcing, Excel, HRIS', 'Full-time', 'Human Resources', 'Medium', 'Sarah Jenkins']
+    ['Senior React Developer', 'Acme Corp', '5+ Years', 'San Francisco, CA / Hybrid', '₹140,000 - ₹170,000', 'Open', 'Looking for an expert React and TypeScript engineer.', 'React, TypeScript, Tailwind CSS, Webpack', 'Full-time', 'Engineering', 'High', 'Your Name'],
+    ['Junior HR Specialist', 'Stark Industries', '1-3 Years', 'Malibu, CA / Remote', '₹75,000 - ₹95,000', 'Open', 'Support global talent operations and scheduling.', 'Recruiting, Sourcing, Excel, HRIS', 'Full-time', 'Human Resources', 'Medium', 'Your Name']
   ],
   candidates: [
     ['Name', 'Email', 'Phone', 'Experience', 'Skills', 'Current Company', 'Pipeline Stage', 'Education', 'Address', 'Notes', 'Designation', 'Gender', 'City', 'Expected Salary'],

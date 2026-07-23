@@ -1,5 +1,6 @@
-import nodemailer from 'nodemailer';
+import { getMailerImpl } from './smtp_helper';
 import { supabase } from '../db';
+import { EmailIntegrationDB } from '../email_integration_db';
 
 // Autonomous Background Job & Email Queue Worker Loop
 export async function runBackgroundQueueWorker() {
@@ -51,41 +52,39 @@ export async function runBackgroundQueueWorker() {
         try {
           console.log(`[Email Queue Worker] Processing queue email to ${email.recipient} - Subject: ${email.subject}`);
           
-          // Retrieve custom SMTP config for this workspace
-          const { data: configs, error: configErr } = await supabase
-            .from('email_configs')
-            .select('*')
-            .eq('workspace_id', email.workspace_id);
-            
-          if (configErr) throw configErr;
-          
-          const config = configs && configs.length > 0 ? configs[0] : null;
-          if (!config || !config.is_connected || !config.smtp_host) {
+          // Retrieve custom SMTP config for this workspace using SSOT decrypted database settings
+          const config = await EmailIntegrationDB.getSmtpSettings(email.workspace_id);
+          if (!config || !config.host) {
             throw new Error('SMTP configuration not found or not connected for this workspace.');
           }
           
-          // Create custom SMTP transporter
-          const transporter = nodemailer.createTransport({
-            host: config.smtp_host,
-            port: parseInt(config.port),
-            secure: config.encryption === 'SSL',
-            auth: {
-              user: config.username,
-              pass: config.password,
-            },
-            tls: {
-              rejectUnauthorized: false
+          const isSsl = config.encryption === 'SSL';
+          const isTls = config.encryption === 'TLS' || config.encryption === 'STARTTLS';
+
+          // Create custom SMTP transporter via worker-mailer edge sockets
+          const mailerImpl = await getMailerImpl();
+          const mailer = await mailerImpl.connect({
+            host: config.host,
+            port: parseInt(config.port, 10),
+            secure: isSsl,
+            startTls: isTls,
+            authType: ['plain', 'login'],
+            credentials: {
+              username: config.username,
+              password: config.password
             }
           });
           
           // Dispatch email
-          await transporter.sendMail({
-            from: `"${config.username.split('@')[0]}" <${config.username}>`,
+          await mailer.send({
+            from: { name: config.senderName || config.username.split('@')[0], email: config.username },
             to: email.recipient,
             subject: email.subject,
             text: email.body,
             html: email.body
           });
+
+          await mailer.close();
 
           await supabase.from('email_queue').update({
             status: 'delivered',

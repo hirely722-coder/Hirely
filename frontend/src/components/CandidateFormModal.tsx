@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { X, Users, Database } from 'lucide-react';
 import { Candidate } from '../types';
 import AnimatedModal from './AnimatedModal';
+import { Checkbox } from './ui/Checkbox';
 
 interface CandidateFormModalProps {
   isOpenAdd: boolean;
@@ -293,12 +294,9 @@ export function CandidateFormModal({
                       </select>
                     ) : def.type === 'boolean' ? (
                       <label className="flex items-center gap-2 mt-2 cursor-pointer">
-                        <input
-                          type="checkbox"
+                        <Checkbox
                           checked={!!value}
-                          onChange={(e) => handleChange(e.target.checked)}
-                          required={def.isRequired}
-                          className="rounded text-blue-600 focus:ring-0"
+                          onCheckedChange={(checked) => handleChange(checked)}
                         />
                         <span className="text-xs font-semibold text-slate-700">Yes / Confirmed</span>
                       </label>

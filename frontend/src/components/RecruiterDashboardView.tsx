@@ -62,6 +62,10 @@ export function RecruiterDashboardView() {
   const [editingIncentiveId, setEditingIncentiveId] = useState<string | null>(null);
   const [tempIncentiveRate, setTempIncentiveRate] = useState<string>('');
 
+  // Date Filters
+  const [startDateFilter, setStartDateFilter] = useState('');
+  const [endDateFilter, setEndDateFilter] = useState('');
+
   // Filtering, Sorting, and Capacity State
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'All' | 'Active' | 'Disabled' | 'Pending'>('All');
@@ -83,7 +87,11 @@ export function RecruiterDashboardView() {
   const fetchMetrics = async () => {
     setIsLoadingMetrics(true);
     try {
-      const response = await authFetch('/api/recruiters/metrics');
+      const params = new URLSearchParams();
+      if (startDateFilter) params.append('startDate', startDateFilter);
+      if (endDateFilter) params.append('endDate', endDateFilter);
+      const url = `/api/recruiters/metrics${params.toString() ? `?${params.toString()}` : ''}`;
+      const response = await authFetch(url);
       if (!response.ok) throw new Error('Failed to fetch recruiter metrics');
       const data = await response.json();
       setMetrics(data);
@@ -96,7 +104,7 @@ export function RecruiterDashboardView() {
 
   useEffect(() => {
     fetchMetrics();
-  }, [teamMembers]);
+  }, [teamMembers, startDateFilter, endDateFilter]);
 
   // Activate / Deactivate Recruiter status
   const handleToggleStatus = async (recruiter: RecruiterMetric) => {
@@ -529,6 +537,34 @@ export function RecruiterDashboardView() {
                     <option value="Optimal">Optimal</option>
                     <option value="Overloaded">Overloaded</option>
                   </select>
+
+                  <div className="flex items-center gap-1 px-2 py-1 border border-slate-200 rounded-lg bg-white text-[11px] text-slate-500">
+                    <span className="font-semibold text-[9px] uppercase tracking-wider text-slate-400 mr-1">Period:</span>
+                    <input
+                      type="date"
+                      value={startDateFilter}
+                      onChange={(e) => setStartDateFilter(e.target.value)}
+                      className="border-none bg-transparent p-0 focus:ring-0 text-[11px] outline-none cursor-pointer"
+                      title="Start date for performance metrics"
+                    />
+                    <span className="text-slate-300 mx-0.5">/</span>
+                    <input
+                      type="date"
+                      value={endDateFilter}
+                      onChange={(e) => setEndDateFilter(e.target.value)}
+                      className="border-none bg-transparent p-0 focus:ring-0 text-[11px] outline-none cursor-pointer"
+                      title="End date for performance metrics"
+                    />
+                    {(startDateFilter || endDateFilter) && (
+                      <button
+                        onClick={() => { setStartDateFilter(''); setEndDateFilter(''); }}
+                        className="ml-1 p-0.5 hover:bg-slate-100 rounded text-slate-400 hover:text-slate-600 cursor-pointer"
+                        title="Clear date range filters"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
 

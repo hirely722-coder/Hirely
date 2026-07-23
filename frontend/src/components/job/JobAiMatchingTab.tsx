@@ -6,6 +6,7 @@ import {
 import { Job, Candidate } from '../../types';
 import { CandidateMatchResult } from './jobMatchHelpers';
 import AnimatedModal from '../AnimatedModal';
+import { Checkbox } from '../ui/Checkbox';
 
 interface JobAiMatchingTabProps {
   job: Job;
@@ -117,11 +118,9 @@ export function JobAiMatchingTab({
 
           {/* Header Select All Checkbox */}
           <div className="flex items-center gap-2 px-2 text-xs font-mono text-slate-400 py-1.5 border-b">
-            <input 
-              type="checkbox" 
+            <Checkbox 
               checked={selectedCandidateIds.length === candidateMatchData.length && candidateMatchData.length > 0} 
-              onChange={() => toggleSelectAll(candidateMatchData)}
-              className="rounded border-slate-300 focus:ring-slate-500 h-3.5 w-3.5"
+              onCheckedChange={() => toggleSelectAll(candidateMatchData)}
             />
             <span>Select All Applicants ({candidateMatchData.length})</span>
           </div>
@@ -244,11 +243,9 @@ export function JobAiMatchingTab({
                 >
                   <div className="flex items-center justify-between gap-3">
                     <div className="flex items-center gap-3.5 min-w-0">
-                      <input 
-                        type="checkbox" 
+                      <Checkbox 
                         checked={isSelected}
-                        onChange={() => toggleSelectCandidate(item.candidate.id)}
-                        className="rounded border-slate-300 text-slate-900 focus:ring-slate-500 h-4 w-4 cursor-pointer shrink-0"
+                        onCheckedChange={() => toggleSelectCandidate(item.candidate.id)}
                       />
                       
                       <div className={`h-10 w-10 rounded-full flex items-center justify-center font-bold text-xs shrink-0 border shadow-3xs font-mono ${

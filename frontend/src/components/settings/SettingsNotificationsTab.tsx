@@ -1,4 +1,5 @@
 import React from 'react';
+import { Checkbox } from '../ui/Checkbox';
 
 interface SettingsNotificationsTabProps {
   notifyOnApply: boolean;
@@ -45,11 +46,10 @@ export function SettingsNotificationsTab({
 
         <div className="space-y-3 pt-2">
           <label className="flex items-start gap-3 cursor-pointer group select-none">
-            <input
-              type="checkbox"
+            <Checkbox
               checked={notifyOnApply}
-              onChange={(e) => setNotifyOnApply(e.target.checked)}
-              className="h-4 w-4 text-blue-600 border-slate-200 rounded focus:ring-0 mt-0.5 cursor-pointer"
+              onCheckedChange={(checked) => setNotifyOnApply(checked)}
+              className="mt-0.5"
             />
             <div>
               <p className="text-xs font-semibold text-slate-900 group-hover:text-blue-600 transition-colors font-sans">New Candidate Uploads</p>
@@ -58,11 +58,10 @@ export function SettingsNotificationsTab({
           </label>
 
           <label className="flex items-start gap-3 cursor-pointer group select-none">
-            <input
-              type="checkbox"
+            <Checkbox
               checked={notifyOnMatch}
-              onChange={(e) => setNotifyOnMatch(e.target.checked)}
-              className="h-4 w-4 text-blue-600 border-slate-200 rounded focus:ring-0 mt-0.5 cursor-pointer"
+              onCheckedChange={(checked) => setNotifyOnMatch(checked)}
+              className="mt-0.5"
             />
             <div>
               <p className="text-xs font-semibold text-slate-900 group-hover:text-blue-600 transition-colors font-sans">Match Score Alerts</p>
@@ -81,11 +80,10 @@ export function SettingsNotificationsTab({
 
         <div className="space-y-4 pt-2">
           <label className="flex items-start gap-3 cursor-pointer group select-none">
-            <input
-              type="checkbox"
+            <Checkbox
               checked={resumeNotificationEnabled}
-              onChange={(e) => setResumeNotificationEnabled(e.target.checked)}
-              className="h-4 w-4 text-blue-600 border-slate-200 rounded focus:ring-0 mt-0.5 cursor-pointer"
+              onCheckedChange={(checked) => setResumeNotificationEnabled(checked)}
+              className="mt-0.5"
             />
             <div>
               <p className="text-xs font-semibold text-slate-900 group-hover:text-blue-600 transition-colors font-sans">Email me on new resume uploads</p>
@@ -137,11 +135,10 @@ export function SettingsNotificationsTab({
               </p>
               
               <label className="flex items-start gap-3 cursor-pointer group select-none pt-1">
-                <input
-                  type="checkbox"
+                <Checkbox
                   checked={telegramNotificationEnabled}
-                  onChange={(e) => setTelegramNotificationEnabled(e.target.checked)}
-                  className="h-4 w-4 text-blue-600 border-slate-200 rounded focus:ring-0 mt-0.5 cursor-pointer"
+                  onCheckedChange={(checked) => setTelegramNotificationEnabled(checked)}
+                  className="mt-0.5"
                 />
                 <div>
                   <p className="text-xs font-semibold text-slate-900 group-hover:text-blue-600 transition-colors font-sans">Send me Telegram alerts on new resume uploads</p>

@@ -1,5 +1,5 @@
-import React, { useMemo } from 'react';
-import { Upload, Plus } from 'lucide-react';
+import React, { useState, useMemo } from 'react';
+import { Upload, Plus, Mail } from 'lucide-react';
 import { Candidate, CommunicationLog, EmailConfig, Job, Task } from '../types';
 import { useApp } from '../context/AppContext';
 import { useCandidatesState } from './useCandidatesState';
@@ -7,6 +7,7 @@ import { CandidatesListView } from './CandidatesListView';
 import { CandidateDetailsView } from './CandidateDetailsView';
 import { CandidateFormModal } from './CandidateFormModal';
 import { BulkUploadModal } from './BulkUploadModal';
+import { ShareCandidatesModal } from './modals/ShareCandidatesModal';
 import { usePermission } from '../hooks/usePermission';
 import { ExportCsvButton } from './ui/ExportCsvButton';
 import { ExportColumn } from '../utils/csvExporter';
@@ -63,8 +64,17 @@ export default function CandidatesView(props: CandidatesViewProps) {
     isLoading = false
   } = props;
 
-  const { customFieldDefinitions } = useApp();
+  const { customFieldDefinitions, companies } = useApp();
   const { can } = usePermission();
+
+  const [selectedCandidateIds, setSelectedCandidateIds] = useState<string[]>([]);
+  const [isShareModalOpen, setIsShareModalOpen] = useState<boolean>(false);
+  const [candidatesToShare, setCandidatesToShare] = useState<Candidate[]>([]);
+
+  const handleOpenShareModal = (cands: Candidate[]) => {
+    setCandidatesToShare(cands);
+    setIsShareModalOpen(true);
+  };
 
   const candidatesExportColumns = useMemo<ExportColumn<Candidate>[]>(() => {
     const baseCols: ExportColumn<Candidate>[] = [
@@ -363,9 +373,33 @@ export default function CandidatesView(props: CandidatesViewProps) {
             startEdit={handleStartEdit}
             onDeleteCandidate={handleDeleteCandidateWithPermission}
             showToast={showToast}
+            selectedCandidateIds={selectedCandidateIds}
+            setSelectedCandidateIds={setSelectedCandidateIds}
+            onOpenShareModal={handleOpenShareModal}
           />
         </>
       )}
+
+      {/* Share Candidates with Client Company (WC White-Label PDF) Modal */}
+      <ShareCandidatesModal
+        isOpen={isShareModalOpen}
+        onClose={() => setIsShareModalOpen(false)}
+        selectedCandidates={candidatesToShare}
+        companies={companies || []}
+        jobs={jobs || []}
+        activeTheme={{
+          id: 'custom',
+          name: 'Agency Workspace',
+          colors: {} as any,
+          typography: {} as any,
+          layout: {} as any,
+          branding: {
+            logoUrl: localStorage.getItem('hirely_logo_url') || undefined
+          }
+        }}
+        showToast={showToast}
+        onSuccess={() => setSelectedCandidateIds([])}
+      />
 
       {/* Sub-modals bindings */}
       <BulkUploadModal

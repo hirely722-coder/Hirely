@@ -22,12 +22,11 @@ export function useSettingsState({
   showToast,
   token
 }: UseSettingsStateProps) {
-  const [activeTab, setActiveTab] = useState<'general' | 'appearance' | 'team' | 'email' | 'notifications' | 'custom_fields' | 'rbac' | 'locks' | 'logs' | 'billing' | 'recruiters'>('general');
+  const [activeTab, setActiveTab] = useState<'general' | 'appearance' | 'team' | 'email' | 'email_integration' | 'notifications' | 'custom_fields' | 'rbac' | 'locks' | 'logs' | 'billing' | 'recruiters' | 'modules'>('general');
   const [savedMessage, setSavedMessage] = useState(false);
 
   // General tab form values
   const [companyName, setCompanyName] = useState('Hirly - Recruitment');
-  const [recruiterName, setRecruiterName] = useState('Sarah Jenkins');
   const [waNumber, setWaNumber] = useState('+1 (555) 304-4422');
   const [enableWhatsAppAutoAlert, setEnableWhatsAppAutoAlert] = useState(true);
   const [notifyOnApply, setNotifyOnApply] = useState(true);
@@ -409,8 +408,6 @@ export function useSettingsState({
     savedMessage,
     companyName,
     setCompanyName,
-    recruiterName,
-    setRecruiterName,
     waNumber,
     setWaNumber,
     enableWhatsAppAutoAlert,

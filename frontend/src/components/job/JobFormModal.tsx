@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { X, Briefcase } from 'lucide-react';
 import Portal from '../Portal';
 import { Job, Company } from '../../types';
+import { useApp } from '../../context/AppContext';
 
 const EXPERIENCE_OPTIONS = ['Entry (0-2 Years)', 'Mid (3-5 Years)', 'Senior (5+ Years)', 'Lead / Staff (9+ Years)'];
 const SALARY_OPTIONS = ['₹50,000 - ₹80,000', '₹80,000 - ₹120,000', '₹120,000 - ₹150,000', '₹150,000 - ₹180,000', '₹180,000 - ₹220,000', 'Over ₹220,000'];
@@ -23,6 +24,7 @@ export default function JobFormModal({
   companies,
   teamMembers
 }: JobFormModalProps) {
+  const { user } = useApp();
   const [formTitle, setFormTitle] = useState('');
   const [formCompanyId, setFormCompanyId] = useState('');
   const [formExperience, setFormExperience] = useState('5+ Years');
@@ -34,7 +36,7 @@ export default function JobFormModal({
   const [formEmploymentType, setFormEmploymentType] = useState<'Full-time' | 'Part-time' | 'Contract' | 'Internship'>('Full-time');
   const [formDepartment, setFormDepartment] = useState('Engineering');
   const [formUrgency, setFormUrgency] = useState<'Urgent' | 'High' | 'Medium' | 'Low'>('Medium');
-  const [formRecruiterName, setFormRecruiterName] = useState('Sarah Jenkins');
+  const [formRecruiterName, setFormRecruiterName] = useState(user?.name || '');
 
   // Load draft or initial job properties
   useEffect(() => {
@@ -50,7 +52,7 @@ export default function JobFormModal({
       setFormEmploymentType(job.employmentType || 'Full-time');
       setFormDepartment(job.department || 'Engineering');
       setFormUrgency(job.urgency || 'Medium');
-      setFormRecruiterName(job.recruiterName || 'Sarah Jenkins');
+      setFormRecruiterName(job.recruiterName || user?.name || '');
     } else {
       const rawDraft = localStorage.getItem('hirely_job_form_draft');
       if (rawDraft && isOpen) {
@@ -67,7 +69,7 @@ export default function JobFormModal({
           setFormEmploymentType(draft.employmentType || 'Full-time');
           setFormDepartment(draft.department || 'Engineering');
           setFormUrgency(draft.urgency || 'Medium');
-          setFormRecruiterName(draft.recruiterName || 'Sarah Jenkins');
+          setFormRecruiterName(draft.recruiterName || user?.name || '');
           return;
         } catch (e) {
           console.error('Failed to parse job form draft', e);
@@ -84,9 +86,9 @@ export default function JobFormModal({
       setFormEmploymentType('Full-time');
       setFormDepartment('Engineering');
       setFormUrgency('Medium');
-      setFormRecruiterName('Sarah Jenkins');
+      setFormRecruiterName(user?.name || '');
     }
-  }, [job, companies, isOpen]);
+  }, [job, companies, isOpen, user]);
 
   // Save creation draft to localStorage when states change
   useEffect(() => {
@@ -150,7 +152,7 @@ export default function JobFormModal({
       employmentType: formEmploymentType,
       department: formDepartment,
       urgency: formUrgency,
-      recruiterName: formRecruiterName
+      recruiterName: formRecruiterName || user?.name || ''
     };
 
     await onSubmit(jobPayload);

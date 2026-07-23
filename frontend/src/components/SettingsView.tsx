@@ -1,5 +1,5 @@
-﻿import React from 'react';
-import { Sliders, Paintbrush, Mail, Users, Bell, Database, Shield, Lock, History, CreditCard, Sparkles, X, Check, Briefcase } from 'lucide-react';
+import React from 'react';
+import { Sliders, Paintbrush, Mail, Users, Bell, Database, Shield, Lock, History, CreditCard, Sparkles, X, Check, Briefcase, Boxes } from 'lucide-react';
 import { TeamMember, EmailConfig } from '../types';
 import ThemeBuilderView from './ThemeBuilderView';
 import { useSettingsState } from './settings/useSettingsState';
@@ -17,6 +17,7 @@ import { SettingsRbacTab } from './settings/SettingsRbacTab';
 import { SettingsFeatureLocksTab } from './settings/SettingsFeatureLocksTab';
 import { SettingsSecurityLogsTab } from './settings/SettingsSecurityLogsTab';
 import { RecruiterManagementTab } from './settings/RecruiterManagementTab';
+import { SettingsModulesTab } from './settings/SettingsModulesTab';
 
 interface SettingsViewProps {
   teamMembers: TeamMember[];
@@ -97,7 +98,20 @@ export default function SettingsView({
             <Paintbrush className="h-4 w-4" />
             Appearance (Theme)
           </button>
+
+          <button
+            onClick={() => state.setActiveTab('modules')}
+            className={`w-full flex items-center gap-2.5 px-3 py-2 text-xs font-semibold rounded-lg text-left transition-colors cursor-pointer ${
+              state.activeTab === 'modules'
+                ? 'bg-white text-blue-600 shadow-xs border border-slate-200/40'
+                : 'text-slate-505 hover:bg-slate-100 hover:text-slate-800'
+            }`}
+          >
+            <Boxes className="h-4 w-4" />
+            Modules & Add-ons
+          </button>
           
+          {/*
           <button
             onClick={() => state.setActiveTab('email')}
             className={`w-full flex items-center gap-2.5 px-3 py-2 text-xs font-semibold rounded-lg text-left transition-colors cursor-pointer ${
@@ -112,6 +126,7 @@ export default function SettingsView({
               <span className="ml-auto h-2 w-2 rounded-full bg-rose-500 animate-pulse" title="SMTP Not Configured" />
             )}
           </button>
+          */}
 
           <button
             onClick={() => state.setActiveTab('email_integration' as any)}
@@ -250,19 +265,22 @@ export default function SettingsView({
               {/* APPEARANCE TAB */}
               {state.activeTab === 'appearance' && (
                 <ThemeBuilderView 
-              currentThemeId={currentThemeId} 
-              onThemeChanged={onThemeChanged} 
-              showToast={showToast} 
-            />
-          )}
+                  currentThemeId={currentThemeId} 
+                  onThemeChanged={onThemeChanged} 
+                  showToast={showToast} 
+                />
+              )}
+
+              {/* MODULES & ADD-ONS TAB */}
+              {state.activeTab === 'modules' && (
+                <SettingsModulesTab showToast={showToast} />
+              )}
           
           {/* GENERAL TAB */}
           {state.activeTab === 'general' && (
             <SettingsGeneralTab
               companyName={state.companyName}
               setCompanyName={state.setCompanyName}
-              recruiterName={state.recruiterName}
-              setRecruiterName={state.setRecruiterName}
               savedMessage={state.savedMessage}
               handleSaveGeneral={state.handleSaveGeneral}
             />
@@ -495,7 +513,7 @@ export default function SettingsView({
                             const orderData = await orderRes.json();
 
                             const options = {
-                              key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || 'rzp_test_TCVTzrCeGHT0sg',
+                              key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || '',
                               amount: orderData.amount,
                               currency: orderData.currency,
                               name: "Hirly AI Platform",
@@ -596,7 +614,7 @@ export default function SettingsView({
                             const orderData = await orderRes.json();
 
                             const options = {
-                              key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || 'rzp_test_TCVTzrCeGHT0sg',
+                              key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || '',
                               amount: orderData.amount,
                               currency: orderData.currency,
                               name: "Hirly AI Platform",

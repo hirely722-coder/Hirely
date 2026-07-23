@@ -26,7 +26,7 @@ export default function CompanyFormModal({
   const [formWebsite, setFormWebsite] = useState('');
   const [formAddress, setFormAddress] = useState('');
   const [formNotes, setFormNotes] = useState('');
-  const [formRecContact, setFormRecContact] = useState('Sarah Jenkins');
+  const [formRecContact, setFormRecContact] = useState('');
   const [formIndustry, setFormIndustry] = useState('');
   const [formCompanySize, setFormCompanySize] = useState<Company['companySize']>('11-50');
   const [formFoundedYear, setFormFoundedYear] = useState('');
@@ -44,7 +44,7 @@ export default function CompanyFormModal({
       setFormWebsite(company.website || '');
       setFormAddress(company.address || '');
       setFormNotes(company.notes || '');
-      setFormRecContact(company.recContact || 'Sarah Jenkins');
+      setFormRecContact(company.recContact || '');
       setFormIndustry(company.industry || '');
       setFormCompanySize(company.companySize || '11-50');
       setFormFoundedYear(company.foundedYear || '');
@@ -63,7 +63,7 @@ export default function CompanyFormModal({
           setFormWebsite(draft.website || '');
           setFormAddress(draft.address || '');
           setFormNotes(draft.notes || '');
-          setFormRecContact(draft.recContact || 'Sarah Jenkins');
+          setFormRecContact(draft.recContact || '');
           setFormIndustry(draft.industry || '');
           setFormCompanySize(draft.companySize || '11-50');
           setFormFoundedYear(draft.foundedYear || '');
@@ -82,7 +82,7 @@ export default function CompanyFormModal({
       setFormWebsite('');
       setFormAddress('');
       setFormNotes('');
-      setFormRecContact('Sarah Jenkins');
+      setFormRecContact('');
       setFormIndustry('');
       setFormCompanySize('11-50');
       setFormFoundedYear('');

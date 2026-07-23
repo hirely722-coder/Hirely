@@ -29,17 +29,6 @@ export default function SupportPage() {
   const [submitting, setSubmitting] = useState(false);
   const [attachment, setAttachment] = useState<string>('');
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setAttachment(reader.result as string);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
   // Ticket Inspection Modal State
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
 
@@ -298,21 +287,6 @@ export default function SupportPage() {
                     onChange={(e) => setDescription(e.target.value)}
                     className="w-full p-3 text-xs border border-slate-200 rounded-lg focus:ring-1 focus:ring-blue-500 bg-slate-50/50 font-sans resize-none leading-relaxed"
                   />
-                </div>
-
-                <div>
-                  <label className="block text-[10px] font-mono text-slate-400 uppercase mb-1 font-bold">Screenshot Attachment (Optional)</label>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={handleFileChange}
-                    className="w-full text-xs text-slate-500 file:mr-3 file:py-1 file:px-2 file:rounded-md file:border-0 file:text-[10px] file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer"
-                  />
-                  {attachment && (
-                    <div className="mt-2 text-[10px] text-emerald-600 flex items-center gap-1 font-bold">
-                      <span>✓ Image attached successfully</span>
-                    </div>
-                  )}
                 </div>
               </div>
 

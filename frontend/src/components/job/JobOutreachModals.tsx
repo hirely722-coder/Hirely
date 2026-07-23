@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { X, Mail, Phone, Sparkles, Copy, Maximize2, CheckCircle2, ChevronDown, ChevronUp, BookOpen, Check } from 'lucide-react';
 import { Candidate, Job } from '../../types';
 import AnimatedModal from '../AnimatedModal';
+import { useApp } from '../../context/AppContext';
 
 interface JobOutreachModalsProps {
   job: Job;
@@ -74,6 +75,8 @@ export function JobOutreachModals({
   const [emailOpen, setEmailOpen] = useState(showEmailModal);
   const [waOpen, setWaOpen] = useState(showWhatsAppModal);
   const [aiReportOpen, setAiReportOpen] = useState(showAiReportModal);
+  const { user } = useApp();
+  const currentUserName = user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'Recruiter';
   const [expandedQuestionIdx, setExpandedQuestionIdx] = useState<number | null>(null);
   const [copiedQuestionIdx, setCopiedQuestionIdx] = useState<number | null>(null);
 
@@ -145,25 +148,25 @@ export function JobOutreachModals({
                         id: 'custom',
                         name: '✏️ Custom (Blank)',
                         subject: `Regarding your application for ${job.title}`,
-                        body: `Dear ${emailCandidate.name},\n\nI hope you are doing well.\n\nBest regards,\nSarah Jenkins`
+                        body: `Dear ${emailCandidate.name},\n\nI hope you are doing well.\n\nBest regards,\n${currentUserName}`
                       },
                       {
                         id: 'screening_invite',
                         name: '⏱️ Screen Interview',
                         subject: `Interview Schedule request - ${job.title} at ${job.companyName}`,
-                        body: `Dear ${emailCandidate.name},\n\nWe would love to invite you for a brief 15-minute introductory video call regarding the ${job.title} position at ${job.companyName}.\n\nPlease let us know your availability.\n\nBest,\nSarah Jenkins`
+                        body: `Dear ${emailCandidate.name},\n\nWe would love to invite you for a brief 15-minute introductory video call regarding the ${job.title} position at ${job.companyName}.\n\nPlease let us know your availability.\n\nBest,\n${currentUserName}`
                       },
                       {
                         id: 'offer_announce',
                         name: '💼 Offer Announcement',
                         subject: `Offer Letter terms - ${job.title} at ${job.companyName}`,
-                        body: `Dear ${emailCandidate.name},\n\nCongratulations! We are thrilled to extend an official offer of employment for the ${job.title} role at ${job.companyName}.\n\nWe look forward to having you on the team.\n\nBest,\nSarah Jenkins`
+                        body: `Dear ${emailCandidate.name},\n\nCongratulations! We are thrilled to extend an official offer of employment for the ${job.title} role at ${job.companyName}.\n\nWe look forward to having you on the team.\n\nBest,\n${currentUserName}`
                       },
                       {
                         id: 'next_steps',
                         name: '📅 Application Status',
                         subject: `Next Steps regarding ${job.title}`,
-                        body: `Dear ${emailCandidate.name},\n\nWe wanted to reach out regarding your application for the ${job.title} role at ${job.companyName}. We are currently reviewing next stages and will keep you posted shortly.\n\nBest regards,\nSarah Jenkins`
+                        body: `Dear ${emailCandidate.name},\n\nWe wanted to reach out regarding your application for the ${job.title} role at ${job.companyName}. We are currently reviewing next stages and will keep you posted shortly.\n\nBest regards,\n${currentUserName}`
                       }
                     ].map(tmpl => {
                       const isSelected = selectedJobTemplateId === tmpl.id;

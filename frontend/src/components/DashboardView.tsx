@@ -27,43 +27,67 @@ export default function DashboardView({
   const [isPricingModalOpen, setIsPricingModalOpen] = useState(false);
   const [isUpgrading, setIsUpgrading] = useState(false);
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'yearly'>('monthly');
-  const [plans, setPlans] = useState<any[]>([
-    {
-      id: 'starter',
-      slug: 'starter',
-      name: 'Free Trial',
-      shortDescription: 'Basic trial version of Hirely',
-      monthlyPrice: 0,
-      yearlyPrice: 0,
-      features: {
-        '3 Active Jobs': true,
-        '100 Candidates Database': true,
-        '2 GB Storage Limit': true,
-        '10 AI parser requests/mo': true,
-        'No advanced analytics': false,
-        'No WhatsApp integrations': false,
-      }
-    },
-    {
-      id: 'growth',
-      slug: 'growth',
-      name: 'Growth Plan',
-      shortDescription: 'Pro Recruiter license for scaling agencies',
-      monthlyPrice: 2000,
-      yearlyPrice: 19200,
-      popularBadge: true,
-      features: {
-        'Unlimited Active Jobs': true,
-        'Unlimited Candidates Database': true,
-        '20 GB Storage Space': true,
-        '500 AI Parser requests/mo': true,
-        'AI Voice commands & search helper': true,
-      }
-    }
-  ]);
+  const [plans, setPlans] = useState<any[]>([]);
+  const [isLoadingPlans, setIsLoadingPlans] = useState(true);
 
+  // Background Mailbox Delta Auto-Sync across ALL folders on Dashboard Portal Launch
+  useEffect(() => {
+    const triggerAutoSync = async () => {
+      try {
+        const { supabase } = await import('../utils/supabase');
+        const { saveCachedMessages, getAllWorkspaceMessages } = await import('../utils/emailStorage');
+        const { data: { session } } = await supabase.auth.getSession();
+        const token = session?.access_token;
+        const workspaceId = session?.user?.user_metadata?.workspace_id || 'ws_default';
+        const backendUrl = process.env.NEXT_PUBLIC_BACKEND_API_URL || '';
+
+        const horizonWindow = typeof window !== 'undefined' ? (localStorage.getItem('hirely_email_horizon_window') || '1d') : '1d';
+        const cached = await getAllWorkspaceMessages(workspaceId);
+        const foldersToSync = ['inbox', 'sent', 'drafts', 'starred', 'spam', 'trash'];
+        let totalNewSynced = 0;
+
+        for (const folderName of foldersToSync) {
+          const folderCached = cached.filter(m => (m.folder || 'inbox') === folderName);
+          let lastKnownUid: number | undefined = undefined;
+          if (folderCached.length > 0) {
+            const uids = folderCached.map(m => parseInt((m.id || '').replace(/[^0-9]/g, ''), 10)).filter(n => !isNaN(n));
+            if (uids.length > 0) {
+              lastKnownUid = Math.max(...uids);
+            }
+          }
+
+          const res = await fetch(`${backendUrl}/api/email-center/stream-sync`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(token ? { Authorization: `Bearer ${token}` } : {})
+            },
+            body: JSON.stringify({ folder: folderName, horizonWindow, lastKnownUid })
+          });
+
+          if (res.ok) {
+            const data = await res.json();
+            if (data.messages && data.messages.length > 0) {
+              await saveCachedMessages(workspaceId, data.messages);
+              totalNewSynced += data.messages.length;
+            }
+          }
+        }
+
+        if (totalNewSynced > 0) {
+          showToast(`📩 ${totalNewSynced} new email(s) synced in background across all mailboxes`, 'success');
+        }
+      } catch (e) {
+        console.warn('[Dashboard AutoSync Error]', e);
+      }
+    };
+
+    triggerAutoSync();
+  }, []);
+ 
   useEffect(() => {
     if (isPricingModalOpen) {
+      setIsLoadingPlans(true);
       fetch('/api/public/plans')
         .then((res) => res.json())
         .then((data) => {
@@ -77,7 +101,7 @@ export default function DashboardView({
               ['Advanced Analytics', false],
               ['WhatsApp Integrations', false],
             ] as [string, boolean][];
-
+ 
             const GROWTH_HIGHLIGHTS = [
               ['Unlimited Active Jobs', true],
               ['Unlimited Candidates Database', true],
@@ -86,7 +110,7 @@ export default function DashboardView({
               ['AI Voice Commands & Copilot', true],
               ['Email Templates & Integration', true],
             ] as [string, boolean][];
-
+ 
             const formatted = data.map(plan => {
               const highlights = plan.slug === 'growth' ? GROWTH_HIGHLIGHTS : STARTER_HIGHLIGHTS;
               const featuresObj: Record<string, boolean> = {};
@@ -96,7 +120,8 @@ export default function DashboardView({
             setPlans(formatted);
           }
         })
-        .catch((err) => console.error("Failed to load plans:", err));
+        .catch((err) => console.error("Failed to load plans:", err))
+        .finally(() => setIsLoadingPlans(false));
     }
   }, [isPricingModalOpen]);
 
@@ -243,7 +268,7 @@ export default function DashboardView({
       const orderData = await orderRes.json();
 
       const options = {
-        key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || 'rzp_test_TCVTzrCeGHT0sg',
+        key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || '',
         amount: orderData.amount,
         currency: orderData.currency,
         name: "Hirly AI Platform",
@@ -936,84 +961,115 @@ export default function DashboardView({
               <p className="text-[11px] text-slate-500 mb-5 font-medium">Upgrade your workspace to unlock advanced recruitment capabilities.</p>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {plans.map((plan) => {
-                  const price = billingCycle === 'monthly' ? plan.monthlyPrice : plan.yearlyPrice;
-                  const isCurrent = subscriptionPlan?.slug === plan.slug ||
-                    (plan.slug === 'starter' && (!subscriptionPlan || subscriptionPlan.slug === 'starter'));
-
-                  return (
-                    <div
-                      key={plan.id}
-                      className={`relative flex flex-col justify-between overflow-hidden rounded-2xl p-5 border transition-all duration-300 ${
-                        plan.slug === 'growth'
-                          ? 'border-indigo-500/40 bg-gradient-to-b from-indigo-950/40 via-[#121226] to-[#0a0a14] shadow-lg shadow-indigo-950/20'
-                          : 'border-slate-800 bg-[#0a0a16]'
-                      }`}
-                    >
-                      {plan.popularBadge && (
-                        <div className="absolute right-3 top-3 rounded-full bg-gradient-to-r from-amber-400 to-orange-500 px-2 py-0.5 text-[8px] font-bold text-white shadow-sm z-10">
-                          POPULAR
+                {isLoadingPlans ? (
+                  <>
+                    {/* Skeleton Card 1 */}
+                    <div className="animate-pulse border border-slate-800 bg-[#0a0a16] rounded-2xl p-5 h-64 flex flex-col justify-between">
+                      <div className="space-y-4">
+                        <div className="flex justify-between items-center">
+                          <div className="h-3 w-16 bg-slate-800 rounded" />
+                          <div className="h-3 w-12 bg-slate-800 rounded" />
                         </div>
-                      )}
-
-                      {/* Tier label + active badge */}
-                      <div className="flex justify-between items-center mb-1">
-                        <span className={`text-[9px] font-mono uppercase font-bold tracking-wider ${
-                          plan.slug === 'growth' ? 'text-indigo-400' : 'text-slate-400'
-                        }`}>
-                          {plan.slug === 'growth' ? 'Pro Recruiter' : 'Starter'}
-                        </span>
-                        {isCurrent && (
-                          <span className="text-[8px] bg-indigo-500/25 text-indigo-300 border border-indigo-400/30 px-1.5 py-0.5 rounded font-mono font-bold tracking-wider uppercase">
-                            ACTIVE
-                          </span>
-                        )}
+                        <div className="h-4 w-28 bg-slate-800/80 rounded" />
+                        <div className="h-3 w-48 bg-slate-850 rounded" />
+                        <div className="h-6 w-20 bg-slate-800/60 rounded mt-2" />
                       </div>
-
-                      <h4 className="text-sm font-bold text-white">{plan.name}</h4>
-                      <p className="text-[10px] text-slate-400 mt-0.5 leading-relaxed">{plan.shortDescription}</p>
-
-                      {/* Price */}
-                      <div className="mt-4">
-                        <div className="flex items-baseline gap-1.5">
-                          <span className="text-2xl font-extrabold text-white font-mono">
-                            ₹{price.toLocaleString()}
-                          </span>
-                          <span className="text-[10px] text-slate-400">
-                            /{billingCycle === 'monthly' || plan.slug === 'starter' ? 'month' : 'year'}
-                          </span>
-                        </div>
-                        {billingCycle === 'yearly' && plan.slug === 'growth' && (
-                          <p className="mt-0.5 text-[10px] text-slate-400 font-medium">
-                            (₹{Math.round(price / 12).toLocaleString()}/mo)
-                          </p>
-                        )}
-                      </div>
-
-
-                      {/* CTA */}
-                      {plan.slug === 'starter' ? (
-                        <button
-                          disabled
-                          className="w-full mt-5 py-2.5 bg-slate-900 border border-slate-800 text-slate-500 rounded-xl text-xs font-bold cursor-not-allowed"
-                        >
-                          {subscriptionPlan?.slug !== 'growth' ? 'Current Plan' : 'Trial Version'}
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => handleUpgrade(plan.slug)}
-                          disabled={isUpgrading}
-                          className={`w-full mt-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold cursor-pointer transition-all flex items-center justify-center gap-2 ${
-                            isUpgrading ? 'opacity-50 cursor-not-allowed' : ''
-                          }`}
-                        >
-                          {isUpgrading ? 'Launching Checkout…' : isCurrent ? 'Repurchase / Renew' : 'Upgrade Workspace to Pro'}
-                        </button>
-                      )}
+                      <div className="h-9 w-full bg-slate-800 rounded-xl mt-5" />
                     </div>
-                  );
-                })}
+                    {/* Skeleton Card 2 */}
+                    <div className="animate-pulse border border-indigo-500/20 bg-indigo-950/10 rounded-2xl p-5 h-64 flex flex-col justify-between">
+                      <div className="space-y-4">
+                        <div className="flex justify-between items-center">
+                          <div className="h-3 w-16 bg-indigo-900/30 rounded" />
+                        </div>
+                        <div className="h-4 w-28 bg-indigo-900/40 rounded" />
+                        <div className="h-3 w-48 bg-indigo-900/30 rounded" />
+                        <div className="h-6 w-20 bg-indigo-900/50 rounded mt-2" />
+                      </div>
+                      <div className="h-9 w-full bg-indigo-900/60 rounded-xl mt-5" />
+                    </div>
+                  </>
+                ) : (
+                  plans.map((plan) => {
+                    const price = billingCycle === 'monthly' ? plan.monthlyPrice : plan.yearlyPrice;
+                    const isCurrent = subscriptionPlan?.slug === plan.slug ||
+                      (plan.slug === 'starter' && (!subscriptionPlan || subscriptionPlan.slug === 'starter'));
+
+                    return (
+                      <div
+                        key={plan.id}
+                        className={`relative flex flex-col justify-between overflow-hidden rounded-2xl p-5 border transition-all duration-300 ${
+                          plan.slug === 'growth'
+                            ? 'border-indigo-500/40 bg-gradient-to-b from-indigo-950/40 via-[#121226] to-[#0a0a14] shadow-lg shadow-indigo-950/20'
+                            : 'border-slate-800 bg-[#0a0a16]'
+                        }`}
+                      >
+                        {/* Tier label + active/popular badge row */}
+                        <div className="flex justify-between items-center mb-1">
+                          <span className={`text-[9px] font-mono uppercase font-bold tracking-wider ${
+                            plan.slug === 'growth' ? 'text-indigo-400' : 'text-slate-400'
+                          }`}>
+                            {plan.slug === 'growth' ? 'Pro Recruiter' : 'Starter'}
+                          </span>
+                          <div className="flex items-center gap-1.5 z-10">
+                            {plan.popularBadge && (
+                              <span className="rounded-full bg-gradient-to-r from-amber-400 to-orange-500 px-2 py-0.5 text-[8px] font-bold text-white shadow-sm">
+                                POPULAR
+                              </span>
+                            )}
+                            {isCurrent && (
+                              <span className="text-[8px] bg-indigo-500/25 text-indigo-300 border border-indigo-400/30 px-1.5 py-0.5 rounded font-mono font-bold tracking-wider uppercase">
+                                ACTIVE
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        <h4 className="text-sm font-bold text-white">{plan.name}</h4>
+                        <p className="text-[10px] text-slate-400 mt-0.5 leading-relaxed">{plan.shortDescription}</p>
+
+                        {/* Price */}
+                        <div className="mt-4">
+                          <div className="flex items-baseline gap-1.5">
+                            <span className="text-2xl font-extrabold text-white font-mono">
+                              ₹{price.toLocaleString()}
+                            </span>
+                            <span className="text-[10px] text-slate-400">
+                              /{billingCycle === 'monthly' || plan.slug === 'starter' ? 'month' : 'year'}
+                            </span>
+                          </div>
+                          {billingCycle === 'yearly' && plan.slug === 'growth' && (
+                            <p className="mt-0.5 text-[10px] text-slate-400 font-medium">
+                              (₹{Math.round(price / 12).toLocaleString()}/mo)
+                            </p>
+                          )}
+                        </div>
+
+
+                        {/* CTA */}
+                        {plan.slug === 'starter' ? (
+                          <button
+                            disabled
+                            className="w-full mt-5 py-2.5 bg-slate-900 border border-slate-800 text-slate-500 rounded-xl text-xs font-bold cursor-not-allowed"
+                          >
+                            {subscriptionPlan?.slug !== 'growth' ? 'Current Plan' : 'Trial Version'}
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleUpgrade(plan.slug)}
+                            disabled={isUpgrading}
+                            className={`w-full mt-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold cursor-pointer transition-all flex items-center justify-center gap-2 ${
+                              isUpgrading ? 'opacity-50 cursor-not-allowed' : ''
+                            }`}
+                          >
+                            {isUpgrading ? 'Launching Checkout…' : isCurrent ? 'Repurchase / Renew' : 'Upgrade Workspace to Pro'}
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
               </div>
             </div>
 

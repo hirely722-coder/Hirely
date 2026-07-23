@@ -29,6 +29,17 @@ export function useCompanyState({
 }: UseCompanyStateProps) {
   // Tab selector
   const [activeTab, setActiveTab] = useState<'overview' | 'jobs' | 'candidates' | 'contacts' | 'documents' | 'notes' | 'communication' | 'activity' | 'ai_insights'>('overview');
+  const [currentUserName, setCurrentUserName] = useState('Recruiter');
+
+  // Resolve current user's display name from Supabase session
+  React.useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        const name = session.user.user_metadata?.full_name || session.user.email?.split('@')[0] || 'Recruiter';
+        setCurrentUserName(name);
+      }
+    });
+  }, []);
   
   // Local Workspace Search Query
   const [workspaceSearch, setWorkspaceSearch] = useState('');
@@ -177,7 +188,7 @@ export function useCompanyState({
           type: act.type,
           description: act.description,
           date: act.timestamp ? new Date(act.timestamp).toISOString().replace('T', ' ').slice(0, 16) : new Date().toISOString().replace('T', ' ').slice(0, 16),
-          user: act.userName || act.user || 'Sarah Jenkins'
+          user: act.userName || act.user || 'Unassigned'
         }));
         setActivities(mapped);
       }
@@ -275,7 +286,7 @@ export function useCompanyState({
   };
 
   // Helper loggers (Write audit trails to database)
-  const addActivity = async (desc: string, user: string = 'Sarah Jenkins') => {
+  const addActivity = async (desc: string, user: string = currentUserName) => {
     const newAct = {
       companyId: company.id,
       type: 'Update',
@@ -305,7 +316,7 @@ export function useCompanyState({
       companyId: company.id,
       type,
       status,
-      sentBy: 'Sarah Jenkins',
+      sentBy: currentUserName,
       recipient,
       subject,
       message: body || '',
@@ -428,7 +439,7 @@ export function useCompanyState({
     const newN = {
       companyId: company.id,
       content: newNoteContent,
-      author: 'Sarah Jenkins',
+      author: currentUserName,
       timestamp: new Date().toLocaleDateString() + ' ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
 
@@ -489,7 +500,7 @@ export function useCompanyState({
     } else {
       setComposerEmailTo(recipientEmail);
       setComposerEmailSubject(`Hirly - Recruitment Partnership Update - ${company.name}`);
-      setComposerEmailBody(`Hi ${name},\n\nI hope your week is going well.\n\nI wanted to share a quick update regarding our sourcing pipeline for your active positions at ${company.name}.\n\nBest regards,\nSarah Jenkins\nHirly Recruitment Partner`);
+      setComposerEmailBody(`Hi ${name},\n\nI hope your week is going well.\n\nI wanted to share a quick update regarding our sourcing pipeline for your active positions at ${company.name}.\n\nBest regards,\n${currentUserName}\nHirly Recruitment Partner`);
       setShowEmailModal(true);
     }
   };

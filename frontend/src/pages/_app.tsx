@@ -5,26 +5,27 @@ import { AppContextProvider } from "@/context/AppContext";
 import Layout from "@/components/Layout";
 import Script from "next/script";
 
-// Intercept all API calls globally to redirect relative /api/... calls to the deployed backend server in production
-if (typeof globalThis !== 'undefined') {
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = async function (input, init) {
-    if (typeof input === 'string' && input.startsWith('/api/')) {
-      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_API_URL || process.env.BACKEND_API_URL;
-      if (backendUrl) {
-        // Strip trailing slash if present on backendUrl and ensure input doesn't double-slash
-        const formattedBackendUrl = backendUrl.endsWith('/') ? backendUrl.slice(0, -1) : backendUrl;
-        const formattedInput = input.startsWith('/') ? input : `/${input}`;
-        input = `${formattedBackendUrl}${formattedInput}`;
-      }
-    }
-    return originalFetch.call(this, input, init);
-  };
-}
-
 import Head from "next/head";
+import { useEffect } from "react";
+import { useRouter } from "next/router";
+import * as gtag from "@/lib/gtag";
 
 export default function App({ Component, pageProps }: AppProps) {
+  const router = useRouter();
+
+  useEffect(() => {
+    if (!gtag.GA_TRACKING_ID) return;
+
+    const handleRouteChange = (url: string) => {
+      gtag.pageview(url);
+    };
+
+    router.events.on("routeChangeComplete", handleRouteChange);
+    return () => {
+      router.events.off("routeChangeComplete", handleRouteChange);
+    };
+  }, [router.events]);
+
   return (
     <AppContextProvider>
       <Head>
@@ -46,6 +47,28 @@ export default function App({ Component, pageProps }: AppProps) {
         <meta name="twitter:description" content="The AI-powered recruitment management platform helping agencies hire smarter, not harder." />
         <meta name="twitter:image" content="/og-banner.png" />
       </Head>
+      {gtag.GA_TRACKING_ID && (
+        <>
+          <Script
+            strategy="afterInteractive"
+            src={`https://www.googletagmanager.com/gtag/js?id=${gtag.GA_TRACKING_ID}`}
+          />
+          <Script
+            id="gtag-init"
+            strategy="afterInteractive"
+            dangerouslySetInnerHTML={{
+              __html: `
+                window.dataLayer = window.dataLayer || [];
+                function gtag(){dataLayer.push(arguments);}
+                gtag('js', new Date());
+                gtag('config', '${gtag.GA_TRACKING_ID}', {
+                  page_path: window.location.pathname,
+                });
+              `,
+            }}
+          />
+        </>
+      )}
       <Script src="https://checkout.razorpay.com/v1/checkout.js" strategy="beforeInteractive" />
       <Layout>
         <Component {...pageProps} />

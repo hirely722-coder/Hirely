@@ -1,4 +1,4 @@
-﻿import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { Company, Job, Candidate, Task, EmailTemplate, ActivityLog, TeamMember, CommunicationLog, EmailConfig, CustomFieldDefinition, WorkspaceRole, RbacAuditLog, Contact, CompanyDocument, Note } from '../types';
 import { ImportTask, ImportHistoryItem, cleanEmail, cleanPhone, cleanName, cleanSkills, cleanExperience, cleanSalary, validateRecord, addImportHistoryItem } from '../utils/importEngine';
 import { supabase } from '../utils/supabase';
@@ -1609,7 +1609,7 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
               website: record.website || 'https://example.com',
               address: record.address || 'N/A',
               notes: record.notes || 'Onboarded partner client.',
-              recContact: task.defaultValues.recruiterName || 'Sarah Jenkins',
+              recContact: task.defaultValues.recruiterName || '',
               industry: record.industry || undefined,
               companySize: record.companySize || undefined,
               foundedYear: record.foundedYear || undefined,
@@ -1634,7 +1634,7 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
               employmentType: record.employmentType || 'Full-time',
               department: record.department || undefined,
               urgency: record.urgency || 'Medium',
-              recruiterName: task.defaultValues.recruiterName || 'Sarah Jenkins',
+              recruiterName: task.defaultValues.recruiterName || '',
               importId: task.id
             });
             imported++;

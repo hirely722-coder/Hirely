@@ -647,7 +647,7 @@ export default function CompaniesView({
                       <td className="p-4">
                         <span className="flex items-center gap-1 text-slate-600 font-medium">
                           <UserCheck className="h-3.5 w-3.5 text-slate-400" />
-                          {company.recContact || 'Sarah Jenkins'}
+                          {company.recContact || 'Unassigned'}
                         </span>
                       </td>
 

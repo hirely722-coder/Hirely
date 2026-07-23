@@ -31,6 +31,8 @@ type TabType = 'overview' | 'ai-matching' | 'candidates' | 'pipeline' | 'budget'
 
 export default function JobDetailsPage(props: JobDetailsPageProps) {
   const { job, candidates, onBack } = props;
+  const { user } = useApp();
+  const currentUserName = user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'Recruiter';
   const [activeTab, setActiveTab] = useState<TabType>('overview');
   const [jobCandidates, setJobCandidates] = useState<JobCandidate[]>([]);
   const [jobCandidatesLoading, setJobCandidatesLoading] = useState(false);
@@ -173,7 +175,7 @@ export default function JobDetailsPage(props: JobDetailsPageProps) {
         name: 'Initial outreach request',
         category: 'Outreach',
         subject: `Exploring Opportunities: ${job.title} opening at ${job.companyName}`,
-        body: `Dear [Candidate],\n\nI hope this email finds you well. I came across your impressive professional background and wanted to see if you might be interested in exploring a ${job.title} opportunity at ${job.companyName}.\n\nLet me know your availability for a brief call.\n\nBest,\nSarah Jenkins`,
+        body: `Dear [Candidate],\n\nI hope this email finds you well. I came across your impressive professional background and wanted to see if you might be interested in exploring a ${job.title} opportunity at ${job.companyName}.\n\nLet me know your availability for a brief call.\n\nBest,\n${currentUserName}`,
         lastUpdated: '2026-06-25',
         variables: ['Candidate']
       },
@@ -182,7 +184,7 @@ export default function JobDetailsPage(props: JobDetailsPageProps) {
         name: 'Interview calendar setup',
         category: 'Scheduling',
         subject: `Interview Invitation: ${job.title} - ${job.companyName}`,
-        body: `Hi [Candidate],\n\nWe are excited to advance your application to the technical round. Please select a suitable slot from our recruiter link or reply with your preferred days next week.\n\nBest,\nSarah Jenkins`,
+        body: `Hi [Candidate],\n\nWe are excited to advance your application to the technical round. Please select a suitable slot from our recruiter link or reply with your preferred days next week.\n\nBest,\n${currentUserName}`,
         lastUpdated: '2026-06-24',
         variables: ['Candidate']
       }

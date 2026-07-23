@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { X, Mail, Sparkles, Send, CheckCircle, MessageSquare } from 'lucide-react';
 import { Company } from '../../types';
 import AnimatedModal from '../AnimatedModal';
+import { useApp } from '../../context/AppContext';
 
 interface CompanyOutreachModalsProps {
   showEmailModal: boolean;
@@ -48,6 +49,8 @@ export function CompanyOutreachModals({
   setComposerWABody,
   handleSendWhatsApp
 }: CompanyOutreachModalsProps) {
+  const { user } = useApp();
+  const currentUserName = user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'Recruiter';
   const [emailOpen, setEmailOpen] = useState(showEmailModal);
   const [waOpen, setWaOpen] = useState(showWhatsAppModal);
 
@@ -103,25 +106,25 @@ export function CompanyOutreachModals({
                         id: 'custom',
                         name: '✏️ Custom (Blank)',
                         subject: `Hirly - Recruitment Partnership Update - ${company.name}`,
-                        body: `Hi ${primaryContact.name || 'Team'},\n\nI hope this email finds you well.\n\nBest regards,\nSarah Jenkins\nHirly Recruitment Partner`
+                        body: `Hi ${primaryContact.name || 'Team'},\n\nI hope this email finds you well.\n\nBest regards,\n${currentUserName}\nHirly Recruitment Partner`
                       },
                       {
                         id: 'sourcing_update',
                         name: '⏱️ Sourcing Update',
                         subject: `Hirly - Sourcing Pipeline Update for ${company.name}`,
-                        body: `Hi ${primaryContact.name || 'Team'},\n\nI hope your week is going well.\n\nI wanted to share a quick update regarding our sourcing pipeline for your active positions at ${company.name}. We've got several high-potential prospects undergoing final assessments.\n\nBest regards,\nSarah Jenkins\nHirly Recruitment Partner`
+                        body: `Hi ${primaryContact.name || 'Team'},\n\nI hope your week is going well.\n\nI wanted to share a quick update regarding our sourcing pipeline for your active positions at ${company.name}. We've got several high-potential prospects undergoing final assessments.\n\nBest regards,\n${currentUserName}\nHirly Recruitment Partner`
                       },
                       {
                         id: 'shortlist_presentation',
                         name: '💼 Shortlist CVs',
                         subject: `Hirly - Selected Candidate Shortlist for ${company.name}`,
-                        body: `Hi ${primaryContact.name || 'Team'},\n\nWe have completed our initial screening round and compiled a highly selective shortlist of premium candidates matching your active requirements.\n\nI've attached their vetted CVs and match details. Please let us know who you would like to advance to interviews.\n\nWarmly,\nSarah Jenkins\nHirly Recruitment Partner`
+                        body: `Hi ${primaryContact.name || 'Team'},\n\nWe have completed our initial screening round and compiled a highly selective shortlist of premium candidates matching your active requirements.\n\nI've attached their vetted CVs and match details. Please let us know who you would like to advance to interviews.\n\nWarmly,\n${currentUserName}\nHirly Recruitment Partner`
                       },
                       {
                         id: 'schedule_sync',
                         name: '📅 Schedule Sync',
                         subject: `Hirly - Quick Check-in Sync for ${company.name}`,
-                        body: `Hi ${primaryContact.name || 'Team'},\n\nWould you be available for a brief 10-minute check-in sync this week to align on your hiring timeline and ongoing active roles?\n\nLooking forward to speaking with you.\n\nBest,\nSarah Jenkins\nHirly Recruitment Partner`
+                        body: `Hi ${primaryContact.name || 'Team'},\n\nWould you be available for a brief 10-minute check-in sync this week to align on your hiring timeline and ongoing active roles?\n\nLooking forward to speaking with you.\n\nBest,\n${currentUserName}\nHirly Recruitment Partner`
                       }
                     ].map(tmpl => {
                       const isSelected = selectedCompanyTemplateId === tmpl.id;

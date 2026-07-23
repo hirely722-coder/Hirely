@@ -5,6 +5,10 @@ import {
 } from 'lucide-react';
 import { Candidate, Job } from '../types';
 import { SearchableDropdown } from './SearchableDropdown';
+import Portal from './Portal';
+import { Checkbox } from './ui/Checkbox';
+import { Select } from './ui/Select';
+import { Combobox } from './ui/Combobox';
 
 interface CandidatesListViewProps {
   filteredCandidates: Candidate[];
@@ -59,6 +63,9 @@ interface CandidatesListViewProps {
   showToast: (text: string, type: 'success' | 'error') => void;
   jobs: Job[];
   isLoading?: boolean;
+  selectedCandidateIds?: string[];
+  setSelectedCandidateIds?: React.Dispatch<React.SetStateAction<string[]>>;
+  onOpenShareModal?: (selected: Candidate[]) => void;
 }
 
 export function CandidatesListView({
@@ -113,7 +120,10 @@ export function CandidatesListView({
   startEdit,
   onDeleteCandidate,
   showToast,
-  isLoading = false
+  isLoading = false,
+  selectedCandidateIds = [],
+  setSelectedCandidateIds,
+  onOpenShareModal
 }: CandidatesListViewProps) {
   const [assigningCandidateId, setAssigningCandidateId] = useState<string | null>(null);
 
@@ -134,20 +144,20 @@ export function CandidatesListView({
           </div>
           
           <div className="flex flex-wrap items-center gap-2.5">
-            <select 
+            <Select 
               value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="text-xs border border-slate-200 rounded-lg px-3 py-2 focus:outline-none bg-white font-sans text-slate-700 font-medium cursor-pointer"
-            >
-              <option value="All">All Candidates</option>
-              <option value="Pool">🧑‍💼 Talent Pool</option>
-              <option value="Applied">Applied</option>
-              <option value="Screening">Screening</option>
-              <option value="Interview">Interview</option>
-              <option value="Selected">Selected</option>
-              <option value="Offer Sent">Offer Sent</option>
-              <option value="Joined">Joined</option>
-            </select>
+              onChange={(val) => setStatusFilter(val)}
+              options={[
+                { value: 'All', label: 'All Candidates' },
+                { value: 'Pool', label: '🧑‍💼 Talent Pool' },
+                { value: 'Applied', label: 'Applied' },
+                { value: 'Screening', label: 'Screening' },
+                { value: 'Interview', label: 'Interview' },
+                { value: 'Selected', label: 'Selected' },
+                { value: 'Offer Sent', label: 'Offer Sent' },
+                { value: 'Joined', label: 'Joined' }
+              ]}
+            />
 
             <button
               type="button"
@@ -208,12 +218,11 @@ export function CandidatesListView({
                         const isChecked = visibleColumns.includes(col.key);
                         return (
                           <label key={col.key} className="flex items-center gap-2 cursor-pointer py-0.5 hover:text-slate-900 transition-colors font-medium">
-                            <input
-                              type="checkbox"
+                            <Checkbox
                               checked={isChecked}
-                              onChange={() => {
+                              onCheckedChange={(checked) => {
                                 let newCols = [...visibleColumns];
-                                if (isChecked) {
+                                if (!checked) {
                                   newCols = newCols.filter(k => k !== col.key);
                                 } else {
                                   newCols.push(col.key);
@@ -221,7 +230,6 @@ export function CandidatesListView({
                                 setVisibleColumns(newCols);
                                 localStorage.setItem('hirely_candidate_columns', JSON.stringify(newCols));
                               }}
-                              className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
                             />
                             <span>{col.label}</span>
                           </label>
@@ -238,22 +246,20 @@ export function CandidatesListView({
                           const isChecked = visibleColumns.includes(def.key);
                           return (
                             <label key={def.key} className="flex items-center gap-2 cursor-pointer py-0.5 hover:text-slate-900 transition-colors font-medium text-slate-700">
-                              <input
-                                  type="checkbox"
-                                  checked={isChecked}
-                                  onChange={() => {
-                                    let newCols = [...visibleColumns];
-                                    if (isChecked) {
-                                      newCols = newCols.filter(k => k !== def.key);
-                                    } else {
-                                      newCols.push(def.key);
-                                    }
-                                    setVisibleColumns(newCols);
-                                    localStorage.setItem('hirely_candidate_columns', JSON.stringify(newCols));
-                                  }}
-                                  className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
-                                />
-                              <span className="truncate max-w-[170px]">{def.name}</span>
+                              <Checkbox
+                                checked={isChecked}
+                                onCheckedChange={(checked) => {
+                                  let newCols = [...visibleColumns];
+                                  if (!checked) {
+                                    newCols = newCols.filter(k => k !== def.key);
+                                  } else {
+                                    newCols.push(def.key);
+                                  }
+                                  setVisibleColumns(newCols);
+                                  localStorage.setItem('hirely_candidate_columns', JSON.stringify(newCols));
+                                }}
+                              />
+                              <span>{def.name}</span>
                             </label>
                           );
                         })}
@@ -409,6 +415,22 @@ export function CandidatesListView({
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-slate-50 border-b border-slate-100 text-xs font-mono text-slate-400 uppercase">
+                <th className="p-4 w-10 text-center">
+                  <Checkbox
+                    checked={paginatedCandidates.length > 0 && paginatedCandidates.every(c => selectedCandidateIds.includes(c.id))}
+                    onCheckedChange={(checked) => {
+                      if (!setSelectedCandidateIds) return;
+                      if (checked) {
+                        const pageIds = paginatedCandidates.map(c => c.id);
+                        const merged = Array.from(new Set([...selectedCandidateIds, ...pageIds]));
+                        setSelectedCandidateIds(merged);
+                      } else {
+                        const pageIdsSet = new Set(paginatedCandidates.map(c => c.id));
+                        setSelectedCandidateIds(selectedCandidateIds.filter(id => !pageIdsSet.has(id)));
+                      }
+                    }}
+                  />
+                </th>
                 {visibleColumns.includes('name') && (
                   <th 
                     onClick={() => handleSort('name')}
@@ -458,6 +480,7 @@ export function CandidatesListView({
               {isLoading ? (
                 [...Array(5)].map((_, rowIndex) => (
                   <tr key={rowIndex} className="animate-pulse">
+                    <td className="p-4 text-center"><div className="h-4 w-4 bg-slate-200 rounded mx-auto" /></td>
                     {visibleColumns.map((col) => (
                       <td key={col} className="p-4">
                         {col === 'name' ? (
@@ -487,20 +510,33 @@ export function CandidatesListView({
                 ))
               ) : paginatedCandidates.length === 0 ? (
                 <tr>
-                  <td colSpan={visibleColumns.length + 1} className="p-8 text-center text-slate-400 italic">
+                  <td colSpan={visibleColumns.length + 2} className="p-8 text-center text-slate-400 italic">
                     No candidates matched the current search or filters.
                   </td>
                 </tr>
               ) : (
                 paginatedCandidates.map((candidate) => {
+                  const isSelected = selectedCandidateIds.includes(candidate.id);
                   return (
                     <tr 
                       key={candidate.id} 
-                      onClick={() => setSelectedCandidate(candidate)}
-                      className="hover:bg-slate-50/50 cursor-pointer transition-colors"
+                      className={`hover:bg-slate-50/50 cursor-pointer transition-colors ${isSelected ? 'bg-blue-50/40' : ''}`}
                     >
+                      <td className="p-4 text-center" onClick={(e) => e.stopPropagation()}>
+                        <Checkbox
+                          checked={isSelected}
+                          onCheckedChange={(checked) => {
+                            if (!setSelectedCandidateIds) return;
+                            if (checked) {
+                              setSelectedCandidateIds(prev => [...prev, candidate.id]);
+                            } else {
+                              setSelectedCandidateIds(prev => prev.filter(id => id !== candidate.id));
+                            }
+                          }}
+                        />
+                      </td>
                       {visibleColumns.includes('name') && (
-                        <td className="p-4">
+                        <td className="p-4" onClick={() => setSelectedCandidate(candidate)}>
                           <div className="flex items-center gap-3">
                             <div className="h-8 w-8 rounded-full bg-slate-100 text-slate-700 flex items-center justify-center font-bold text-xs shrink-0 font-sans shadow-2xs">
                               {candidate.name.split(' ').map(n => n[0]).join('')}
@@ -585,9 +621,12 @@ export function CandidatesListView({
                       <td className="p-4 text-right" onClick={(e) => e.stopPropagation()}>
                         {assigningCandidateId === candidate.id ? (
                           <div className="flex items-center gap-1 justify-end">
-                            <select
-                              onChange={async (e) => {
-                                const jobId = e.target.value;
+                            <Combobox
+                              value=""
+                              placeholder="Assign Job..."
+                              searchPlaceholder="Search open jobs..."
+                              options={jobs.filter(j => j.status === 'Open').map(j => ({ value: j.id, label: j.title, sublabel: j.department || j.employmentType || j.location }))}
+                              onChange={async (jobId) => {
                                 if (!jobId) return;
                                 try {
                                   const { supabase: client } = await import('../utils/supabase');
@@ -614,13 +653,7 @@ export function CandidatesListView({
                                   setAssigningCandidateId(null);
                                 }
                               }}
-                              className="text-[10px] border border-slate-200 rounded px-1.5 py-1 bg-white font-medium focus:outline-none cursor-pointer w-32"
-                            >
-                              <option value="">Select Job...</option>
-                              {jobs.filter(j => j.status === 'Open').map(j => (
-                                <option key={j.id} value={j.id}>{j.title}</option>
-                              ))}
-                            </select>
+                            />
                             <button 
                               onClick={() => setAssigningCandidateId(null)}
                               className="p-1 text-slate-400 hover:text-slate-600 cursor-pointer"
@@ -708,6 +741,39 @@ export function CandidatesListView({
           </div>
         </div>
       </div>
+
+      {/* Floating Bulk Action Bar */}
+      {selectedCandidateIds.length > 0 && (
+        <Portal>
+          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-slate-900 text-white px-5 py-3 rounded-2xl shadow-2xl border border-slate-700 flex items-center gap-4 animate-slide-up">
+            <div className="flex items-center gap-2">
+              <span className="h-2.5 w-2.5 rounded-full bg-blue-400 animate-pulse" />
+              <span className="font-bold text-xs font-sans">
+                {selectedCandidateIds.length} candidate(s) selected
+              </span>
+            </div>
+            <div className="h-4 w-px bg-slate-700" />
+            <button
+              type="button"
+              onClick={() => {
+                const selected = filteredCandidates.filter(c => selectedCandidateIds.includes(c.id));
+                if (onOpenShareModal) onOpenShareModal(selected);
+              }}
+              className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 transition-colors cursor-pointer"
+            >
+              <Mail className="h-3.5 w-3.5" />
+              Share with Company (WC PDF)
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedCandidateIds?.([])}
+              className="text-slate-400 hover:text-white text-xs p-1 cursor-pointer"
+            >
+              Clear Selection
+            </button>
+          </div>
+        </Portal>
+      )}
     </div>
   );
 }

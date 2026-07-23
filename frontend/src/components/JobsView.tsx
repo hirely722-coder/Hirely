@@ -56,7 +56,7 @@ export default function JobsView({
   onOpenCSVImport,
   isLoading = false
 }: JobsViewProps) {
-  const { showToast, teamMembers, workspace, token: sessionToken } = useApp();
+  const { showToast, teamMembers, workspace, token: sessionToken, user } = useApp();
   const { can } = usePermission();
 
   const authFetch = (url: string, options: RequestInit = {}) => {
@@ -293,14 +293,15 @@ export default function JobsView({
       showNotice(`✓ Saved changes for ${jobData.title}`);
 
       // Sync to database assignments
-      if (workspace && jobData.recruiterName) {
+      if (workspace) {
         try {
           const res = await authFetch('/api/job_assignments');
           const currentJobAssigns = await res.json();
           const jobAssignmentsForThisJob = currentJobAssigns.filter((a: any) => a.jobId === jobData.id);
           await Promise.all(jobAssignmentsForThisJob.map((a: any) => authFetch(`/api/job_assignments/${a.id}`, { method: 'DELETE' })));
 
-          const selectedRecruiter = teamMembers.find(tm => tm.name === jobData.recruiterName);
+          const recruiterName = jobData.recruiterName || user?.name;
+          const selectedRecruiter = teamMembers.find(tm => tm.name === recruiterName) || teamMembers.find(tm => tm.id === user?.id);
           if (selectedRecruiter) {
             await authFetch('/api/job_assignments', {
               method: 'POST',
@@ -318,8 +319,9 @@ export default function JobsView({
       showNotice(`✓ Published Job Opening: ${jobData.title}`);
 
       // Sync to database assignments
-      if (workspace && jobData.recruiterName) {
-        const selectedRecruiter = teamMembers.find(tm => tm.name === jobData.recruiterName);
+      if (workspace) {
+        const recruiterName = jobData.recruiterName || user?.name;
+        const selectedRecruiter = teamMembers.find(tm => tm.name === recruiterName) || teamMembers.find(tm => tm.id === user?.id);
         if (selectedRecruiter) {
           authFetch('/api/job_assignments', {
             method: 'POST',

@@ -161,7 +161,7 @@ export default function CompanyDetailsPage(props: CompanyDetailsPageProps) {
               <span className="h-1 w-1 rounded-full bg-slate-300" />
               <span className="flex items-center gap-1 font-sans">
                 <Users className="h-3.5 w-3.5 text-slate-400" />
-                Account: <strong className="font-bold text-slate-700">{company.recContact || 'Sarah Jenkins'}</strong>
+                Account: <strong className="font-bold text-slate-700">{company.recContact || 'Unassigned'}</strong>
               </span>
               {company.linkedinUrl && (
                 <>

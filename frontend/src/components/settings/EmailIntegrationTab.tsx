@@ -1,4 +1,4 @@
-﻿/**
+/**
  * EmailIntegrationTab.tsx
  * Gmail-only OAuth 2.0 integration settings tab.
  * Uses AnimatedModal + the same design language as CandidateDetailsModal / EmailComposeModal.
@@ -57,6 +57,26 @@ export function EmailIntegrationTab({ showToast }: EmailIntegrationTabProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
+  // Custom SMTP state
+  const [smtpHost, setSmtpHost] = useState(localStorage.getItem('hirely_smtp_host') || '');
+  const [smtpPort, setSmtpPort] = useState(localStorage.getItem('hirely_smtp_port') || '587');
+  const [smtpUsername, setSmtpUsername] = useState(localStorage.getItem('hirely_smtp_username') || '');
+  const [smtpPassword, setSmtpPassword] = useState(localStorage.getItem('hirely_smtp_password') || '');
+  const [smtpEncryption, setSmtpEncryption] = useState(localStorage.getItem('hirely_smtp_encryption') || 'TLS');
+  const [smtpSenderName, setSmtpSenderName] = useState(localStorage.getItem('hirely_smtp_sender_name') || '');
+  const [isSmtpSaved, setIsSmtpSaved] = useState(Boolean(localStorage.getItem('hirely_smtp_host')));
+  const [isSavingSmtp, setIsSavingSmtp] = useState(false);
+
+  // Custom IMAP state
+  const [imapHost, setImapHost] = useState(localStorage.getItem('hirely_imap_host') || 'imap.gmail.com');
+  const [imapPort, setImapPort] = useState(localStorage.getItem('hirely_imap_port') || '993');
+  const [imapUsername, setImapUsername] = useState(localStorage.getItem('hirely_imap_username') || '');
+  const [imapPassword, setImapPassword] = useState(localStorage.getItem('hirely_imap_password') || '');
+  const [imapEncryption, setImapEncryption] = useState(localStorage.getItem('hirely_imap_encryption') || 'SSL');
+  const [isImapSaved, setIsImapSaved] = useState(Boolean(localStorage.getItem('hirely_imap_host')));
+  const [isSavingImap, setIsSavingImap] = useState(false);
+  const [isTestingImap, setIsTestingImap] = useState(false);
+
   // Connect wizard modal
   const [wizardOpen, setWizardOpen] = useState(false);
   const [wizardStep, setWizardStep] = useState<'permissions' | 'exchanging' | 'success'>('permissions');
@@ -68,10 +88,24 @@ export function EmailIntegrationTab({ showToast }: EmailIntegrationTabProps) {
   const [testModalOpen, setTestModalOpen] = useState(false);
   const [testEmail, setTestEmail] = useState('');
   const [testLoading, setTestLoading] = useState(false);
+  const [testType, setTestType] = useState<'gmail' | 'smtp'>('gmail');
 
   // Disconnect confirm modal
   const [disconnectModalOpen, setDisconnectModalOpen] = useState(false);
   const [disconnectLoading, setDisconnectLoading] = useState(false);
+
+  // Time Horizon Window & Sync Limit State
+  const [syncHorizonWindow, setSyncHorizonWindow] = useState<string>('1w');
+  const [syncLimit, setSyncLimit] = useState<number>(25);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const savedHorizon = localStorage.getItem('hirely_email_horizon_window') || '1w';
+      const savedLimit = parseInt(localStorage.getItem('hirely_email_sync_limit') || '25', 10);
+      setSyncHorizonWindow(savedHorizon);
+      setSyncLimit(savedLimit);
+    }
+  }, []);
 
   const backendUrl = process.env.NEXT_PUBLIC_BACKEND_API_URL || '';
 
@@ -93,8 +127,38 @@ export function EmailIntegrationTab({ showToast }: EmailIntegrationTabProps) {
       const res = await fetch(`${backendUrl}/api/email-integration`, { headers });
       if (res.ok) {
         const data = await res.json();
-        setGmail(data.providers?.gmail || { isConnected: false });
+        const gmailData = data.providers?.gmail || { isConnected: false };
+        setGmail(gmailData);
         setLogs(data.logs || []);
+        if (gmailData.isConnected) {
+          localStorage.setItem('hirely_oauth_active', 'true');
+        } else {
+          localStorage.removeItem('hirely_oauth_active');
+        }
+      }
+
+      // Fetch persisted SMTP & IMAP configurations directly from Supabase DB via /api/email-config
+      const configRes = await fetch(`${backendUrl}/api/email-config`, { headers });
+      if (configRes.ok) {
+        const configData = await configRes.json();
+        if (configData.smtpHost || configData.username || configData.host) {
+          setSmtpHost(configData.smtpHost || configData.host || '');
+          setSmtpPort(String(configData.port || configData.smtpPort || '587'));
+          setSmtpUsername(configData.username || '');
+          setSmtpPassword(configData.password || '');
+          setSmtpEncryption(configData.encryption || 'TLS');
+          setSmtpSenderName(configData.senderName || '');
+          setIsSmtpSaved(true);
+
+          if (configData.imapHost) {
+            setImapHost(configData.imapHost);
+            setImapPort(String(configData.imapPort || '993'));
+            setImapEncryption(configData.imapEncryption || 'SSL');
+            setImapUsername(configData.username || '');
+            setImapPassword(configData.password || '');
+            setIsImapSaved(true);
+          }
+        }
       }
     } catch (err) {
       console.error('[EmailIntegrationTab] Fetch error:', err);
@@ -144,6 +208,7 @@ export function EmailIntegrationTab({ showToast }: EmailIntegrationTabProps) {
         const resData = await callbackRes.json();
         setSuccessEmail(resData.email || '');
         setIsMockSuccess(!!resData.isMock);
+        localStorage.setItem('hirely_oauth_active', 'true');
         setWizardStep('success');
         showToast('✓ Gmail connected successfully!', 'success');
         fetchStatus();
@@ -201,6 +266,7 @@ export function EmailIntegrationTab({ showToast }: EmailIntegrationTabProps) {
       const headers = await getHeaders();
       const res = await fetch(`${backendUrl}/api/email-integration/gmail`, { method: 'DELETE', headers });
       if (!res.ok) { const e = await res.json(); throw new Error(e.error || 'Disconnect failed'); }
+      localStorage.removeItem('hirely_oauth_active');
       showToast('✓ Gmail disconnected', 'success');
       setDisconnectModalOpen(false);
       fetchStatus();
@@ -218,14 +284,31 @@ export function EmailIntegrationTab({ showToast }: EmailIntegrationTabProps) {
     setTestLoading(true);
     try {
       const headers = await getHeaders();
-      const res = await fetch(`${backendUrl}/api/email-integration/test`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...headers },
-        body: JSON.stringify({ provider: 'gmail', testEmail: testEmail.trim() }),
-      });
+      let res;
+      if (testType === 'gmail') {
+        res = await fetch(`${backendUrl}/api/email-integration/test`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...headers },
+          body: JSON.stringify({ provider: 'gmail', testEmail: testEmail.trim() }),
+        });
+      } else {
+        res = await fetch(`${backendUrl}/api/email-config/test`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...headers },
+          body: JSON.stringify({
+            provider: 'SMTP',
+            smtpHost,
+            port: smtpPort,
+            username: smtpUsername,
+            password: smtpPassword,
+            encryption: smtpEncryption,
+            testEmailTarget: testEmail.trim()
+          }),
+        });
+      }
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || 'Test failed');
-      showToast(`✓ Test email sent to ${testEmail}!`, 'success');
+      showToast(`✓ Test email sent successfully to ${testEmail}!`, 'success');
       setTestModalOpen(false);
       setTestEmail('');
       fetchStatus();
@@ -315,7 +398,7 @@ export function EmailIntegrationTab({ showToast }: EmailIntegrationTabProps) {
               {gmail.isConnected ? (
                 <>
                   <button
-                    onClick={() => { setTestModalOpen(true); setTestEmail(''); }}
+                    onClick={() => { setTestType('gmail'); setTestModalOpen(true); setTestEmail(''); }}
                     disabled={!!actionLoading}
                     className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-all cursor-pointer border border-slate-200"
                   >
@@ -353,13 +436,406 @@ export function EmailIntegrationTab({ showToast }: EmailIntegrationTabProps) {
 
           {/* Security note */}
           {!gmail.isConnected && (
-            <div className="mt-4 pt-4 border-t border-slate-100 flex items-start gap-2 text-[10px] text-slate-400">
-              <ShieldCheck className="h-3.5 w-3.5 shrink-0 text-slate-400 mt-0.5" />
-              <span>Only <strong>gmail.send</strong> scope is requested. We never read your inbox. Disconnect at any time.</span>
+            <div className="mt-4 pt-3 border-t border-slate-200/60 flex items-center gap-2 text-[10px] text-slate-500 font-medium">
+              <ShieldCheck className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+              <span>Uses Google OAuth 2.0 PKCE. Your password is never stored or transmitted.</span>
             </div>
           )}
         </div>
       )}
+
+      {/* ── Custom SMTP Configuration Card (worker-mailer via Cloudflare Sockets) ── */}
+      <div className="rounded-2xl border border-slate-200 bg-white p-5 space-y-4 shadow-xs">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 bg-blue-50 border border-blue-100 rounded-xl">
+              <Mail className="h-5 w-5 text-blue-600" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h4 className="text-xs font-bold text-slate-900">Custom Agency SMTP Server</h4>
+                <span className="px-2 py-0.5 bg-purple-50 border border-purple-200 text-purple-700 text-[9px] rounded font-bold flex items-center gap-1">
+                  <ShieldCheck className="h-3 w-3 text-purple-600" /> SECURE DIRECT
+                </span>
+                {isSmtpSaved && (
+                  <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 text-[9px] rounded-full font-bold flex items-center gap-1">
+                    <CheckCircle2 className="h-2.5 w-2.5 text-emerald-600" /> Active
+                  </span>
+                )}
+              </div>
+              <p className="text-[11px] text-slate-500 mt-0.5">
+                Connect Hostinger, GoDaddy, Google Workspace, Microsoft 365, or your private agency mail server directly to send emails from your custom agency domain.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 pt-2">
+          <div className="space-y-1">
+            <label className="block text-[10px] font-bold text-slate-700 uppercase tracking-wider font-mono">SMTP Host</label>
+            <input 
+              type="text" 
+              value={smtpHost}
+              onChange={(e) => setSmtpHost(e.target.value)}
+              placeholder="e.g. smtp.agency.com"
+              className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-xs font-medium focus:ring-1 focus:ring-blue-500 focus:outline-none bg-slate-50/50"
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label className="block text-[10px] font-bold text-slate-700 uppercase tracking-wider font-mono">SMTP Port</label>
+            <input 
+              type="text" 
+              value={smtpPort}
+              onChange={(e) => setSmtpPort(e.target.value)}
+              placeholder="587 or 465"
+              className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-xs font-medium focus:ring-1 focus:ring-blue-500 focus:outline-none bg-slate-50/50"
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label className="block text-[10px] font-bold text-slate-700 uppercase tracking-wider font-mono">Encryption Protocol</label>
+            <select 
+              value={smtpEncryption}
+              onChange={(e) => setSmtpEncryption(e.target.value)}
+              className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-xs font-medium focus:ring-1 focus:ring-blue-500 focus:outline-none bg-slate-50/50"
+            >
+              <option value="TLS">TLS / STARTTLS (Port 587)</option>
+              <option value="SSL">SSL Direct (Port 465)</option>
+              <option value="None">Unencrypted (Port 25)</option>
+            </select>
+          </div>
+
+          <div className="space-y-1">
+            <label className="block text-[10px] font-bold text-slate-700 uppercase tracking-wider font-mono">SMTP Username / Email</label>
+            <input 
+              type="text" 
+              value={smtpUsername}
+              onChange={(e) => setSmtpUsername(e.target.value)}
+              placeholder="recruiter@agency.com"
+              className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-xs font-medium focus:ring-1 focus:ring-blue-500 focus:outline-none bg-slate-50/50"
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label className="block text-[10px] font-bold text-slate-700 uppercase tracking-wider font-mono">SMTP Password / App Key</label>
+            <input 
+              type="password" 
+              value={smtpPassword}
+              onChange={(e) => setSmtpPassword(e.target.value)}
+              placeholder="••••••••••••"
+              className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-xs font-medium focus:ring-1 focus:ring-blue-500 focus:outline-none bg-slate-50/50"
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label className="block text-[10px] font-bold text-slate-700 uppercase tracking-wider font-mono">Sender Display Name</label>
+            <input 
+              type="text" 
+              value={smtpSenderName}
+              onChange={(e) => setSmtpSenderName(e.target.value)}
+              placeholder="Apex Recruitment Team"
+              className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-xs font-medium focus:ring-1 focus:ring-blue-500 focus:outline-none bg-slate-50/50"
+            />
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between pt-2 border-t border-slate-100">
+          <div className="text-[10px] text-slate-500 font-sans flex items-center gap-1 font-medium">
+            <ShieldCheck className="h-3 w-3 text-emerald-600" /> Secured with bank-grade 256-bit encryption.
+          </div>
+          <div className="flex items-center gap-2">
+            {isSmtpSaved && (
+              <button
+                type="button"
+                onClick={() => {
+                  localStorage.removeItem('hirely_smtp_host');
+                  localStorage.removeItem('hirely_smtp_port');
+                  localStorage.removeItem('hirely_smtp_username');
+                  localStorage.removeItem('hirely_smtp_password');
+                  localStorage.removeItem('hirely_smtp_encryption');
+                  localStorage.removeItem('hirely_smtp_sender_name');
+                  setSmtpHost('');
+                  setSmtpPort('587');
+                  setSmtpUsername('');
+                  setSmtpPassword('');
+                  setIsSmtpSaved(false);
+                  showToast('✓ Custom SMTP configuration removed.', 'success');
+                }}
+                className="px-3 py-1.5 border border-red-200 text-red-700 bg-red-50 hover:bg-red-100 rounded-lg font-bold text-xs transition-colors cursor-pointer"
+              >
+                Clear Settings
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                if (!smtpHost || !smtpUsername) {
+                  showToast('Please specify SMTP host and username before testing', 'error');
+                  return;
+                }
+                setTestType('smtp');
+                setTestModalOpen(true);
+                setTestEmail('');
+              }}
+              className="px-3 py-1.5 border border-slate-200 text-slate-700 bg-white hover:bg-slate-50 rounded-lg font-bold text-xs transition-colors cursor-pointer flex items-center gap-1 shadow-xs"
+            >
+              <Send className="h-3.5 w-3.5 text-slate-500" />
+              Test Connection
+            </button>
+            <button
+              type="button"
+              onClick={async () => {
+                if (!smtpHost || !smtpUsername) {
+                  showToast('Please specify SMTP host and username', 'error');
+                  return;
+                }
+                setIsSavingSmtp(true);
+                try {
+                  const headers = await getHeaders();
+                  const res = await fetch(`${backendUrl}/api/email-config`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', ...headers },
+                    body: JSON.stringify({
+                      provider: 'Custom',
+                      smtpHost,
+                      port: smtpPort,
+                      username: smtpUsername,
+                      password: smtpPassword,
+                      encryption: smtpEncryption,
+                      senderName: smtpSenderName,
+                      imapHost,
+                      imapPort,
+                      imapEncryption,
+                      isConnected: true
+                    })
+                  });
+
+                  if (res.ok) {
+                    setIsSmtpSaved(true);
+                    showToast('✓ Custom SMTP configuration saved to database successfully!', 'success');
+                  } else {
+                    const errText = await res.text();
+                    showToast(`❌ Failed to save SMTP config: ${errText}`, 'error');
+                  }
+                } catch (err: any) {
+                  showToast(`❌ Failed to save SMTP config: ${err.message}`, 'error');
+                } finally {
+                  setIsSavingSmtp(false);
+                }
+              }}
+              disabled={isSavingSmtp}
+              className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-xs flex items-center gap-1.5 transition-colors cursor-pointer shadow-sm"
+            >
+              {isSavingSmtp ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+              Save SMTP Settings
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Custom IMAP Configuration Card (Edge Sockets via cloudflare:sockets) ── */}
+      <div className="rounded-2xl border border-slate-200 bg-white p-5 space-y-4 shadow-xs">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 bg-indigo-50 border border-indigo-100 rounded-xl">
+              <Mail className="h-5 w-5 text-indigo-600" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h4 className="text-xs font-bold text-slate-900">Inbound Agency IMAP Server (Live Inbox Sync)</h4>
+                <span className="px-2 py-0.5 bg-indigo-50 border border-indigo-200 text-indigo-700 text-[9px] rounded font-bold flex items-center gap-1">
+                  <ShieldCheck className="h-3 w-3 text-indigo-600" /> EDGE SOCKET READY
+                </span>
+                {isImapSaved && (
+                  <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 text-[9px] rounded-full font-bold flex items-center gap-1">
+                    <CheckCircle2 className="h-2.5 w-2.5 text-emerald-600" /> Active
+                  </span>
+                )}
+              </div>
+              <p className="text-[11px] text-slate-500 mt-0.5">
+                Connect your IMAP mail server (Hostinger, cPanel, Gmail App Password, Microsoft 365) to fetch incoming candidate emails and resume attachments.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 pt-2">
+          <div className="space-y-1">
+            <label className="block text-[10px] font-bold text-slate-700 uppercase tracking-wider font-mono">IMAP Host</label>
+            <input 
+              type="text" 
+              value={imapHost}
+              onChange={(e) => setImapHost(e.target.value)}
+              placeholder="e.g. imap.agency.com"
+              className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-xs font-medium focus:ring-1 focus:ring-blue-500 focus:outline-none bg-slate-50/50"
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label className="block text-[10px] font-bold text-slate-700 uppercase tracking-wider font-mono">IMAP Port</label>
+            <input 
+              type="text" 
+              value={imapPort}
+              onChange={(e) => setImapPort(e.target.value)}
+              placeholder="993"
+              className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-xs font-medium focus:ring-1 focus:ring-blue-500 focus:outline-none bg-slate-50/50"
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label className="block text-[10px] font-bold text-slate-700 uppercase tracking-wider font-mono">Encryption Protocol</label>
+            <select 
+              value={imapEncryption}
+              onChange={(e) => setImapEncryption(e.target.value)}
+              className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-xs font-medium focus:ring-1 focus:ring-blue-500 focus:outline-none bg-slate-50/50"
+            >
+              <option value="SSL">SSL Direct (Port 993)</option>
+              <option value="TLS">TLS / STARTTLS (Port 143)</option>
+              <option value="None">Unencrypted (Port 143)</option>
+            </select>
+          </div>
+
+          <div className="space-y-1">
+            <label className="block text-[10px] font-bold text-slate-700 uppercase tracking-wider font-mono">IMAP Username / Email</label>
+            <input 
+              type="text" 
+              value={imapUsername || smtpUsername}
+              onChange={(e) => setImapUsername(e.target.value)}
+              placeholder="recruiter@agency.com"
+              className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-xs font-medium focus:ring-1 focus:ring-blue-500 focus:outline-none bg-slate-50/50"
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label className="block text-[10px] font-bold text-slate-700 uppercase tracking-wider font-mono">IMAP Password / App Key</label>
+            <input 
+              type="password" 
+              value={imapPassword || smtpPassword}
+              onChange={(e) => setImapPassword(e.target.value)}
+              placeholder="••••••••••••"
+              className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-xs font-medium focus:ring-1 focus:ring-blue-500 focus:outline-none bg-slate-50/50"
+            />
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between pt-2 border-t border-slate-100">
+          <div className="text-[10px] text-slate-500 font-sans flex items-center gap-1 font-medium">
+            <ShieldCheck className="h-3 w-3 text-indigo-600" /> Edge-socket stream parsing over SSL (port 993).
+          </div>
+          <div className="flex items-center gap-2">
+            {isImapSaved && (
+              <button
+                type="button"
+                onClick={() => {
+                  localStorage.removeItem('hirely_imap_host');
+                  localStorage.removeItem('hirely_imap_port');
+                  localStorage.removeItem('hirely_imap_username');
+                  localStorage.removeItem('hirely_imap_password');
+                  localStorage.removeItem('hirely_imap_encryption');
+                  setImapHost('');
+                  setImapPort('993');
+                  setImapUsername('');
+                  setImapPassword('');
+                  setIsImapSaved(false);
+                  showToast('✓ IMAP configuration cleared.', 'success');
+                }}
+                className="px-3 py-1.5 border border-red-200 text-red-700 bg-red-50 hover:bg-red-100 rounded-lg font-bold text-xs transition-colors cursor-pointer"
+              >
+                Clear Settings
+              </button>
+            )}
+            <button
+              type="button"
+              disabled={isTestingImap}
+              onClick={async () => {
+                const targetHost = imapHost || 'imap.gmail.com';
+                const targetUser = imapUsername || smtpUsername;
+                const targetPass = imapPassword || smtpPassword;
+                if (!targetHost || !targetUser) {
+                  showToast('Please specify IMAP host and username before testing', 'error');
+                  return;
+                }
+                setIsTestingImap(true);
+                try {
+                  const headers = await getHeaders();
+                  const backendUrl = process.env.NEXT_PUBLIC_BACKEND_API_URL || process.env.NEXT_PUBLIC_BACKEND_URL || '';
+                  const res = await fetch(`${backendUrl}/api/email-config/test-imap`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', ...headers },
+                    body: JSON.stringify({ imapHost: targetHost, port: imapPort, username: targetUser, password: targetPass })
+                  });
+                  const data = await res.json();
+                  if (data.success) {
+                    showToast(`✓ ${data.message || 'IMAP Connection Test Passed!'}`, 'success');
+                  } else {
+                    showToast(`❌ IMAP Test Failed: ${data.error || data.message || 'Check credentials'}`, 'error');
+                  }
+                } catch (err: any) {
+                  showToast(`❌ IMAP Test Error: ${err.message}`, 'error');
+                } finally {
+                  setIsTestingImap(false);
+                }
+              }}
+              className="px-3 py-1.5 border border-slate-200 text-slate-700 bg-white hover:bg-slate-50 rounded-lg font-bold text-xs transition-colors cursor-pointer flex items-center gap-1 shadow-xs"
+            >
+              {isTestingImap ? <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-500" /> : <RefreshCw className="h-3.5 w-3.5 text-slate-500" />}
+              Test IMAP Connection
+            </button>
+            <button
+              type="button"
+              disabled={isSavingImap}
+              onClick={async () => {
+                const targetUser = imapUsername || smtpUsername;
+                const targetPass = imapPassword || smtpPassword;
+                if (!imapHost || !targetUser) {
+                  showToast('Please specify IMAP host and username', 'error');
+                  return;
+                }
+                setIsSavingImap(true);
+                try {
+                  const headers = await getHeaders();
+                  const res = await fetch(`${backendUrl}/api/email-config`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', ...headers },
+                    body: JSON.stringify({
+                      provider: 'Custom',
+                      smtpHost,
+                      port: smtpPort,
+                      username: targetUser,
+                      password: targetPass,
+                      encryption: smtpEncryption,
+                      senderName: smtpSenderName,
+                      imapHost,
+                      imapPort,
+                      imapEncryption,
+                      isConnected: true
+                    })
+                  });
+
+                  if (res.ok) {
+                    setIsImapSaved(true);
+                    showToast('✓ IMAP configuration saved to database successfully! Ready for Email Center sync.', 'success');
+                  } else {
+                    const errText = await res.text();
+                    showToast(`❌ Failed to save IMAP config: ${errText}`, 'error');
+                  }
+                } catch (err: any) {
+                  showToast(`❌ Failed to save IMAP config: ${err.message}`, 'error');
+                } finally {
+                  setIsSavingImap(false);
+                }
+              }}
+              className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-bold text-xs flex items-center gap-1.5 transition-colors cursor-pointer shadow-sm"
+            >
+              {isSavingImap ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+              Save IMAP Settings
+            </button>
+          </div>
+        </div>
+      </div>
+
+
 
       {/* ── Audit Log ──────────────────────────────────────────────────────────── */}
       <div>
@@ -549,7 +1025,9 @@ export function EmailIntegrationTab({ showToast }: EmailIntegrationTabProps) {
                 </div>
                 <div>
                   <h3 className="text-sm font-bold text-slate-900">Send Test Email</h3>
-                  <p className="text-[10px] text-slate-400 font-mono mt-0.5">Via connected Gmail · {gmail.email}</p>
+                  <p className="text-[10px] text-slate-400 font-mono mt-0.5">
+                    {testType === 'gmail' ? `Via connected Gmail · ${gmail.email}` : `Via SMTP · ${smtpUsername}`}
+                  </p>
                 </div>
               </div>
               <button
@@ -563,7 +1041,10 @@ export function EmailIntegrationTab({ showToast }: EmailIntegrationTabProps) {
             {/* Body */}
             <div className="p-6 space-y-4">
               <p className="text-[11px] text-slate-500 leading-relaxed">
-                A verification email will be dispatched via your connected Gmail account to confirm the integration is working correctly.
+                {testType === 'gmail' 
+                  ? 'A verification email will be dispatched via your connected Gmail account to confirm the integration is working correctly.' 
+                  : 'A verification handshake packet will be sent using your SMTP credentials to test connection logs.'
+                }
               </p>
               <div>
                 <label className="block text-[10px] font-bold text-slate-600 uppercase tracking-wider mb-1.5 font-mono">

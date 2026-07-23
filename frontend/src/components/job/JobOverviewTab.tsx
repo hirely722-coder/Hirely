@@ -271,10 +271,10 @@ export function JobOverviewTab({
           <h3 className="text-xs font-bold text-slate-900 border-b pb-1">Recruitment Ownership</h3>
           <div className="flex items-center gap-3 mt-3 p-3 bg-slate-50 rounded-lg border border-slate-100 max-w-sm">
             <div className="h-8 w-8 rounded-full bg-slate-900 text-white font-mono flex items-center justify-center text-xs font-bold">
-              {(job.recruiterName || 'Sarah Jenkins').split(' ').map(n => n[0]).join('').toUpperCase()}
+              {(job.recruiterName || 'Unassigned').split(' ').map(n => n[0]).join('').toUpperCase()}
             </div>
             <div>
-              <h4 className="text-xs font-bold text-slate-900">{job.recruiterName || 'Sarah Jenkins'}</h4>
+              <h4 className="text-xs font-bold text-slate-900">{job.recruiterName || 'Unassigned'}</h4>
               <p className="text-[10px] text-slate-400">Lead Recruiting Partner</p>
             </div>
           </div>

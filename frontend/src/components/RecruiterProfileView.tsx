@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { TeamMember, Candidate, Job, Company } from '../types';
 import AnimatedModal from './AnimatedModal';
+import { Checkbox } from './ui/Checkbox';
 
 interface RecruiterProfileViewProps {
   recruiterId: string;
@@ -130,6 +131,12 @@ export function RecruiterProfileView({ recruiterId }: RecruiterProfileViewProps)
   const [showTransferModal, setShowTransferModal] = useState(false);
   const [transferTargetId, setTransferTargetId] = useState('');
   const [isTransferring, setIsTransferring] = useState(false);
+
+  // Export Modal State
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [exportStartDate, setExportStartDate] = useState('');
+  const [exportEndDate, setExportEndDate] = useState('');
+  const [isExporting, setIsExporting] = useState(false);
 
   // Stats aggregate values
   const [recruiterStats, setRecruiterStats] = useState({
@@ -368,7 +375,130 @@ export function RecruiterProfileView({ recruiterId }: RecruiterProfileViewProps)
       setIsSavingAssignments(false);
     }
   };
+  const handleExportReport = async () => {
+    setIsExporting(true);
+    try {
+      const params = new URLSearchParams();
+      if (exportStartDate) params.append('startDate', exportStartDate);
+      if (exportEndDate) params.append('endDate', exportEndDate);
+      const url = `/api/recruiters/${recruiterId}/export${params.toString() ? `?${params.toString()}` : ''}`;
+      const response = await authFetch(url);
+      if (!response.ok) throw new Error('Failed to fetch export payload');
+      const data = await response.json();
 
+      // Format to CSV
+      const parts: string[] = [];
+      const esc = (val: any) => {
+        const str = val === null || val === undefined ? '' : String(val);
+        return `"${str.replace(/"/g, '""')}"`;
+      };
+
+      // Section 1: Profile Details
+      parts.push('"RECRUITER PROFILE DETAILS"');
+      parts.push('"Name","Email","Role","Department","Designation","Status","Incentive Rate","Incentive Type"');
+      const p = data.profile;
+      parts.push([
+        esc(p.name),
+        esc(p.email),
+        esc(p.role),
+        esc(p.department),
+        esc(p.designation),
+        esc(p.status),
+        esc(p.incentiveRate),
+        esc(p.incentiveType)
+      ].join(','));
+      parts.push('');
+
+      // Section 2: Company Assignments
+      parts.push('"CLIENT COMPANY ASSIGNMENTS"');
+      parts.push('"Company ID","Company Name"');
+      (data.companyAssignments || []).forEach((a: any) => {
+        parts.push([esc(a.companyId), esc(a.companyName)].join(','));
+      });
+      parts.push('');
+
+      // Section 3: Job Assignments
+      parts.push('"ASSIGNED JOB OPENINGS"');
+      parts.push('"Job ID","Job Title","Job Status"');
+      (data.jobAssignments || []).forEach((a: any) => {
+        parts.push([esc(a.jobId), esc(a.jobTitle), esc(a.jobStatus)].join(','));
+      });
+      parts.push('');
+
+      // Section 4: Placements
+      parts.push('"PLACEMENTS RECORDED (Joined Stage)"');
+      parts.push('"Candidate Name","Placement Date","Total Agency Fee (INR)","Amount Paid (INR)","Payment Status"');
+      (data.placements || []).forEach((pl: any) => {
+        parts.push([
+          esc(pl.candidateName),
+          esc(pl.addedDate),
+          esc(pl.totalAgencyFee),
+          esc(pl.amountPaid),
+          esc(pl.paymentStatus)
+        ].join(','));
+      });
+      parts.push('');
+
+      // Section 5: Interviews Conducted
+      parts.push('"INTERVIEWS CONDUCTED"');
+      parts.push('"Candidate Name","Job Title","Date","Time","Round","Status"');
+      (data.interviews || []).forEach((i: any) => {
+        parts.push([
+          esc(i.candidateName),
+          esc(i.jobTitle),
+          esc(i.date),
+          esc(i.time),
+          esc(i.round),
+          esc(i.status)
+        ].join(','));
+      });
+      parts.push('');
+
+      // Section 6: Outreach Logs
+      parts.push('"OUTREACH COMMUNICATIONS LOGS"');
+      parts.push('"Type","Date","Status","Subject","Recipient"');
+      (data.communications || []).forEach((co: any) => {
+        parts.push([
+          esc(co.type),
+          esc(co.date),
+          esc(co.status),
+          esc(co.subject),
+          esc(co.recipient)
+        ].join(','));
+      });
+      parts.push('');
+
+      // Section 7: Activity Logs
+      parts.push('"RECRUITER ACTIVITY TIMELINE LOGS"');
+      parts.push('"Timestamp","Activity Type","Description"');
+      (data.activities || []).forEach((ac: any) => {
+        parts.push([
+          esc(ac.timestamp),
+          esc(ac.type),
+          esc(ac.description)
+        ].join(','));
+      });
+
+      const csvContent = parts.join('\n');
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const downloadUrl = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      const formattedName = p.name.toLowerCase().replace(/\s+/g, '_');
+      link.setAttribute('download', `recruiter_report_${formattedName}_${Date.now()}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(downloadUrl);
+
+      showToast('✓ Recruiter report exported successfully!', 'success');
+      setShowExportModal(false);
+    } catch (err: any) {
+      showToast(err.message || 'Failed to export recruiter report', 'error');
+    } finally {
+      setIsExporting(false);
+    }
+  };
   // Recruiter Specific Activity Timeline
   const recruiterLogs = activityLogs.filter(log => log.userId === recruiterId);
 
@@ -471,6 +601,13 @@ export function RecruiterProfileView({ recruiterId }: RecruiterProfileViewProps)
             className="px-3 py-1.5 text-xs font-semibold border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 rounded-lg transition-colors cursor-pointer"
           >
             Reset Password
+          </button>
+          <button
+            onClick={() => setShowExportModal(true)}
+            className="px-3 py-1.5 text-xs font-semibold border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 rounded-lg transition-colors cursor-pointer flex items-center gap-1"
+            title="Export full transaction audit history"
+          >
+            Export Report
           </button>
           <button
             onClick={handleToggleStatus}
@@ -788,17 +925,15 @@ export function RecruiterProfileView({ recruiterId }: RecruiterProfileViewProps)
                             const isChecked = assignedCompanyIds.includes(c.id);
                             return (
                               <label key={c.id} className="flex items-center gap-2.5 p-2.5 hover:bg-slate-100 cursor-pointer text-xs">
-                                <input
-                                  type="checkbox"
+                                <Checkbox
                                   checked={isChecked}
-                                  onChange={() => {
-                                    if (isChecked) {
+                                  onCheckedChange={(checked) => {
+                                    if (!checked) {
                                       setAssignedCompanyIds(assignedCompanyIds.filter(id => id !== c.id));
                                     } else {
                                       setAssignedCompanyIds([...assignedCompanyIds, c.id]);
                                     }
                                   }}
-                                  className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 h-3.5 w-3.5"
                                 />
                                 <div>
                                   <p className="font-semibold text-slate-805">{c.name}</p>
@@ -844,17 +979,15 @@ export function RecruiterProfileView({ recruiterId }: RecruiterProfileViewProps)
                             const isChecked = assignedJobIds.includes(j.id);
                             return (
                               <label key={j.id} className="flex items-center gap-2.5 p-2.5 hover:bg-slate-100 cursor-pointer text-xs">
-                                <input
-                                  type="checkbox"
+                                <Checkbox
                                   checked={isChecked}
-                                  onChange={() => {
-                                    if (isChecked) {
+                                  onCheckedChange={(checked) => {
+                                    if (!checked) {
                                       setAssignedJobIds(assignedJobIds.filter(id => id !== j.id));
                                     } else {
                                       setAssignedJobIds([...assignedJobIds, j.id]);
                                     }
                                   }}
-                                  className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 h-3.5 w-3.5"
                                 />
                                 <div>
                                   <p className="font-semibold text-slate-805">{j.title}</p>
@@ -998,17 +1131,15 @@ export function RecruiterProfileView({ recruiterId }: RecruiterProfileViewProps)
                       const isChecked = selectedPermissions.includes(perm.key);
                       return (
                         <label key={perm.key} className="flex items-center gap-2.5 cursor-pointer text-xs group">
-                          <input
-                            type="checkbox"
+                          <Checkbox
                             checked={isChecked}
-                            onChange={() => {
-                              if (isChecked) {
+                            onCheckedChange={(checked) => {
+                              if (!checked) {
                                 setSelectedPermissions(selectedPermissions.filter(k => k !== perm.key));
                               } else {
                                 setSelectedPermissions([...selectedPermissions, perm.key]);
                               }
                             }}
-                            className="rounded border-slate-355 text-indigo-650 focus:ring-indigo-500 h-3.5 w-3.5 cursor-pointer"
                           />
                           <span className="text-slate-700 group-hover:text-slate-950 transition-colors font-medium">{perm.label}</span>
                         </label>
@@ -1279,6 +1410,68 @@ export function RecruiterProfileView({ recruiterId }: RecruiterProfileViewProps)
               </div>
             );
           }}
+        </AnimatedModal>
+      )}
+
+      {/* Export Report Modal */}
+      {showExportModal && (
+        <AnimatedModal isOpen={showExportModal} onClose={() => setShowExportModal(false)}>
+          {(animate) => (
+            <div 
+              className={`bg-white rounded-xl shadow-lg border border-slate-200/80 max-w-sm w-full overflow-hidden text-xs text-slate-655 transition-all duration-200 transform ${
+                animate ? 'opacity-100 scale-100 translate-y-0' : 'opacity-0 scale-95 translate-y-2'
+              }`}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="h-14 px-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+                <h3 className="text-sm font-bold text-slate-900 font-sans flex items-center gap-1.5">
+                  <Mail className="h-4.5 w-4.5 text-blue-600" />
+                  Export Recruiter Report
+                </h3>
+                <button onClick={() => setShowExportModal(false)} className="p-1 text-slate-400 hover:text-slate-605 rounded cursor-pointer">
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <div className="p-5 space-y-4 text-xs font-medium text-slate-700">
+                <p>Configure an optional date range to filter placements, scheduled interviews, and logged activities. Leave empty for all-time data.</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-1 font-mono">Start Date</label>
+                    <input
+                      type="date"
+                      value={exportStartDate}
+                      onChange={(e) => setExportStartDate(e.target.value)}
+                      className="w-full h-8 px-2.5 border border-slate-200 rounded-lg bg-white focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-1 font-mono">End Date</label>
+                    <input
+                      type="date"
+                      value={exportEndDate}
+                      onChange={(e) => setExportEndDate(e.target.value)}
+                      className="w-full h-8 px-2.5 border border-slate-200 rounded-lg bg-white focus:outline-none"
+                    />
+                  </div>
+                </div>
+              </div>
+              <div className="p-4 border-t border-slate-100 flex items-center justify-end bg-slate-50/50 gap-2 font-sans">
+                <button 
+                  onClick={() => setShowExportModal(false)} 
+                  className="px-3.5 py-1.5 font-semibold border border-slate-200 bg-white rounded-lg hover:bg-slate-50 text-slate-600 cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={handleExportReport} 
+                  disabled={isExporting}
+                  className="px-4 py-1.5 font-semibold bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
+                >
+                  {isExporting ? 'Exporting...' : 'Export CSV'}
+                </button>
+              </div>
+            </div>
+          )}
         </AnimatedModal>
       )}
 

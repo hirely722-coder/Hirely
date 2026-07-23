@@ -1,12 +1,22 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { User, Key, Bell, Shield, Calendar, MapPin, Globe, Check, Laptop, Clock } from 'lucide-react';
+import { supabase } from '../utils/supabase';
 
 export default function ProfileView() {
-  const [name, setName] = useState('Sarah Jenkins');
-  const [email, setEmail] = useState('sarah.j@apexstaffing.co');
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
   const [title, setTitle] = useState('Lead Tech Recruiter');
   const [phone, setPhone] = useState('+1 (555) 304-4422');
   const [location, setLocation] = useState('New York, NY');
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        setName(session.user.user_metadata?.full_name || session.user.email?.split('@')[0] || '');
+        setEmail(session.user.email || '');
+      }
+    });
+  }, []);
   
   const [saved, setSaved] = useState(false);
 

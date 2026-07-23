@@ -5,6 +5,8 @@ import {
 import { Company, Job, Candidate } from '../../types';
 import { calculateMatchScore as getAIMatchScore } from '../../utils/matching';
 import Portal from '../Portal';
+import { useApp } from '../../context/AppContext';
+import { Checkbox } from '../ui/Checkbox';
 
 interface SubmitCandidateModalProps {
   isOpen: boolean;
@@ -27,6 +29,8 @@ export default function SubmitCandidateModal({
   primaryContactEmail,
   onRecordSubmission
 }: SubmitCandidateModalProps) {
+  const { user } = useApp();
+  const currentUserName = user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'Recruiter';
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [selectedJobId, setSelectedJobId] = useState('');
   const [selectedCandidateIds, setSelectedCandidateIds] = useState<string[]>([]);
@@ -72,7 +76,7 @@ export default function SubmitCandidateModal({
         const score = getAIMatchScore(c, selectedJob);
         return `• **${c.name}** - ${c.experience} Experience (AI Match Score: ${score}%)\n  Skills: ${(c.skills || []).join(', ')}\n  Key Highlight: ${c.notes ? c.notes.slice(0, 120) + '...' : 'Excellent alignment with job specs.'}`;
       }).join('\n\n') + 
-      `\n\nPlease let me know your availability to review these profiles or schedule initial screening sessions.\n\nBest regards,\nSarah Jenkins\nHirly Recruitment Partner`;
+      `\n\nPlease let me know your availability to review these profiles or schedule initial screening sessions.\n\nBest regards,\n${currentUserName}\nHirly Recruitment Partner`;
 
     setEmailSubject(subject);
     setEmailBody(body);
@@ -210,15 +214,13 @@ export default function SubmitCandidateModal({
                         className={`p-3.5 border rounded-xl flex items-center justify-between transition-all ${isSelected ? 'border-blue-500 bg-blue-50/10' : 'border-slate-200 bg-white hover:bg-slate-50/50'}`}
                       >
                         <div className="flex items-center gap-3">
-                          <input 
-                            type="checkbox"
+                          <Checkbox 
                             checked={isSelected}
-                            onChange={() => {
+                            onCheckedChange={() => {
                               setSelectedCandidateIds(prev => 
                                 isSelected ? prev.filter(id => id !== cand.id) : [...prev, cand.id]
                               );
                             }}
-                            className="h-4.5 w-4.5 text-blue-600 rounded border-slate-300 focus:ring-blue-500 cursor-pointer"
                           />
                           <div>
                             <p className="font-bold text-slate-900 text-xs flex items-center gap-1.5">

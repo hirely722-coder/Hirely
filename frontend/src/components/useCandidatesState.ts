@@ -45,6 +45,17 @@ export function useCandidatesState({
   // Navigation & Search State
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
+  const [currentUserName, setCurrentUserName] = useState('Recruiter');
+
+  // Resolve current user's display name from Supabase session
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        const name = session.user.user_metadata?.full_name || session.user.email?.split('@')[0] || 'Recruiter';
+        setCurrentUserName(name);
+      }
+    });
+  }, []);
 
   useEffect(() => {
     const handler = setTimeout(() => {
@@ -499,7 +510,7 @@ export function useCandidatesState({
       type: 'Call',
       date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
       status: 'Completed',
-      sentBy: 'Sarah Jenkins',
+      sentBy: currentUserName,
       subject: 'Candidate Phone Screen Completed',
       message: 'Brief telephonic screening completed. Candidate confirmed current availability, Notice Period, and matching salary expectations.'
     };

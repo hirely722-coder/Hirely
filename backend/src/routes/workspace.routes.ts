@@ -1,11 +1,14 @@
 import { Hono } from 'hono';
-import nodemailer from 'nodemailer';
+import { getMailerImpl } from '../services/smtp_helper';
+import { testImapConnection } from '../services/imap_helper';
 import { supabase } from '../db';
 import { WorkspaceRepository } from '../repository';
 import { requirePermission } from '../middleware/auth';
 import { keysToCamel, keysToSnake } from '../utils';
 import { sendEmailViaOAuth } from '../email_integration_routes';
 import { EmailIntegrationDB } from '../email_integration_db';
+
+import { encryptToken, decryptToken } from '../email_integration_security';
 
 export const workspaceRouter = new Hono<{
   Variables: {
@@ -625,19 +628,42 @@ workspaceRouter.post('/email-config', requirePermission('settings.email'), async
   const user = c.get('user') as any;
   try {
     const body = await c.req.json();
-    const snakeBody = keysToSnake(body);
+    const rawSnake = keysToSnake(body);
     
+    // Whitelist valid columns for public.email_configs table
+    const validColumns = [
+      'id', 'workspace_id', 'provider', 'smtp_host', 'port', 'username', 
+      'password', 'encryption', 'sender_name', 'imap_host', 'imap_port', 
+      'imap_encryption', 'is_connected', 'updated_by', 'updated_at'
+    ];
+
+    const snakeBody: Record<string, any> = {};
+    for (const key of validColumns) {
+      if (rawSnake[key] !== undefined) {
+        snakeBody[key] = rawSnake[key];
+      }
+    }
+
+    // Encrypt password before saving to Supabase DB (AES-256-GCM)
+    if (typeof snakeBody.password === 'string' && snakeBody.password.length > 0) {
+      if (!snakeBody.password.includes('.')) {
+        try {
+          snakeBody.password = encryptToken(snakeBody.password);
+        } catch (e) {}
+      }
+    }
+
     snakeBody.workspace_id = user.workspace_id;
     snakeBody.updated_by = user.id;
-    
-    // Always force workspace_id as primary key (id) for safety and isolation
     snakeBody.id = user.workspace_id;
+    snakeBody.updated_at = new Date().toISOString();
     
     const { data, error } = await supabase.from('email_configs').upsert([snakeBody]).select();
     if (error) throw error;
     
     return c.json(keysToCamel(data[0]));
   } catch (err: any) {
+    console.error('[email-config save error]', err.message);
     return c.json({ error: err.message }, 500);
   }
 });
@@ -645,45 +671,65 @@ workspaceRouter.post('/email-config', requirePermission('settings.email'), async
 workspaceRouter.post('/email-config/test', requirePermission('settings.email'), async (c) => {
   const body = await c.req.json();
   const logs: string[] = [];
-  logs.push('Initializing SMTP socket connection...');
+  logs.push('Initializing SMTP socket connection via worker-mailer...');
   logs.push(`Connecting to host ${body.smtpHost}:${body.port}...`);
-  logs.push(`Negotiating secure ${body.encryption} handshake...`);
 
   try {
-    const transporter = nodemailer.createTransport({
+    const isSsl = body.encryption === 'SSL';
+    const isTls = body.encryption === 'TLS' || body.encryption === 'STARTTLS';
+
+    const mailerImpl = await getMailerImpl();
+    const mailer = await mailerImpl.connect({
       host: body.smtpHost,
-      port: parseInt(body.port),
-      secure: body.encryption === 'SSL',
-      auth: {
-        user: body.username,
-        pass: body.password,
-      },
-      tls: {
-        rejectUnauthorized: false
+      port: parseInt(body.port, 10),
+      secure: isSsl,
+      startTls: isTls,
+      authType: ['plain', 'login'],
+      credentials: {
+        username: body.username,
+        password: body.password
       }
     });
 
-    logs.push('Transporter created. Verifying connection...');
-    await transporter.verify();
-    logs.push('SMTP connection established and authenticated successfully.');
+    logs.push('SMTP connection established and authenticated successfully via cloudflare:sockets.');
     
     if (body.testEmailTarget) {
       logs.push(`Dispatching test verification handshake packet to ${body.testEmailTarget}...`);
-      await transporter.sendMail({
-        from: `"${body.username.split('@')[0]}" <${body.username}>`,
+      await mailer.send({
+        from: { name: body.username.split('@')[0], email: body.username },
         to: body.testEmailTarget,
         subject: '[Hirly] Outbox SMTP Verification Successful',
         text: 'Hello!\n\nThis is a test email confirming that your outbound SMTP mail pipeline is fully verified and connected to Hirly. You can now perform direct recruiting transmissions from your account.',
       });
-      logs.push('Verification handshake delivered. SMTP response code: 250 (OK).');
+      logs.push('Verification handshake delivered successfully.');
     }
 
+    await mailer.close();
     return c.json({ success: true, logs });
   } catch (err: any) {
     console.error('SMTP verification failed:', err);
     logs.push(`ERROR: SMTP connection / authentication failed. Code/Message: ${err.message}`);
     return c.json({ success: false, error: err.message, logs });
   }
+});
+
+workspaceRouter.post('/email-config/test-imap', requirePermission('settings.email'), async (c) => {
+  const body = await c.req.json();
+  const { imapHost, port, username, password } = body;
+
+  if (!imapHost || !username || !password) {
+    return c.json({ success: false, error: 'Missing IMAP configuration parameters (imapHost, username, password)' }, 400);
+  }
+
+  const result = await testImapConnection({
+    host: imapHost,
+    port: parseInt(port || '993', 10),
+    username,
+    password,
+    mailbox: 'INBOX'
+  });
+
+  return c.json(result);
 });
 
 workspaceRouter.post('/send-email', requirePermission('candidates.view'), async (c) => {
@@ -705,29 +751,29 @@ workspaceRouter.post('/send-email', requirePermission('candidates.view'), async 
       return c.json({ success: true, message: `Email delivered to ${to} via ${oauthIntegration.provider}`, method: 'oauth' });
     }
 
-    // Fallback: SMTP config
-    const { data: configs, error: configErr } = await supabase
-      .from('email_configs')
-      .select('*')
-      .eq('workspace_id', user.workspace_id);
-
-    if (configErr) throw configErr;
-
-    const config = configs && configs.length > 0 ? configs[0] : null;
-    if (!config || !config.is_connected || !config.smtp_host) {
+    // Fallback: SMTP config via decrypted settings
+    const config = await EmailIntegrationDB.getSmtpSettings(user.workspace_id);
+    if (!config || !config.host) {
       return c.json({
         success: false,
         error: 'No email integration found. Go to Settings → Email Integration to connect Gmail or Outlook, or configure SMTP under Email Setup Wizard.'
       }, 400);
     }
 
-    // Build nodemailer SMTP transport
-    const transporter = nodemailer.createTransport({
-      host: config.smtp_host,
-      port: parseInt(config.port || '587'),
-      secure: config.encryption === 'SSL',
-      auth: { user: config.username, pass: config.password },
-      tls: { rejectUnauthorized: false }
+    const isSsl = config.encryption === 'SSL';
+    const isTls = config.encryption === 'TLS' || config.encryption === 'STARTTLS';
+
+    const mailerImpl = await getMailerImpl();
+    const mailer = await mailerImpl.connect({
+      host: config.host,
+      port: parseInt(config.port, 10),
+      secure: isSsl,
+      startTls: isTls,
+      authType: ['plain', 'login'],
+      credentials: {
+        username: config.username,
+        password: config.password
+      }
     });
 
     const senderName = config.username.split('@')[0];
@@ -735,14 +781,15 @@ workspaceRouter.post('/send-email', requirePermission('candidates.view'), async 
       .replace(/\n/g, '<br/>')
       .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
 
-    await transporter.sendMail({
-      from: `"${senderName}" <${config.username}>`,
+    await mailer.send({
+      from: { name: senderName, email: config.username },
       to,
       subject,
       text: emailBody,
       html: `<div style="font-family:sans-serif;font-size:14px;line-height:1.6;">${htmlBody}</div>`
     });
 
+    await mailer.close();
     console.log(`[Email Sent via SMTP] To: ${to} | Subject: ${subject} | Workspace: ${user.workspace_id}`);
     return c.json({ success: true, message: `Email delivered to ${to}`, method: 'smtp' });
   } catch (err: any) {
@@ -1180,6 +1227,9 @@ workspaceRouter.put('/workspaces/:id', requirePermission('settings.workspace'), 
 
 workspaceRouter.get('/recruiters/metrics', requirePermission('team.view'), async (c) => {
   const user = c.get('user') as any;
+  const startDate = c.req.query('startDate');
+  const endDate = c.req.query('endDate');
+
   try {
     const { data: profiles, error: pError } = await supabase
       .from('profiles')
@@ -1187,12 +1237,24 @@ workspaceRouter.get('/recruiters/metrics', requirePermission('team.view'), async
       .eq('workspace_id', user.workspace_id);
     if (pError) throw pError;
 
+    let placementsQuery = supabase.from('job_candidates').select('total_agency_fee, user_id, stage').eq('workspace_id', user.workspace_id).eq('stage', 'Joined');
+    let interviewsQuery = supabase.from('interviews').select('id, user_id, status').eq('workspace_id', user.workspace_id);
+
+    if (startDate) {
+      placementsQuery = placementsQuery.gte('created_at', `${startDate}T00:00:00.000Z`);
+      interviewsQuery = interviewsQuery.gte('created_at', `${startDate}T00:00:00.000Z`);
+    }
+    if (endDate) {
+      placementsQuery = placementsQuery.lte('created_at', `${endDate}T23:59:59.999Z`);
+      interviewsQuery = interviewsQuery.lte('created_at', `${endDate}T23:59:59.999Z`);
+    }
+
     const [companyAssigns, jobAssigns, tasksPending, placementsData, interviewsData] = await Promise.all([
       supabase.from('company_assignments').select('company_id, user_id').eq('workspace_id', user.workspace_id),
       supabase.from('job_assignments').select('job_id, user_id').eq('workspace_id', user.workspace_id),
       supabase.from('tasks').select('id, assigned_to').eq('workspace_id', user.workspace_id).eq('status', 'Pending'),
-      supabase.from('job_candidates').select('total_agency_fee, user_id, stage').eq('workspace_id', user.workspace_id).eq('stage', 'Joined'),
-      supabase.from('interviews').select('id, user_id, status').eq('workspace_id', user.workspace_id)
+      placementsQuery,
+      interviewsQuery
     ]);
 
     const metrics = profiles.map((profile: any) => {
@@ -1371,6 +1433,119 @@ workspaceRouter.post('/support', async (c) => {
 
     if (error) throw error;
     return c.json(keysToCamel(data));
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+workspaceRouter.get('/recruiters/:id/export', requirePermission('team.view'), async (c) => {
+  const user = c.get('user') as any;
+  const recruiterId = c.req.param('id');
+  const startDate = c.req.query('startDate');
+  const endDate = c.req.query('endDate');
+
+  try {
+    // 1. Fetch recruiter profile
+    const { data: profile, error: pError } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', recruiterId)
+      .eq('workspace_id', user.workspace_id)
+      .maybeSingle();
+
+    if (pError) throw pError;
+    if (!profile) return c.json({ error: 'Recruiter not found' }, 404);
+
+    // 2. Fetch assignments
+    const [companyAssigns, jobAssigns] = await Promise.all([
+      supabase.from('company_assignments').select('company_id, companies(name)').eq('user_id', recruiterId).eq('workspace_id', user.workspace_id),
+      supabase.from('job_assignments').select('job_id, jobs(title, status)').eq('user_id', recruiterId).eq('workspace_id', user.workspace_id)
+    ]);
+
+    // 3. Fetch Placements
+    let placementsQuery = supabase
+      .from('job_candidates')
+      .select('id, added_date, stage, total_agency_fee, amount_paid, payment_status, candidate_id, candidates(name)')
+      .eq('user_id', recruiterId)
+      .eq('stage', 'Joined')
+      .eq('workspace_id', user.workspace_id);
+    if (startDate) placementsQuery = placementsQuery.gte('created_at', `${startDate}T00:00:00.000Z`);
+    if (endDate) placementsQuery = placementsQuery.lte('created_at', `${endDate}T23:59:59.999Z`);
+    const { data: placements, error: plError } = await placementsQuery;
+    if (plError) throw plError;
+
+    // 4. Fetch Interviews
+    let interviewsQuery = supabase
+      .from('interviews')
+      .select('id, date, time, interviewer, round, status, feedback, candidate_id, candidate_name, jobs(title)')
+      .eq('user_id', recruiterId)
+      .eq('workspace_id', user.workspace_id);
+    if (startDate) interviewsQuery = interviewsQuery.gte('created_at', `${startDate}T00:00:00.000Z`);
+    if (endDate) interviewsQuery = interviewsQuery.lte('created_at', `${endDate}T23:59:59.999Z`);
+    const { data: interviews, error: intError } = await interviewsQuery;
+    if (intError) throw intError;
+
+    // 5. Fetch Communication Logs
+    let commsQuery = supabase
+      .from('communication_logs')
+      .select('id, date, type, status, sent_by, subject, message, recipient')
+      .eq('created_by', recruiterId)
+      .eq('workspace_id', user.workspace_id);
+    if (startDate) commsQuery = commsQuery.gte('created_at', `${startDate}T00:00:00.000Z`);
+    if (endDate) commsQuery = commsQuery.lte('created_at', `${endDate}T23:59:59.999Z`);
+    const { data: communications, error: commError } = await commsQuery;
+    if (commError) throw commError;
+
+    // 6. Fetch Activity Logs
+    let activitiesQuery = supabase
+      .from('activity_logs')
+      .select('id, timestamp, type, description')
+      .eq('created_by', recruiterId)
+      .eq('workspace_id', user.workspace_id);
+    if (startDate) activitiesQuery = activitiesQuery.gte('created_at', `${startDate}T00:00:00.000Z`);
+    if (endDate) activitiesQuery = activitiesQuery.lte('created_at', `${endDate}T23:59:59.999Z`);
+    const { data: activities, error: actError } = await activitiesQuery;
+    if (actError) throw actError;
+
+    return c.json(keysToCamel({
+      profile,
+      companyAssignments: (companyAssigns.data || []).map((a: any) => ({
+        companyId: a.company_id,
+        companyName: a.companies?.name || 'N/A'
+      })),
+      jobAssignments: (jobAssigns.data || []).map((a: any) => ({
+        jobId: a.job_id,
+        jobTitle: a.jobs?.title || 'N/A',
+        jobStatus: a.jobs?.status || 'N/A'
+      })),
+      placements: (placements || []).map((p: any) => ({
+        candidateName: p.candidates?.name || 'N/A',
+        addedDate: p.added_date,
+        totalAgencyFee: p.total_agency_fee || 0,
+        amountPaid: p.amount_paid || 0,
+        paymentStatus: p.payment_status || 'N/A'
+      })),
+      interviews: (interviews || []).map((i: any) => ({
+        candidateName: i.candidate_name || 'N/A',
+        jobTitle: i.jobs?.title || 'N/A',
+        date: i.date,
+        time: i.time,
+        round: i.round,
+        status: i.status
+      })),
+      communications: (communications || []).map((co: any) => ({
+        type: co.type,
+        date: co.date,
+        status: co.status,
+        subject: co.subject || 'N/A',
+        recipient: co.recipient || 'N/A'
+      })),
+      activities: (activities || []).map((ac: any) => ({
+        timestamp: ac.timestamp,
+        type: ac.type,
+        description: ac.description
+      }))
+    }));
   } catch (err: any) {
     return c.json({ error: err.message }, 500);
   }

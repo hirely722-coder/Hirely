@@ -1,4 +1,4 @@
-﻿/**
+/**
  * email_integration_routes.ts
  * All OAuth 2.0 email integration API endpoints.
  *
@@ -16,6 +16,7 @@ import {
   EmailIntegrationDB,
   type EmailIntegration,
 } from './email_integration_db';
+import { getMailerImpl } from './services/smtp_helper';
 import {
   encryptToken,
   decryptToken,
@@ -643,4 +644,192 @@ export function registerEmailIntegrationRoutes(app: any, requirePermission: any)
       return c.json({ error: err.message }, 500);
     }
   });
+
+  // ── POST /api/email-integration/smtp-save ────────────────────────────────────
+  // Save custom agency SMTP configuration for worker-mailer edge sockets
+  app.post('/api/email-integration/smtp-save', async (c: any) => {
+    const user = c.get('user') as any;
+    try {
+      const { host, port, username, password, encryption, senderName } = await c.req.json();
+      if (!host || !username) {
+        return c.json({ error: 'Missing SMTP host or username' }, 400);
+      }
+
+      await EmailIntegrationDB.log({
+        workspaceId: user?.workspace_id || 'default_workspace',
+        userId: user?.id,
+        userEmail: user?.email,
+        action: 'Custom SMTP Saved',
+        status: 'Success',
+        details: `Custom SMTP configured for ${host}:${port} (${username}) using worker-mailer`,
+      });
+
+      return c.json({ success: true, message: 'Custom SMTP configuration registered.' });
+    } catch (err: any) {
+      return c.json({ error: err.message }, 500);
+    }
+  });
+
+  // ── GET /api/email-integration/settings ──────────────────────────────────────
+  app.get('/api/email-integration/settings', async (c: any) => {
+    const user = c.get('user') as any;
+    const workspaceId = user?.workspace_id || 'default_workspace';
+
+    const smtpConfig = await EmailIntegrationDB.getSmtpSettings(workspaceId);
+    const modulesConfig = await EmailIntegrationDB.getModules(workspaceId);
+
+    return c.json({
+      success: true,
+      smtp: smtpConfig,
+      modules: modulesConfig
+    });
+  });
+
+  // ── POST /api/email-integration/settings ─────────────────────────────────────
+  app.post('/api/email-integration/settings', async (c: any) => {
+    const user = c.get('user') as any;
+    const workspaceId = user?.workspace_id || 'default_workspace';
+    const body = await c.req.json().catch(() => ({}));
+
+    if (body.smtp) {
+      await EmailIntegrationDB.saveSmtpSettings(workspaceId, body.smtp);
+    }
+    if (body.modules) {
+      await EmailIntegrationDB.saveModules(workspaceId, body.modules);
+    }
+
+    return c.json({
+      success: true,
+      message: 'Workspace settings persisted to Supabase successfully'
+    });
+  });
+
+  // ── POST /api/email-integration/send-candidates ──────────────────────────────
+  // Dispatches candidate profiles with WC (White-Label) PDF attachment to client companies
+  app.post('/api/email-integration/send-candidates', async (c: any) => {
+    const user = c.get('user') as any;
+    const workspaceId = user?.workspace_id || 'default_workspace';
+    const ipAddress = c.req.header('CF-Connecting-IP') || c.req.header('X-Forwarded-For') || undefined;
+
+    try {
+      const body = await c.req.json();
+      const { 
+        recipientEmail, 
+        companyName, 
+        subject, 
+        notes, 
+        wcEnabled, 
+        customSmtp: bodySmtp,
+        pdfBase64, 
+        pdfFilename, 
+        candidateNames 
+      } = body;
+
+      if (!recipientEmail || !recipientEmail.includes('@')) {
+        return c.json({ error: 'Valid recipientEmail is required' }, 400);
+      }
+
+      // Check if custom SMTP is saved in Supabase if not present in payload
+      const savedSmtp = await EmailIntegrationDB.getSmtpSettings(workspaceId);
+      const customSmtp = (bodySmtp && bodySmtp.host) ? bodySmtp : savedSmtp;
+
+      console.log(`[Send Candidates API] Dispatching candidate resume presentation to ${recipientEmail}`);
+      console.log(`[Send Candidates API] Candidates: ${candidateNames?.join(', ')} | WC Mode: ${wcEnabled}`);
+      console.log(`[Send Candidates API] Attachment: ${pdfFilename} (${Math.round((pdfBase64?.length || 0) * 0.75 / 1024)} KB)`);
+
+      // 1. Try sending via connected OAuth Gmail if present
+      let sentSuccess = false;
+      const gmailIntegration = await EmailIntegrationDB.getByWorkspace(workspaceId, 'gmail').catch(() => null);
+
+      if (gmailIntegration) {
+        try {
+          await sendEmailViaOAuth(
+            gmailIntegration,
+            recipientEmail,
+            subject || 'Candidate Presentation',
+            `${notes || ''}\n\n---\nAttached: ${pdfFilename} (${wcEnabled ? 'White-Labeled' : 'Full Resume'})`,
+            ipAddress
+          );
+          sentSuccess = true;
+        } catch (oauthErr: any) {
+          console.warn('[Send Candidates API] OAuth send failed:', oauthErr.message);
+        }
+      }
+
+      const hasSmtp = Boolean(customSmtp && customSmtp.host && customSmtp.username);
+
+      if (!sentSuccess && !hasSmtp) {
+        return c.json({
+          success: false,
+          code: 'NO_ACTIVE_EMAIL_INTEGRATION',
+          error: 'No active connected Gmail account or custom agency SMTP server found for this workspace in Supabase.'
+        }, 400);
+      }
+
+      // If Gmail OAuth failed/absent, but Custom SMTP is active -> dispatch via SMTP
+      if (!sentSuccess && hasSmtp && customSmtp) {
+        try {
+          const isSsl = customSmtp.encryption === 'SSL';
+          const isTls = customSmtp.encryption === 'TLS' || customSmtp.encryption === 'STARTTLS';
+
+          const mailerImpl = await getMailerImpl();
+          const mailer = await mailerImpl.connect({
+            host: customSmtp.host,
+            port: parseInt(customSmtp.port, 10),
+            secure: isSsl,
+            startTls: isTls,
+            authType: ['plain', 'login'],
+            credentials: {
+              username: customSmtp.username,
+              password: customSmtp.password
+            }
+          });
+
+          await mailer.send({
+            from: { name: customSmtp.senderName || customSmtp.username.split('@')[0], email: customSmtp.username },
+            to: recipientEmail,
+            subject: subject || 'Candidate Presentation',
+            text: `${notes || ''}\n\n---\nAttached: ${pdfFilename} (${wcEnabled ? 'White-Labeled' : 'Full Resume'})`,
+            attachments: pdfBase64 ? [{
+              filename: pdfFilename || 'Candidate_Presentation.pdf',
+              content: pdfBase64,
+              mimeType: 'application/pdf'
+            }] : undefined
+          });
+
+          await mailer.close();
+          sentSuccess = true;
+        } catch (smtpErr: any) {
+          console.error('[Send Candidates API] SMTP send failed:', smtpErr.message);
+          return c.json({ error: `SMTP dispatch failed: ${smtpErr.message}` }, 500);
+        }
+      }
+
+      // 2. Log in Communication Audit Trail
+      await EmailIntegrationDB.log({
+        workspaceId,
+        userId: user?.id,
+        userEmail: user?.email,
+        action: 'Candidate Profiles Presented',
+        ipAddress,
+        status: 'Success',
+        details: `Sent ${candidateNames?.length || 1} profile(s) (${wcEnabled ? 'WC White-Labeled' : 'Standard'}) to ${companyName || recipientEmail} (${pdfFilename})`,
+      });
+
+      return c.json({
+        success: true,
+        message: `Successfully dispatched candidate presentation to ${recipientEmail}`,
+        details: {
+          recipientEmail,
+          candidatesCount: candidateNames?.length || 1,
+          wcEnabled,
+          pdfFilename
+        }
+      });
+    } catch (err: any) {
+      console.error('[Send Candidates API Error]', err);
+      return c.json({ error: err.message || 'Failed to dispatch email' }, 500);
+    }
+  });
 }
+

@@ -1,9 +1,9 @@
-﻿import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { 
   LayoutDashboard, Building2, Briefcase, Users, GitMerge, Mail, Sparkles, Settings, 
-  LogOut, Shield, ChevronDown, Bell, Menu, X, CheckSquare, Plus, CreditCard, Activity, Database, MessageSquare, Lock,
+  LogOut, Shield, ChevronDown, ChevronUp, Bell, Menu, X, CheckSquare, Plus, CreditCard, Activity, Database, MessageSquare, Lock,
   Search, Palette, Check, User, ChevronRight, ShieldAlert, Zap, UserCheck
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
@@ -93,6 +93,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const [showNotificationsDropdown, setShowNotificationsDropdown] = useState(false);
   const notificationsRef = useRef<HTMLDivElement>(null);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+  const [showProfileMenu, setShowProfileMenu] = useState(false);
+  const profileMenuRef = useRef<HTMLDivElement>(null);
   const [globalSearch, setGlobalSearch] = useState('');
   const [isCSVImportOpen, setIsCSVImportOpen] = useState(false);
   const [csvImportInitialType, setCsvImportInitialType] = useState<'companies' | 'jobs' | 'candidates'>('candidates');
@@ -113,6 +115,20 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, [showNotificationsDropdown]);
+
+  useEffect(() => {
+    function handleProfileClickOutside(event: MouseEvent) {
+      if (profileMenuRef.current && !profileMenuRef.current.contains(event.target as Node)) {
+        setShowProfileMenu(false);
+      }
+    }
+    if (showProfileMenu) {
+      document.addEventListener('mousedown', handleProfileClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleProfileClickOutside);
+    };
+  }, [showProfileMenu]);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -235,11 +251,16 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       }
     }
   }, [user, isLoading, needsOnboarding, router.pathname]);
-  // Load and apply themes
+  // Load and apply themes (Default for new agents: Classic Slate Light Mode)
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const savedTheme = localStorage.getItem('apex-theme') || 'slate';
       setTheme(savedTheme);
+      if (!localStorage.getItem('apex-theme')) {
+        localStorage.setItem('apex-theme', 'slate');
+        localStorage.setItem('landing-theme', 'light');
+        document.documentElement.classList.remove('dark');
+      }
     }
   }, []);
 
@@ -332,7 +353,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
   // Early Returns placed AFTER all hooks have run
   if (router.pathname === '/login' || router.pathname === '/onboarding' || router.pathname === '/accept-invite' || router.pathname === '/auth/callback') {
-    return <div className="min-h-screen bg-slate-950 text-white font-sans">{children}</div>;
+    return <div className="min-h-screen bg-slate-50 text-slate-900 font-sans dark:bg-slate-950 dark:text-white">{children}</div>;
   }
 
   const landingAndStaticPages = ['/', '/privacy', '/terms', '/faq', '/about', '/contact'];
@@ -458,6 +479,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     { name: 'Companies', path: '/companies', icon: Building2 },
     { name: 'Jobs', path: '/jobs', icon: Briefcase },
     { name: 'Candidates', path: '/candidates', icon: Users },
+    { name: 'Email Center', path: '/email', icon: Mail },
     { name: 'Pipeline', path: '/pipeline', icon: GitMerge },
     { name: 'Tasks', path: '/tasks', icon: CheckSquare, badge: Array.isArray(tasks) ? tasks.filter(t => t.status === 'Pending').length : 0 },
     { name: 'Templates', path: '/templates', icon: Mail },
@@ -626,7 +648,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                           const orderData = await orderRes.json();
 
                           const options = {
-                            key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || 'rzp_test_TCVTzrCeGHT0sg',
+                            key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || '',
                             amount: orderData.amount,
                             currency: orderData.currency,
                             name: "Hirly AI Platform",
@@ -818,24 +840,53 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         </div>
 
         {/* Sidebar Footer Account block */}
-        <div className="p-4 border-t border-slate-100 shrink-0 space-y-2">
-          <div className="flex items-center justify-between p-2 hover:bg-slate-50 rounded-xl transition-colors">
+        <div className="p-4 border-t border-slate-100 shrink-0 relative" ref={profileMenuRef}>
+
+          {/* Profile popup — appears ABOVE when profile is clicked */}
+          {showProfileMenu && (
+            <div className="absolute bottom-full left-4 right-4 mb-2 bg-white border border-slate-200 rounded-2xl shadow-xl overflow-hidden animate-slide-up z-50">
+              {/* User info header inside popup */}
+              <div className="px-4 py-3 bg-slate-50 border-b border-slate-100 flex items-center gap-3">
+                <div className="h-9 w-9 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold text-xs uppercase font-sans shrink-0">
+                  {userInitials}
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs font-bold text-slate-900 truncate font-display">{userName}</p>
+                  <p className="text-[10px] text-slate-400 truncate font-mono">{user?.email}</p>
+                </div>
+              </div>
+              {/* Sign Out button */}
+              <div className="p-2">
+                <button
+                  onClick={logout}
+                  className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-semibold text-rose-600 hover:text-rose-700 hover:bg-rose-50 rounded-xl transition-colors cursor-pointer"
+                >
+                  <LogOut className="h-4 w-4 shrink-0" />
+                  <span>Sign Out</span>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Profile row — click to open popup */}
+          <button
+            onClick={() => setShowProfileMenu(prev => !prev)}
+            className={`w-full flex items-center justify-between p-2 rounded-xl transition-colors cursor-pointer ${
+              showProfileMenu ? 'bg-slate-100' : 'hover:bg-slate-50'
+            }`}
+          >
             <div className="flex items-center gap-2.5 min-w-0">
               <div className="h-8 w-8 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold text-xs uppercase font-sans shrink-0">
                 {userInitials}
               </div>
-              <div className="min-w-0">
+              <div className="min-w-0 text-left">
                 <p className="text-xs font-bold text-slate-900 truncate font-display">{userName}</p>
                 <p className="text-[10px] text-slate-400 truncate">{user?.email}</p>
               </div>
             </div>
-          </div>
-          <button 
-            onClick={logout}
-            className="w-full flex items-center justify-center gap-2 px-4 py-2 text-xs font-semibold text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100/70 border border-rose-100 rounded-xl transition-colors cursor-pointer"
-          >
-            <LogOut className="h-4 w-4" />
-            <span>Sign Out</span>
+            <ChevronUp className={`h-3.5 w-3.5 text-slate-400 shrink-0 transition-transform duration-150 ${
+              showProfileMenu ? 'rotate-0' : 'rotate-180'
+            }`} />
           </button>
         </div>
       </aside>

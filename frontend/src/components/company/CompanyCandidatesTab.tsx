@@ -1,6 +1,7 @@
 import React from 'react';
 import { Sparkles, Eye, Mail, MessageSquare, Trash } from 'lucide-react';
 import { Company, Candidate } from '../../types';
+import { Checkbox } from '../ui/Checkbox';
 
 interface CompanyCandidatesTabProps {
   company: Company;
@@ -97,13 +98,11 @@ export function CompanyCandidatesTab({
           <thead>
             <tr className="bg-slate-50 border-b border-slate-100 text-[10px] font-mono text-slate-400 uppercase">
               <th className="p-4 w-10 text-center">
-                <input 
-                  type="checkbox" 
+                <Checkbox 
                   checked={selectedCandidateIds.length === filteredCandidates.length && filteredCandidates.length > 0}
-                  onChange={(e) => {
-                    setSelectedCandidateIds(e.target.checked ? filteredCandidates.map(c => c.id) : []);
+                  onCheckedChange={(checked) => {
+                    setSelectedCandidateIds(checked ? filteredCandidates.map(c => c.id) : []);
                   }}
-                  className="h-4 w-4 text-blue-600 rounded border-slate-300 cursor-pointer"
                 />
               </th>
               <th className="p-4 font-bold">Candidate</th>
@@ -126,15 +125,13 @@ export function CompanyCandidatesTab({
                 return (
                   <tr key={cand.id} className={`hover:bg-slate-50/50 transition-colors ${isChecked ? 'bg-blue-50/20' : ''}`}>
                     <td className="p-4 text-center">
-                      <input 
-                        type="checkbox"
+                      <Checkbox 
                         checked={isChecked}
-                        onChange={() => {
+                        onCheckedChange={() => {
                           setSelectedCandidateIds(prev => 
                             isChecked ? prev.filter(id => id !== cand.id) : [...prev, cand.id]
                           );
                         }}
-                        className="h-4 w-4 text-blue-600 rounded border-slate-300 cursor-pointer"
                       />
                     </td>
                     <td className="p-4">
@@ -173,7 +170,7 @@ export function CompanyCandidatesTab({
                         {cand.aiMatchScore}%
                       </span>
                     </td>
-                    <td className="p-4 text-slate-500 font-semibold font-sans">{company.recContact || 'Sarah Jenkins'}</td>
+                    <td className="p-4 text-slate-500 font-semibold font-sans">{company.recContact || 'Unassigned'}</td>
                     <td className="p-4 text-right">
                       <div className="flex items-center justify-end gap-1.5">
                         <button 

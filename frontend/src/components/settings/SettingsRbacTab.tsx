@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Shield, Plus, Trash2, CheckCircle2, Lock, User, Settings, Check, HelpCircle } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { WorkspaceRole, TeamMember } from '../../types';
+import { Checkbox } from '../ui/Checkbox';
 
 const PERMISSION_GROUPS = [
   {
@@ -512,12 +513,11 @@ export function SettingsRbacTab() {
                                 : 'border-slate-100 hover:bg-slate-50/20'
                             } ${isReadonly ? 'cursor-not-allowed opacity-90' : 'cursor-pointer'}`}
                           >
-                            <input
-                              type="checkbox"
+                            <Checkbox
                               checked={isChecked}
                               disabled={isReadonly}
-                              onChange={(e) => handlePermissionToggle(perm.key, e.target.checked)}
-                              className="mt-0.5 h-3.5 w-3.5 text-blue-600 border-slate-300 rounded focus:ring-blue-500 cursor-pointer disabled:cursor-not-allowed"
+                              onCheckedChange={(checked) => handlePermissionToggle(perm.key, checked)}
+                              className="mt-0.5"
                             />
                             <div className="min-w-0">
                               <p className="text-[11px] font-semibold text-slate-700 leading-none">{perm.label}</p>

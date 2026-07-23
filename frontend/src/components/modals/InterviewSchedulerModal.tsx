@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { X, Calendar } from 'lucide-react';
 import { Candidate, Job, CommunicationLog } from '../../types';
 import AnimatedModal from '../AnimatedModal';
+import { useApp } from '../../context/AppContext';
 
 interface InterviewSchedulerModalProps {
   candidate: Candidate;
@@ -18,6 +19,8 @@ export function InterviewSchedulerModal({
   onSchedule,
   showToast
 }: InterviewSchedulerModalProps) {
+  const { user } = useApp();
+  const currentUserName = user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'Your Recruiter';
   const [isOpen, setIsOpen] = useState(true);
   const handleClose = () => {
     setIsOpen(false);
@@ -58,7 +61,7 @@ export function InterviewSchedulerModal({
         type: 'Interview',
         date: `${interviewDate} ${interviewTime}`,
         status: 'Sent',
-        sentBy: 'Sarah Jenkins',
+        sentBy: currentUserName,
         subject: `Interview Invitation: ${sessionTitle}`,
         message: `Scheduled standard recruitment assessment. Notes: ${notes || 'None'}`
       };
@@ -85,7 +88,7 @@ export function InterviewSchedulerModal({
               </div>
               <div>
                 <h3 className="text-sm font-bold text-slate-900 font-sans">Schedule Interview</h3>
-                <p className="text-[10px] text-slate-404 font-mono">Assigned Recruiter: Sarah Jenkins</p>
+                <p className="text-[10px] text-slate-404 font-mono">Assigned Recruiter: {currentUserName}</p>
               </div>
             </div>
             <button onClick={handleClose} className="p-1 text-slate-400 hover:text-slate-605 rounded cursor-pointer">

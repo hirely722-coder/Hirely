@@ -35,7 +35,7 @@ export default function Login() {
   // If session already exists, redirect to dashboard (except during password reset)
   useEffect(() => {
     if (user && authMode !== 'reset') {
-      router.replace('/');
+      router.replace('/dashboard');
     }
   }, [user, authMode]);
 
@@ -103,25 +103,18 @@ export default function Login() {
         setIsLoading(false);
         return;
       }
-      const { error: resetErr } = await supabase.auth.updateUser({
-        password: password
-      });
-      if (resetErr) {
-        setError(resetErr.message);
+      const { error: updateErr } = await supabase.auth.updateUser({ password });
+      if (updateErr) {
+        setError(updateErr.message);
       } else {
-        showToast('Password updated successfully! Welcome to Hirly.');
-        router.replace('/');
+        showToast('Password updated successfully! Please sign in.');
+        setAuthMode('signin');
       }
       setIsLoading(false);
       return;
     }
 
-    if (isSignUp) {
-      if (!fullName.trim()) {
-        setError('Please enter your full name');
-        setIsLoading(false);
-        return;
-      }
+    if (authMode === 'signup') {
       if (password !== confirmPassword) {
         setError('Passwords do not match');
         setIsLoading(false);
@@ -133,18 +126,13 @@ export default function Login() {
         return;
       }
 
-      const { plan, cycle } = router.query;
-      const signUpMetadata: Record<string, any> = {
-        full_name: fullName
-      };
-      if (plan) signUpMetadata.plan = plan;
-      if (cycle) signUpMetadata.cycle = cycle;
-
-      const { error: signUpErr } = await supabase.auth.signUp({
+      const { data: signUpData, error: signUpErr } = await supabase.auth.signUp({
         email,
         password,
         options: {
-          data: signUpMetadata
+          data: {
+            full_name: fullName
+          }
         }
       });
 
@@ -153,7 +141,7 @@ export default function Login() {
       } else {
         showToast('Account created successfully! Welcome to Hirly.');
         const { inviteToken } = router.query;
-        router.replace(inviteToken ? `/accept-invite?token=${inviteToken}` : '/');
+        router.replace(inviteToken ? `/accept-invite?token=${inviteToken}` : '/dashboard');
       }
     } else {
       const { data, error: signInErr } = await supabase.auth.signInWithPassword({
@@ -187,7 +175,7 @@ export default function Login() {
 
         showToast('Signed in successfully! Welcome back.');
         const { inviteToken } = router.query;
-        router.replace(inviteToken ? `/accept-invite?token=${inviteToken}` : '/');
+        router.replace(inviteToken ? `/accept-invite?token=${inviteToken}` : '/dashboard');
       }
     }
 
@@ -215,32 +203,32 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col justify-center items-center p-4 relative overflow-hidden text-white font-sans selection:bg-indigo-500/30 bg-[#07070d] w-full">
+    <div className="min-h-screen flex flex-col justify-center items-center p-4 relative overflow-hidden text-slate-900 font-sans selection:bg-indigo-500/30 bg-slate-50/60 w-full">
       {/* Background Grid & Blobs */}
-      <div className="pointer-events-none fixed inset-0 -z-10 overflow-hidden bg-[#07070d]">
-        <div className="absolute inset-0 bg-grid [mask-image:radial-gradient(ellipse_80%_60%_at_50%_0%,#000_40%,transparent_100%)]" />
-        <div className="animate-blob absolute -top-32 -left-24 h-96 w-96 rounded-full bg-indigo-600/20 blur-3xl" />
-        <div className="animate-blob animation-delay-2000 absolute top-1/3 -right-32 h-[28rem] w-[28rem] rounded-full bg-violet-600/20 blur-3xl" />
-        <div className="animate-blob animation-delay-4000 absolute bottom-0 left-1/4 h-96 w-96 rounded-full bg-blue-600/15 blur-3xl" />
+      <div className="pointer-events-none fixed inset-0 -z-10 overflow-hidden bg-slate-50">
+        <div className="absolute inset-0 bg-grid [mask-image:radial-gradient(ellipse_80%_60%_at_50%_0%,#000_40%,transparent_100%)] opacity-40" />
+        <div className="animate-blob absolute -top-32 -left-24 h-96 w-96 rounded-full bg-indigo-400/20 blur-3xl" />
+        <div className="animate-blob animation-delay-2000 absolute top-1/3 -right-32 h-[28rem] w-[28rem] rounded-full bg-violet-400/20 blur-3xl" />
+        <div className="animate-blob animation-delay-4000 absolute bottom-0 left-1/4 h-96 w-96 rounded-full bg-blue-400/15 blur-3xl" />
       </div>
 
       {/* Main card */}
-      <div className="w-full max-w-md bg-[#07070d]/60 border border-white/10 p-8 rounded-3xl shadow-2xl backdrop-blur-xl z-10 animate-fade-in">
+      <div className="w-full max-w-md bg-white/90 border border-slate-200/80 p-8 rounded-3xl shadow-xl shadow-indigo-900/5 backdrop-blur-xl z-10 animate-fade-in">
         {/* Branding header */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-400/20 text-xs font-bold text-indigo-300 mb-4 tracking-wide uppercase">
-            <Sparkles className="h-3 w-3" />
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-50 border border-indigo-200/60 text-xs font-bold text-indigo-600 mb-4 tracking-wide uppercase">
+            <Sparkles className="h-3 w-3 text-indigo-500" />
             <span>SaaS Recruitment Portal</span>
           </div>
           
-          <div className="flex items-center justify-center gap-2 mb-2">
-            <img src="/logo.svg" alt="Hirly Logo" className="h-9 w-9 rounded-xl shadow-md" />
-            <h1 className="text-3xl font-black text-white tracking-tight font-display">
-              Hirly <span className="text-indigo-500">AI</span>
+          <div className="flex items-center justify-center gap-2.5 mb-2">
+            <img src="/logo.svg" alt="Hirly Logo" className="h-9 w-9 rounded-xl shadow-xs" />
+            <h1 className="text-3xl font-black text-slate-900 tracking-tight font-display">
+              Hirly <span className="text-indigo-600">AI</span>
             </h1>
           </div>
           
-          <p className="text-slate-400 text-xs mt-2 font-medium">
+          <p className="text-slate-500 text-xs mt-2 font-medium">
             {authMode === 'signup' 
               ? 'Create your agency account to get started' 
               : authMode === 'forgot'
@@ -254,24 +242,24 @@ export default function Login() {
         {/* Tab switcher / Mode header */}
         {authMode === 'forgot' ? (
           <div className="text-center mb-6 shrink-0">
-            <h2 className="text-sm font-bold text-white font-display uppercase tracking-wider">Forgot Password</h2>
+            <h2 className="text-sm font-bold text-slate-900 font-display uppercase tracking-wider">Forgot Password</h2>
           </div>
         ) : authMode === 'reset' ? (
           <div className="text-center mb-6 shrink-0">
-            <h2 className="text-sm font-bold text-white font-display uppercase tracking-wider">Reset Password</h2>
+            <h2 className="text-sm font-bold text-slate-900 font-display uppercase tracking-wider">Reset Password</h2>
           </div>
         ) : (
-          <div className="grid grid-cols-2 p-1 bg-slate-950 rounded-2xl border border-slate-800 mb-6 shrink-0">
+          <div className="grid grid-cols-2 p-1 bg-slate-100 rounded-2xl border border-slate-200/80 mb-6 shrink-0">
             <button
               type="button"
               onClick={() => {
                 setAuthMode('signin');
                 setError(null);
               }}
-              className={`py-2 text-xs font-bold rounded-xl transition-all cursor-pointer ${
+              className={`py-2.5 text-xs font-bold rounded-xl transition-all cursor-pointer ${
                 authMode === 'signin' 
-                  ? 'bg-gradient-to-br from-indigo-500 via-violet-500 to-blue-500 text-white shadow-md shadow-indigo-500/25' 
-                  : 'text-slate-400 hover:text-white font-semibold'
+                  ? 'bg-white text-indigo-600 shadow-xs border border-slate-200/60' 
+                  : 'text-slate-500 hover:text-slate-900 font-semibold'
               }`}
             >
               Sign In
@@ -282,10 +270,10 @@ export default function Login() {
                 setAuthMode('signup');
                 setError(null);
               }}
-              className={`py-2 text-xs font-bold rounded-xl transition-all cursor-pointer ${
+              className={`py-2.5 text-xs font-bold rounded-xl transition-all cursor-pointer ${
                 authMode === 'signup' 
-                  ? 'bg-gradient-to-br from-indigo-500 via-violet-500 to-blue-500 text-white shadow-md shadow-indigo-500/25' 
-                  : 'text-slate-400 hover:text-white font-semibold'
+                  ? 'bg-white text-indigo-600 shadow-xs border border-slate-200/60' 
+                  : 'text-slate-500 hover:text-slate-900 font-semibold'
               }`}
             >
               Create Account
@@ -295,9 +283,9 @@ export default function Login() {
 
         {/* Error Alert Panel */}
         {error && (
-          <div className="mb-6 p-4 rounded-2xl bg-rose-500/10 border border-rose-500/20 flex items-start gap-3 animate-shake">
+          <div className="mb-6 p-4 rounded-2xl bg-rose-50 border border-rose-200/80 flex items-start gap-3 animate-shake">
             <AlertCircle className="h-5 w-5 text-rose-500 shrink-0 mt-0.5" />
-            <span className="text-xs font-semibold text-rose-300 leading-normal">{error}</span>
+            <span className="text-xs font-semibold text-rose-700 leading-normal">{error}</span>
           </div>
         )}
 
@@ -305,7 +293,7 @@ export default function Login() {
         <form onSubmit={handleAuth} className="space-y-4">
           {authMode === 'signup' && (
             <div className="space-y-1.5">
-              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Full Name</label>
+              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Full Name</label>
               <div className="relative">
                 <User className="absolute left-4 top-3.5 h-4 w-4 text-slate-400" />
                 <input
@@ -314,7 +302,7 @@ export default function Login() {
                   placeholder="John Doe"
                   value={fullName}
                   onChange={(e) => setFullName(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-2xl pl-11 pr-4 py-3 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all font-medium"
+                  className="w-full bg-white border border-slate-200 rounded-2xl pl-11 pr-4 py-3 text-xs text-slate-900 placeholder-slate-400 focus:outline-hidden focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all font-medium shadow-xs"
                 />
               </div>
             </div>
@@ -322,7 +310,7 @@ export default function Login() {
 
           {authMode !== 'reset' && (
             <div className="space-y-1.5">
-              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Email Address</label>
+              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Email Address</label>
               <div className="relative">
                 <Mail className="absolute left-4 top-3.5 h-4 w-4 text-slate-400" />
                 <input
@@ -331,7 +319,7 @@ export default function Login() {
                   placeholder="you@company.com"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-2xl pl-11 pr-4 py-3 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all font-medium"
+                  className="w-full bg-white border border-slate-200 rounded-2xl pl-11 pr-4 py-3 text-xs text-slate-900 placeholder-slate-400 focus:outline-hidden focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all font-medium shadow-xs"
                 />
               </div>
             </div>
@@ -340,7 +328,7 @@ export default function Login() {
           {authMode !== 'forgot' && (
             <div className="space-y-1.5">
               <div className="flex justify-between items-center">
-                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
                   {authMode === 'reset' ? 'New Password' : 'Password'}
                 </label>
                 {authMode === 'signin' && (
@@ -350,7 +338,7 @@ export default function Login() {
                       setAuthMode('forgot');
                       setError(null);
                     }}
-                    className="text-[10px] font-semibold text-indigo-400 hover:text-indigo-300 cursor-pointer text-right"
+                    className="text-[10px] font-semibold text-indigo-600 hover:text-indigo-700 cursor-pointer text-right"
                   >
                     Forgot Password?
                   </button>
@@ -364,12 +352,12 @@ export default function Login() {
                   placeholder="••••••••"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-2xl pl-11 pr-11 py-3 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all font-medium"
+                  className="w-full bg-white border border-slate-200 rounded-2xl pl-11 pr-11 py-3 text-xs text-slate-900 placeholder-slate-400 focus:outline-hidden focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all font-medium shadow-xs"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-4 top-3 text-slate-400 hover:text-slate-200 focus:outline-none"
+                  className="absolute right-4 top-3 text-slate-400 hover:text-slate-600 focus:outline-hidden"
                 >
                   {showPassword ? <EyeOff className="h-4.5 w-4.5" /> : <Eye className="h-4.5 w-4.5" />}
                 </button>
@@ -379,7 +367,7 @@ export default function Login() {
 
           {(authMode === 'signup' || authMode === 'reset') && (
             <div className="space-y-1.5">
-              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
                 {authMode === 'reset' ? 'Confirm New Password' : 'Confirm Password'}
               </label>
               <div className="relative">
@@ -390,12 +378,12 @@ export default function Login() {
                   placeholder="••••••••"
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-2xl pl-11 pr-11 py-3 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all font-medium"
+                  className="w-full bg-white border border-slate-200 rounded-2xl pl-11 pr-11 py-3 text-xs text-slate-900 placeholder-slate-400 focus:outline-hidden focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all font-medium shadow-xs"
                 />
                 <button
                   type="button"
                   onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                  className="absolute right-4 top-3 text-slate-400 hover:text-slate-200 focus:outline-none"
+                  className="absolute right-4 top-3 text-slate-400 hover:text-slate-600 focus:outline-hidden"
                 >
                   {showConfirmPassword ? <EyeOff className="h-4.5 w-4.5" /> : <Eye className="h-4.5 w-4.5" />}
                 </button>
@@ -406,7 +394,7 @@ export default function Login() {
           <button
             type="submit"
             disabled={isLoading}
-            className="w-full bg-gradient-to-br from-indigo-500 via-violet-500 to-blue-500 text-white font-bold py-3 px-4 rounded-2xl text-xs hover:shadow-lg hover:shadow-indigo-500/25 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+            className="w-full bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white font-bold py-3.5 px-4 rounded-2xl text-xs shadow-md shadow-indigo-500/20 hover:shadow-lg hover:-translate-y-0.5 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 mt-2"
           >
             {isLoading ? (
               <span className="h-4 w-4 rounded-full border-2 border-white border-t-transparent animate-spin" />
@@ -431,7 +419,7 @@ export default function Login() {
                 setAuthMode('signin');
                 setError(null);
               }}
-              className="text-xs font-semibold text-slate-400 hover:text-white transition-all cursor-pointer bg-transparent border-none"
+              className="text-xs font-semibold text-slate-500 hover:text-slate-800 transition-all cursor-pointer bg-transparent border-none"
             >
               Back to Sign In
             </button>
@@ -441,15 +429,15 @@ export default function Login() {
         {/* Divider & Google OAuth Button */}
         {(authMode === 'signin' || authMode === 'signup') && (
           <>
-            <div className="relative my-6 flex items-center justify-center text-[10px] uppercase font-bold text-slate-500 tracking-wider">
-              <div className="absolute inset-x-0 h-px bg-slate-800" />
-              <span className="bg-[#07070d] px-3 relative z-10">Or continue with</span>
+            <div className="relative my-6 flex items-center justify-center text-[10px] uppercase font-bold text-slate-400 tracking-wider">
+              <div className="absolute inset-x-0 h-px bg-slate-200" />
+              <span className="bg-white px-3 relative z-10 text-slate-400">Or continue with</span>
             </div>
 
             <button
               type="button"
               onClick={handleGoogleLogin}
-              className="w-full flex items-center justify-center gap-3 bg-white/5 hover:bg-white/10 border border-white/10 text-white font-bold py-3 px-4 rounded-2xl text-xs transition-all cursor-pointer shadow-sm hover:scale-[1.01]"
+              className="w-full flex items-center justify-center gap-3 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-bold py-3 px-4 rounded-2xl text-xs transition-all cursor-pointer shadow-xs hover:border-slate-300"
             >
               <GoogleLogo size={18} />
               <span>Continue with Google</span>
@@ -461,7 +449,7 @@ export default function Login() {
         <div className="text-center mt-6">
           <Link
             href="/"
-            className="inline-flex items-center gap-2 text-xs font-semibold text-slate-400 hover:text-white transition-all group"
+            className="inline-flex items-center gap-2 text-xs font-semibold text-slate-500 hover:text-indigo-600 transition-all group"
           >
             <ArrowLeft className="h-3 w-3 transition-transform group-hover:-translate-x-0.5" />
             <span>Back to Home</span>
@@ -469,7 +457,7 @@ export default function Login() {
         </div>
 
         {/* Footer info */}
-        <p className="text-center text-[10px] text-slate-500 mt-6 font-medium leading-normal">
+        <p className="text-center text-[10px] text-slate-400 mt-6 font-medium leading-normal">
           By signing up, you agree to our Terms of Service and Privacy Policy. All database records are securely isolated per-tenant.
         </p>
       </div>

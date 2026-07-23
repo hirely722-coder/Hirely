@@ -3,6 +3,7 @@ import { Job, Candidate, EmailTemplate, JobCandidate, JobNote, JobInterview, Job
 import { supabase } from '../../utils/supabase';
 import { computeCandidateMatchData } from './jobMatchHelpers';
 import { generateCSV, ExportColumn } from '../../utils/csvExporter';
+import { useApp } from '../../context/AppContext';
 
 function cleanAndParseJson(jsonStr: string) {
   let cleaned = jsonStr.trim();
@@ -56,6 +57,7 @@ export function useJobDetailsState({
   jobCandidates,
   onUpdateJobCandidateStage
 }: UseJobDetailsStateProps) {
+  const { user, teamMembers } = useApp();
   const [detailSearch, setDetailSearch] = useState('');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
@@ -122,11 +124,13 @@ export function useJobDetailsState({
 
   // Central log actions
   const logActivity = async (type: string, description: string) => {
+    const activeProfile = teamMembers.find(tm => tm.id === user?.id);
+    const authorName = activeProfile?.name ? `${activeProfile.name} (${activeProfile.role || 'Recruiter'})` : 'Recruiter';
     const newAct = {
       jobId: job.id,
       type,
       description,
-      userName: 'Sarah Jenkins (Recruiter)'
+      userName: authorName
     };
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -147,6 +151,7 @@ export function useJobDetailsState({
 
   // Local helper for communications
   const logCommunication = async (type: JobCommunication['type'], subject: string, message: string, recipient: string, candId: string, candName: string) => {
+    const activeProfile = teamMembers.find(tm => tm.id === user?.id);
     const newComm = {
       jobId: job.id,
       candidateId: candId,
@@ -154,7 +159,7 @@ export function useJobDetailsState({
       type,
       date: new Date().toLocaleDateString() + ' ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       status: 'Sent' as const,
-      sentBy: 'Sarah Jenkins',
+      sentBy: activeProfile?.name || 'Recruiter',
       subject,
       message,
       recipient
@@ -322,9 +327,11 @@ export function useJobDetailsState({
         logActivity('Note Edited', `Updated an internal note on candidate requirements.`);
         triggerToast('✓ Internal note updated!');
       } else {
+        const activeProfile = teamMembers.find(tm => tm.id === user?.id);
+        const authorName = activeProfile?.name ? `${activeProfile.name} (${activeProfile.role || 'Recruiter'})` : 'Recruiter';
         const newNote = {
           jobId: job.id,
-          author: 'Sarah Jenkins (Recruiter)',
+          author: authorName,
           timestamp: new Date().toLocaleDateString() + ' ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           text: noteText
         };
@@ -543,10 +550,11 @@ export function useJobDetailsState({
   const handleBulkEmail = () => {
     if (selectedCandidateIds.length === 0) return;
     const count = selectedCandidateIds.length;
+    const activeProfile = teamMembers.find(tm => tm.id === user?.id);
     selectedCandidateIds.forEach(id => {
       const cand = candidates.find(c => c.id === id);
       if (cand) {
-        logCommunication('Email', `Next Steps regarding ${job.title}`, `Hi ${cand.name},\n\nWe wanted to reach out regarding your application for the ${job.title} role at ${job.companyName}. We are currently reviewing next stages and will keep you posted shortly.\n\nBest regards,\nSarah Jenkins`, cand.email, cand.id, cand.name);
+        logCommunication('Email', `Next Steps regarding ${job.title}`, `Hi ${cand.name},\n\nWe wanted to reach out regarding your application for the ${job.title} role at ${job.companyName}. We are currently reviewing next stages and will keep you posted shortly.\n\nBest regards,\n${activeProfile?.name || 'Recruiter'}`, cand.email, cand.id, cand.name);
       }
     });
     logActivity('Bulk Action', `Dispatched bulk status emails to ${count} candidates.`);

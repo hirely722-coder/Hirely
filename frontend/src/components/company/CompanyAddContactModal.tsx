@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { X } from 'lucide-react';
 import AnimatedModal from '../AnimatedModal';
+import { Checkbox } from '../ui/Checkbox';
 
 interface CompanyAddContactModalProps {
   isOpen: boolean;
@@ -127,11 +128,9 @@ export function CompanyAddContactModal({
               </div>
 
               <label className="flex items-center gap-2 cursor-pointer pt-1">
-                <input 
-                  type="checkbox" 
+                <Checkbox 
                   checked={newContactIsPrimary} 
-                  onChange={(e) => setNewContactIsPrimary(e.target.checked)}
-                  className="h-4.5 w-4.5 text-blue-600 rounded border-slate-300 focus:ring-blue-500"
+                  onCheckedChange={(checked) => setNewContactIsPrimary(checked)}
                 />
                 <span className="text-xs text-slate-655 font-bold select-none">Mark as primary account contact</span>
               </label>

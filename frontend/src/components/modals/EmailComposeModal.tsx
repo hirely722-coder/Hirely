@@ -79,8 +79,8 @@ export function EmailComposeModal({
           .replace(/\{\{job_title\}\}/g, activeJob ? activeJob.title : 'the position')
           .replace(/\{\{CompanyName\}\}/g, candidate.currentCompany || (activeJob ? (activeJob.companyName || 'Hirly - Recruitment') : 'Hirly - Recruitment'))
           .replace(/\{\{company_name\}\}/g, candidate.currentCompany || (activeJob ? (activeJob.companyName || 'Hirly - Recruitment') : 'Hirly - Recruitment'))
-          .replace(/\{\{RecruiterName\}\}/g, 'Sarah Jenkins')
-          .replace(/\{\{recruiter_name\}\}/g, 'Sarah Jenkins');
+          .replace(/\{\{RecruiterName\}\}/g, currentUserName)
+          .replace(/\{\{recruiter_name\}\}/g, currentUserName);
 
         let finalBody = template.body
           .replace(/\{\{CandidateName\}\}/g, candidate.name)
@@ -91,8 +91,8 @@ export function EmailComposeModal({
           .replace(/\{\{job_title\}\}/g, activeJob ? activeJob.title : 'the position')
           .replace(/\{\{CompanyName\}\}/g, candidate.currentCompany || (activeJob ? (activeJob.companyName || 'Hirly - Recruitment') : 'Hirly - Recruitment'))
           .replace(/\{\{company_name\}\}/g, candidate.currentCompany || (activeJob ? (activeJob.companyName || 'Hirly - Recruitment') : 'Hirly - Recruitment'))
-          .replace(/\{\{RecruiterName\}\}/g, 'Sarah Jenkins')
-          .replace(/\{\{recruiter_name\}\}/g, 'Sarah Jenkins');
+          .replace(/\{\{RecruiterName\}\}/g, currentUserName)
+          .replace(/\{\{recruiter_name\}\}/g, currentUserName);
 
         setSubject(finalSubject);
         setBody(finalBody);
@@ -101,10 +101,10 @@ export function EmailComposeModal({
       if (!subject && !body) {
         if (recipientAudience === 'Candidate') {
           setSubject(`Regarding position for ${candidate.name}`);
-          setBody(`Dear ${candidate.name},\n\nI hope you are doing well.\n\nBest regards,\nSarah Jenkins\nHirly Recruitment`);
+          setBody(`Dear ${candidate.name},\n\nI hope you are doing well.\n\nBest regards,\n${currentUserName}\nHirly Recruitment`);
         } else {
           setSubject(`Collaboration update with ${candidate.currentCompany || 'your team'}`);
-          setBody(`Dear ${candidate.name},\n\nI hope this email finds you well.\n\nI wanted to check in regarding your current hiring campaigns and candidate pipelines.\n\nBest regards,\nSarah Jenkins\nHirly Recruitment`);
+          setBody(`Dear ${candidate.name},\n\nI hope this email finds you well.\n\nI wanted to check in regarding your current hiring campaigns and candidate pipelines.\n\nBest regards,\n${currentUserName}\nHirly Recruitment`);
         }
       }
     } else {
@@ -112,16 +112,17 @@ export function EmailComposeModal({
         const defaultJobTitle = activeJob ? activeJob.title : 'Software Engineer';
         const defaultCompany = activeJob ? (activeJob.companyName || 'our partner agency') : 'our partner agency';
         setSubject(`Career Opportunity: ${defaultJobTitle} with ${defaultCompany}`);
-        setBody(`Dear ${candidate.name},\n\nI hope this email finds you well. I was reviewing your impressive background, particularly your work as a software engineer, and I believe your experience would be an excellent fit for the ${defaultJobTitle} position at ${defaultCompany}.\n\nAre you available for a brief 15-minute call this week to discuss details?\n\nBest regards,\nSarah Jenkins\nLead Recruiter, Hirly - Recruitment`);
+        setBody(`Dear ${candidate.name},\n\nI hope this email finds you well. I was reviewing your impressive background, particularly your work as a software engineer, and I believe your experience would be an excellent fit for the ${defaultJobTitle} position at ${defaultCompany}.\n\nAre you available for a brief 15-minute call this week to discuss details?\n\nBest regards,\n${currentUserName}\nLead Recruiter, Hirly - Recruitment`);
       } else {
         const companyLabel = candidate.currentCompany || 'your team';
         setSubject(`Recruitment Partnership Outreach: Hirly + ${companyLabel}`);
-        setBody(`Hi ${candidate.name},\n\nI hope you're having a great week!\n\nI've been following ${companyLabel}'s impressive progress and noticed you are growing your tech team. At Hirly, we have a specialized pipeline of pre-vetted engineers who are open to new opportunities.\n\nAre you open to a brief 10-minute sync this week to explore how we can support your tech talent acquisition?\n\nBest regards,\nSarah Jenkins\nLead Partner, Hirly - Recruitment`);
+        setBody(`Hi ${candidate.name},\n\nI hope you're having a great week!\n\nI've been following ${companyLabel}'s impressive progress and noticed you are growing your tech team. At Hirly, we have a specialized pipeline of pre-vetted engineers who are open to new opportunities.\n\nAre you open to a brief 10-minute sync this week to explore how we can support your tech talent acquisition?\n\nBest regards,\n${currentUserName}\nLead Partner, Hirly - Recruitment`);
       }
     }
   }, [selectedTemplateId, selectedJobId, candidate, templates, jobs, recipientAudience]);
 
-  const { token } = useApp();
+  const { token, user } = useApp();
+  const currentUserName = user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'Your Recruiter';
 
   const handleSend = async () => {
     setIsSending(true);
@@ -161,7 +162,7 @@ export function EmailComposeModal({
           candidateId: candidate.id,
           type: 'Email',
           status: 'Sent',
-          sentBy: 'Sarah Jenkins',
+          sentBy: currentUserName,
           subject,
           message: body,
           recipient: recipientEmail
@@ -174,7 +175,7 @@ export function EmailComposeModal({
         type: 'Email',
         date: new Date().toISOString().replace('T', ' ').substring(0, 16),
         status: 'Sent',
-        sentBy: 'Sarah Jenkins',
+        sentBy: currentUserName,
         subject,
         message: body,
         recipient: recipientEmail
@@ -259,7 +260,7 @@ export function EmailComposeModal({
                         setRecipientAudience('Candidate');
                         setSelectedTemplateId('custom');
                         setSubject(`Regarding position for ${candidate.name}`);
-                        setBody(`Dear ${candidate.name},\n\nI hope this email finds you well.\n\nBest regards,\nSarah Jenkins\nHirly Recruitment`);
+                        setBody(`Dear ${candidate.name},\n\nI hope this email finds you well.\n\nBest regards,\n${currentUserName}\nHirly Recruitment`);
                       }}
                       className={`px-2 py-0.5 text-[9px] font-bold rounded cursor-pointer transition-all ${recipientAudience === 'Candidate' ? 'bg-white shadow-xs text-blue-600' : 'text-slate-500 hover:text-slate-800'}`}
                     >
@@ -271,7 +272,7 @@ export function EmailComposeModal({
                         setRecipientAudience('Company');
                         setSelectedTemplateId('custom');
                         setSubject(`Collaboration update with ${candidate.currentCompany || 'your team'}`);
-                        setBody(`Dear ${candidate.name},\n\nI hope this email finds you well.\n\nI wanted to check in regarding our collaboration.\n\nBest regards,\nSarah Jenkins\nHirly Recruitment`);
+                        setBody(`Dear ${candidate.name},\n\nI hope this email finds you well.\n\nI wanted to check in regarding our collaboration.\n\nBest regards,\n${currentUserName}\nHirly Recruitment`);
                       }}
                       className={`px-2 py-0.5 text-[9px] font-bold rounded cursor-pointer transition-all ${recipientAudience === 'Company' ? 'bg-white shadow-xs text-blue-600' : 'text-slate-500 hover:text-slate-800'}`}
                     >
@@ -286,10 +287,10 @@ export function EmailComposeModal({
                       setSelectedTemplateId('custom');
                       if (recipientAudience === 'Candidate') {
                         setSubject(`Regarding position for ${candidate.name}`);
-                        setBody(`Dear ${candidate.name},\n\nI hope this email finds you well.\n\nBest regards,\nSarah Jenkins\nHirly Recruitment`);
+                        setBody(`Dear ${candidate.name},\n\nI hope this email finds you well.\n\nBest regards,\n${currentUserName}\nHirly Recruitment`);
                       } else {
                         setSubject(`Collaboration update with ${candidate.currentCompany || 'your team'}`);
-                        setBody(`Dear ${candidate.name},\n\nI hope this email finds you well.\n\nI wanted to check in regarding our collaboration.\n\nBest regards,\nSarah Jenkins\nHirly Recruitment`);
+                        setBody(`Dear ${candidate.name},\n\nI hope this email finds you well.\n\nI wanted to check in regarding our collaboration.\n\nBest regards,\n${currentUserName}\nHirly Recruitment`);
                       }
                     }}
                     className={`p-2 rounded-xl border text-left transition-all cursor-pointer ${

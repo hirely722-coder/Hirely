@@ -36,7 +36,7 @@ export interface EmailIntegrationLog {
   workspaceId: string;
   userId?: string;
   userEmail?: string;
-  action: 'Connected' | 'Disconnected' | 'Reconnect' | 'Test Email' | 'Token Refresh' | 'Email Sent' | 'Provider Error';
+  action: 'Connected' | 'Disconnected' | 'Reconnect' | 'Test Email' | 'Token Refresh' | 'Email Sent' | 'Provider Error' | 'Custom SMTP Saved' | 'Candidate Profiles Presented';
   ipAddress?: string;
   status: 'Success' | 'Failure';
   details?: string;
@@ -309,6 +309,104 @@ export class EmailIntegrationDB {
   // ── isUsingMemoryFallback ────────────────────────────────────────────────────
   static isUsingMemoryFallback(): boolean {
     return useMemoryFallback;
+  }
+
+  // ── Workspace SMTP Settings Persister ───────────────────────────────────────
+  static async getSmtpSettings(workspaceId: string) {
+    try {
+      const { data, error } = await supabase
+        .from('workspace_smtp_settings')
+        .select('*')
+        .eq('workspace_id', workspaceId)
+        .maybeSingle();
+
+      if (error || !data) return null;
+
+      let decryptedPassword = '';
+      if (data.encrypted_password) {
+        try {
+          decryptedPassword = decryptToken(data.encrypted_password);
+        } catch {
+          decryptedPassword = data.encrypted_password;
+        }
+      }
+
+      return {
+        host: data.host,
+        port: String(data.port),
+        username: data.username,
+        password: decryptedPassword,
+        encryption: data.encryption_type,
+        senderName: data.sender_name || ''
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  static async saveSmtpSettings(workspaceId: string, smtpConfig: any) {
+    try {
+      const encryptedPassword = smtpConfig.password ? encryptToken(smtpConfig.password) : '';
+      const payload = {
+        workspace_id: workspaceId,
+        host: smtpConfig.host,
+        port: parseInt(smtpConfig.port || '587', 10),
+        username: smtpConfig.username,
+        encrypted_password: encryptedPassword,
+        encryption_type: smtpConfig.encryption || 'TLS',
+        sender_name: smtpConfig.senderName || '',
+        updated_at: new Date().toISOString()
+      };
+
+      const { data, error } = await supabase
+        .from('workspace_smtp_settings')
+        .upsert(payload, { onConflict: 'workspace_id' })
+        .select();
+
+      if (error) throw error;
+      return data;
+    } catch (err: any) {
+      console.error('Failed to save SMTP settings to Supabase:', err);
+      return null;
+    }
+  }
+
+  // ── Workspace Modules Persister ─────────────────────────────────────────────
+  static async getModules(workspaceId: string) {
+    try {
+      const { data, error } = await supabase
+        .from('workspace_modules')
+        .select('*')
+        .eq('workspace_id', workspaceId)
+        .maybeSingle();
+
+      if (error || !data) return { wcEnabled: true, wcPolicy: 'optional' };
+      return { wcEnabled: data.wc_enabled, wcPolicy: data.wc_policy };
+    } catch {
+      return { wcEnabled: true, wcPolicy: 'optional' };
+    }
+  }
+
+  static async saveModules(workspaceId: string, moduleConfig: { wcEnabled?: boolean; wcPolicy?: string }) {
+    try {
+      const payload = {
+        workspace_id: workspaceId,
+        wc_enabled: moduleConfig.wcEnabled ?? true,
+        wc_policy: moduleConfig.wcPolicy || 'optional',
+        updated_at: new Date().toISOString()
+      };
+
+      const { data, error } = await supabase
+        .from('workspace_modules')
+        .upsert(payload, { onConflict: 'workspace_id' })
+        .select();
+
+      if (error) throw error;
+      return data;
+    } catch (err: any) {
+      console.error('Failed to save module settings to Supabase:', err);
+      return null;
+    }
   }
 }
 

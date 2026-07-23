@@ -10,13 +10,20 @@ interface ThemeContextValue {
 const ThemeContext = createContext<ThemeContextValue | undefined>(undefined);
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [theme, setTheme] = useState<Theme>("dark");
+  const [theme, setTheme] = useState<Theme>("light");
 
-  // Load theme from localStorage on client-side mount
+  // Load theme from localStorage on client-side mount (Default: Classic Slate Light Mode)
   useEffect(() => {
-    const saved = localStorage.getItem("landing-theme") as Theme | null;
-    if (saved === "light" || saved === "dark") {
-      setTheme(saved);
+    const savedApex = localStorage.getItem("apex-theme");
+    const savedLanding = localStorage.getItem("landing-theme") as Theme | null;
+    
+    if (savedApex === "dark" || savedLanding === "dark") {
+      setTheme("dark");
+    } else {
+      setTheme("light");
+      if (!savedApex) {
+        localStorage.setItem("apex-theme", "slate");
+      }
     }
   }, []);
 
@@ -25,8 +32,10 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     const root = document.documentElement;
     if (theme === "dark") {
       root.classList.add("dark");
+      localStorage.setItem("apex-theme", "dark");
     } else {
       root.classList.remove("dark");
+      localStorage.setItem("apex-theme", "slate");
     }
     localStorage.setItem("landing-theme", theme);
   }, [theme]);

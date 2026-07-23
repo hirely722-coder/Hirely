@@ -1,6 +1,7 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Star, X, Sparkles, Upload, CheckCircle } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
+import { Checkbox } from '../ui/Checkbox';
 
 interface FeedbackModalProps {
   isOpen: boolean;
@@ -302,11 +303,10 @@ export function FeedbackModal({ isOpen, onClose }: FeedbackModalProps) {
 
               {/* Consent Checkbox */}
               <label className="flex items-start gap-2.5 cursor-pointer select-none pb-2">
-                <input
-                  type="checkbox"
+                <Checkbox
                   checked={consentGiven}
-                  onChange={(e) => setConsentGiven(e.target.checked)}
-                  className="mt-0.5 rounded border-slate-800 bg-slate-950 text-indigo-650 focus:ring-0 focus:ring-offset-0"
+                  onCheckedChange={(checked) => setConsentGiven(checked)}
+                  className="mt-0.5"
                 />
                 <span className="text-[10px] text-slate-400 leading-normal">
                   I allow Hirly to display my review publicly on its website.

@@ -5,8 +5,6 @@ import { supabase } from '../../utils/supabase';
 interface SettingsGeneralTabProps {
   companyName: string;
   setCompanyName: (val: string) => void;
-  recruiterName: string;
-  setRecruiterName: (val: string) => void;
   savedMessage: boolean;
   handleSaveGeneral: (e: React.FormEvent) => void;
 }
@@ -14,8 +12,6 @@ interface SettingsGeneralTabProps {
 export function SettingsGeneralTab({
   companyName,
   setCompanyName,
-  recruiterName,
-  setRecruiterName,
   savedMessage,
   handleSaveGeneral
 }: SettingsGeneralTabProps) {
@@ -66,22 +62,13 @@ export function SettingsGeneralTab({
         <div className="space-y-4">
           <h2 className="text-xs font-mono uppercase text-slate-400 tracking-wider">Corporate Information</h2>
           
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4">
             <div>
               <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-wider mb-1 font-bold">Company Name</label>
               <input
                 type="text"
                 value={companyName}
                 onChange={(e) => setCompanyName(e.target.value)}
-                className="w-full px-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:ring-1 focus:ring-blue-500 bg-slate-50/50 font-medium text-slate-700"
-              />
-            </div>
-            <div>
-              <label className="block text-[10px] font-mono text-slate-400 uppercase tracking-wider mb-1 font-bold">Assigned Recruiter</label>
-              <input
-                type="text"
-                value={recruiterName}
-                onChange={(e) => setRecruiterName(e.target.value)}
                 className="w-full px-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:ring-1 focus:ring-blue-500 bg-slate-50/50 font-medium text-slate-700"
               />
             </div>

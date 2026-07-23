@@ -2,6 +2,28 @@ import { supabase } from './db';
 import { keysToCamel, keysToSnake } from './utils';
 import crypto from 'crypto';
 
+interface TableConfig {
+  hasUserId?: boolean;
+  isAssignmentTable?: boolean;
+}
+
+const TABLE_CONFIGS: Record<string, TableConfig> = {
+  job_assignments: { isAssignmentTable: true },
+  company_assignments: { isAssignmentTable: true },
+  profiles: { hasUserId: false },
+  workspaces: { hasUserId: false },
+  workspace_roles: { hasUserId: false },
+  email_queue: { hasUserId: false },
+  email_integrations: { hasUserId: false },
+  invitations: { hasUserId: false },
+  subscription_plans: { hasUserId: false },
+  subscription_plan_versions: { hasUserId: false },
+  superadmin_settings: { hasUserId: false },
+  superadmin_tickets: { hasUserId: false },
+  superadmin_payments: { hasUserId: false },
+  superadmin_email_logs: { hasUserId: false }
+};
+
 export class WorkspaceRepository {
   private tableName: string;
   private user: any;
@@ -145,10 +167,12 @@ export class WorkspaceRepository {
       snakeBody.created_by = this.user.id;
       snakeBody.updated_by = this.user.id;
     }
-    // Preserve user_id for assignment tables — it IS the payload (who the job/company is assigned to)
-    const USER_ID_TABLES = ['job_assignments', 'company_assignments'];
-    if (!USER_ID_TABLES.includes(this.tableName)) {
+    const config = TABLE_CONFIGS[this.tableName] || {};
+    const hasUserIdColumn = config.hasUserId !== false;
+    if (!hasUserIdColumn) {
       delete snakeBody.user_id;
+    } else if (!config.isAssignmentTable && !snakeBody.user_id) {
+      snakeBody.user_id = this.user.id;
     }
 
     const { data, error } = await supabase.from(this.tableName).insert([snakeBody]).select();
@@ -159,6 +183,9 @@ export class WorkspaceRepository {
   }
 
   async createBulk(list: any[]) {
+    const config = TABLE_CONFIGS[this.tableName] || {};
+    const hasUserIdColumn = config.hasUserId !== false;
+
     const snakeList = list.map(item => {
       const snakeItem = keysToSnake(item);
       if (!snakeItem.id) {
@@ -169,7 +196,11 @@ export class WorkspaceRepository {
         snakeItem.created_by = this.user.id;
         snakeItem.updated_by = this.user.id;
       }
-      delete snakeItem.user_id;
+      if (!hasUserIdColumn) {
+        delete snakeItem.user_id;
+      } else if (!config.isAssignmentTable && !snakeItem.user_id) {
+        snakeItem.user_id = this.user.id;
+      }
       return snakeItem;
     });
 
@@ -186,8 +217,10 @@ export class WorkspaceRepository {
     delete snakeBody.created_at;
     delete snakeBody.workspace_id;
     delete snakeBody.created_by;
-    const USER_ID_TABLES = ['job_assignments', 'company_assignments'];
-    if (!USER_ID_TABLES.includes(this.tableName)) {
+
+    const config = TABLE_CONFIGS[this.tableName] || {};
+    const hasUserIdColumn = config.hasUserId !== false;
+    if (!hasUserIdColumn || !config.isAssignmentTable) {
       delete snakeBody.user_id;
     }
 
